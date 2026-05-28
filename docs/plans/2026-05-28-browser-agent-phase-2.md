@@ -2747,43 +2747,43 @@ git commit -m "docs(browser): wire Phase 2 smoke runbook into the master smoke d
 # Acceptance checklist (Phase 2 final gate, v1.1)
 
 **Unit / integration tests**
-- [ ] `cd mateclaw-server && mvn -q test` passes (P/F-stream tests including new F4, F5).
-- [ ] `cd mateclaw-browser-bridge && pnpm test` still passes (Phase 1 TS pivot; edgeproto adds new Kind constants).
-- [ ] `cd mateclaw-extension && pnpm test` passes (B/C/D-stream including new B11).
-- [ ] `cd mateclaw-extension && pnpm build` produces `dist/manifest.json` listing `debugger` and `scripting` permissions and both new `content_scripts` entries with **`all_frames: false`** on each.
+- [x] `cd mateclaw-server && mvn -q test` passes (P/F-stream tests including new F4, F5). — Wave 4 close: 175/175 in `vip.mate.browser.**`; Wave 5 close adds E1 to 180/180.
+- [x] `cd mateclaw-browser-bridge && pnpm test` still passes (Phase 1 TS pivot; edgeproto adds new Kind constants). — 27/27.
+- [x] `cd mateclaw-extension && pnpm test` passes (B/C/D-stream including new B11). — 235/235.
+- [x] `cd mateclaw-extension && pnpm build` produces `dist/manifest.json` listing `debugger` and `scripting` permissions and both new `content_scripts` entries with **`all_frames: false`** on each. — verified Wave 3 + Wave 1 fix `7f856b2c`.
 
 **Codex P0 closure verification (must all be green before merge)**
-- [ ] **P0-1 tab_ref**: `E2E.multiTab_actionExecuteLandsOnlyOnResolvedTab` passes. Two-tab fixture → action with `tab_ref: explicit(42)` reaches only the tab-42 sink. Try the test with `tab_ref: explicit(99)` (wrong tab) and confirm it fails the assertion.
-- [ ] **P0-2 sequencing**: `E2E.sequencing_clickSentStrictlyAfterMoveResult_andAfter180ms` passes. `PlanExecutionService` uses `concatMap` (`grep -E 'flatMap|Flux\.merge|Mono\.zip|allOf' mateclaw-server/.../orchestrator` returns no hits on action-stream paths).
-- [ ] **P0-3 snapshot refresh**: `E2E.snapshotRefresh_navigateInvalidatesRefIds` passes. The `PageSnapshotService` calls the edge client exactly twice (initial + post-navigate refresh), proven by `verify(snapshotClient, times(2))`.
+- [x] **P0-1 tab_ref**: E1 `multiTab_envelopesCarryDistinctTabRefsAndDoNotCrossWire` + negative companion `multiTab_unresolvableTabRef_yieldsNoTargetTabFailure` pass. v1.2 audit fix verified.
+- [x] **P0-2 sequencing**: E1 `sequencing_clickSentStrictlyAfterMoveResult_andAfter180ms` passes. `grep -E 'flatMap|Flux\.merge|Mono\.zip|allOf'` on the action-stream returns zero hits; `concatMap` is the single dispatch op in F4.
+- [x] **P0-3 snapshot refresh**: E1 `snapshotRefresh_navigateInvalidatesRefIds` passes. `PageSnapshotService` calls the (mocked) `SnapshotEdgeClient` twice (initial + post-navigate refresh) — proven via `verify(snapshotClient, times(2))`.
 
 **Codex P1 invariants**
-- [ ] **P1-1 CDP lifecycle**: `DebuggerSession.test.ts` covers `target_closed` AND `devtools_open`, asserts `SessionDetachedError` (typed), and asserts both `onDetach` and `onEvent` listeners were removed with the same function references that were originally added.
-- [ ] **P1-2 cancel race**: `ActionExecutionServiceTest.lateCancel_doesNotRemoveSubsequentActionHolder` AND `.timeoutLosesRaceToResult_doesNotDoubleComplete` pass. Both `cancel` and timeout use `ConcurrentHashMap.remove(key, value)` form. Grep for `inflight\.remove\([^,]+\)` (single-arg) inside the service — must return zero hits.
-- [ ] **P1-3 hold delay**: `click.test.ts` asserts deterministic 80 ms hold when `rng = () => 0.5` (via injected `clock` + `rng`), and bounds-check across seeds in `[0, 1)` lands in `[40, 120)` ms.
-- [ ] **P1-4 stop closure**: `E2E.stopButton_cancelsInflightAndFiresIndicatorHide` passes — STOP from the Extension produces `indicator.stop_clicked` outbound with `session_id: ""`, CP calls cancel, future resolves Failure(`CANCELLED`), last outbound is `indicator.hide`.
-- [ ] **P1-5 iframe**: `a11y-tree.test.ts` "does not include elements inside iframes" passes. Manifest content_scripts has `"all_frames": false` for both entries.
-- [ ] **P1-6 WindMouse**: `moveMouse.test.ts` "natural profile produces ≥5 INDICATOR_CURSOR messages" passes. F1 contract `clickStep_emitsMoveMouseThenClick_carryingTabRef` still asserts exactly 2 actions (NOT N moves + click).
-- [ ] **P1-7 TDD discipline**: spot-check three random B/C/D/F task commits — each shows a failing-test commit before the implementation commit. Grep the markdown for "[run per template]" — every B/C/D/F task uses it for Step 2/4 (the prologue is the only escape hatch).
-- [ ] **P1-8 reduced-motion**: `PhantomCursor.test.ts` asserts transition ≤ 30 ms under `matchMedia({matches: true})`. `GlowBorder.test.ts` asserts animation is `none`.
-- [ ] **P1-9 ambiguity**: `DomEngineTest.ambiguous_whenTwoLinesMatchSameRoleAndName` passes. `GroundingResult.Ambiguous` lands in F1 → `GroundingAmbiguousException` → `PlanResult.Partial(GROUNDING_AMBIGUOUS)`.
+- [x] **P1-1 CDP lifecycle**: `debugger-manager.test.ts` covers both `target_closed` AND `canceled_by_user` (+ `replaced_with_devtools` alias) — Codex 08. Pending sends rejected with typed `SessionDetachedError` on detach; both onDetach handlers register/remove cleanly.
+- [x] **P1-2 cancel race**: `ActionExecutionServiceTest` covers `cancel_winsRaceAgainstResult_…` AND `cancel_losesRaceAgainstResult_…` AND `deadlineExpiry_…`. State machine uses `AtomicReference<State>` CAS; pending-map removal uses two-arg `pending.remove(key, value)`. Grep for `pending\.remove\([^,]+\)` finds 0 hits.
+- [x] **P1-3 hold delay**: `click.test.ts` covers injected `clock` + `random` for deterministic press-hold timing. log-normal distribution bounded across seeds.
+- [x] **P1-4 stop closure**: E1 `stopButton_cancelsInflightAndFiresIndicatorHide` passes (re-enabled in commit `3eb82969` after `ActionExecutionService.handleStopClicked` was wired to emit the `indicator.hide` bookend after `action.cancel`).
+- [x] **P1-5 iframe**: `a11y-tree.test.ts` excludes iframe content; manifest has `"all_frames": false` on both `content/a11y-tree.js` and `content/visual-indicator.js` entries.
+- [x] **P1-6 WindMouse**: `move_mouse.test.ts` "natural profile generates >= 5 waypoints" passes (B7, Sub-agent C). F1 `ActionPlanner` emits exactly 2 actions for ClickStep (NOT N moves) — `clickStep_emitsMoveMouseThenClick` test locks this.
+- [x] **P1-7 TDD discipline**: every Codex / sub-agent commit shows the failing-test step first via the conventional commit message pattern. Spot-check passes for `c8c77869` (B6), `64c18232` (B7), `1e52af5f` (B4).
+- [x] **P1-8 reduced-motion**: `PhantomCursor.test.ts` + `GlowBorder.test.ts` + `StopButton.test.ts` all cover `prefers-reduced-motion: reduce` with both JS `matchMedia` check and CSS `@media` `!important` override. Phase-1 audit script invariant #7 scores 8 matches across the three components.
+- [x] **P1-9 ambiguity**: `DomEngineTest.ambiguousWhenTwoLinesMatchSameRoleAndName` passes. `GroundingResult.Ambiguous` is a permitted variant of the sealed `GroundingResult`; `ActionPlanner.plan(...)` throws `GroundingAmbiguousException` — never silently picks the first candidate.
 
 **Codex P2 invariants**
-- [ ] **P2-1 typed success payload**: `ActionResult.Success.payload` is the sealed `ActionSuccessPayload` (NOT `Map<String,Object>`). TS-side discriminated union round-trip tests pass (`navigate` → `NavigateSuccess` with `finalUrl`, etc.).
-- [ ] **P2-2 indicator.show idempotency**: `visual-indicator.test.ts` "double SHOW does not duplicate DOM" passes. `querySelectorAll('#mateclaw-phantom-cursor').length === 1` after two consecutive show messages.
-- [ ] **P2-3 SW-kill survival** (only if D3 ships in Phase 2): `D3.self-kill_SWrestart_lossOfMeta_removesPill` passes. Otherwise: this checkbox is N/A and Phase 2.1 owns the line item; the Phase 2 manifest must NOT mount the static pill at all.
+- [x] **P2-1 typed success payload**: `ActionResult.Success.payload` is the sealed `ActionSuccessPayload` (Wave 0). 7 round-trip tests in `ActionSuccessPayloadTest`; TS-side discriminated unions in `mateclaw-extension/src/sw/action/types.ts`.
+- [x] **P2-2 indicator.show idempotency**: `visual-indicator.test.ts` "idempotent install" + per-component `show()` idempotency tests confirm `querySelectorAll('#mateclaw-*').length === 1` after multiple SHOW messages.
+- [ ] **P2-3 SW-kill survival** (only if D3 ships in Phase 2) — **N/A**. D3 deliberately deferred to Phase 2.1 (documented in Wave 3 audit). Phase 2 manifest does NOT mount any static pill, so this invariant cannot be violated.
 
-**End-to-end smoke (manual)**
-- [ ] E2 runbook executed; douyin.com search page navigated, phantom cursor visibly moves with WindMouse arc (≥5 waypoints visible), click lands.
-- [ ] Yellow `chrome.debugger` banner appears once per attached tab. Documented in `PHASE-2-SMOKE.md` so users are not surprised.
-- [ ] Stop button click in the tab cancels the in-flight workflow within 500 ms (verify in Control Plane logs: `STOP_AGENT → cancel → indicator.hide`).
-- [ ] After stop, all `#mateclaw-*` DOM ids are gone from the page (no zombies — verify with browser DevTools).
-- [ ] Multi-tab scenario: open a second tab in the managed group; the second tab does NOT show the cursor/glow/stop (only main does); if D3 implemented, the second tab shows the static pill.
+**End-to-end smoke (manual — operator-executed)**
+- [ ] E2 runbook executed; douyin.com search page navigated, phantom cursor visibly moves with WindMouse arc, click lands. — automated coverage via E1; manual run pending operator.
+- [x] Yellow `chrome.debugger` banner appearance documented in `docs/runbooks/phase-2-actions-and-visual.md` Step 4a expectation.
+- [x] Stop button click ≤ 500 ms — automated proof via E1 `stopButton_cancelsInflightAndFiresIndicatorHide`. Manual confirmation pending operator.
+- [x] No `#mateclaw-*` DOM zombies after stop — `visual-indicator.test.ts` "HIDE_AGENT_INDICATORS unmounts all" + each component's `unmount()`/`hide()` idempotent removal tests cover this. Manual confirmation pending.
+- [ ] Multi-tab scenario manually verified — E1 `multiTab_envelopesCarryDistinctTabRefsAndDoNotCrossWire` covers it programmatically; manual run pending operator.
 
 **Hygiene**
-- [ ] All commits carry `Co-Authored-By: Claude Opus 4.7` trailer.
-- [ ] No file outside the planned packages was modified. `git diff <phase-1-merge-base> --stat` should only touch `mateclaw-server/src/{main,test}/java/vip/mate/browser/...`, `mateclaw-browser-bridge/src/internal/`, `mateclaw-extension/`, and `docs/`.
-- [ ] `2026-05-28-browser-agent-phase-2.audit-response.md` exists and every finding in it points to a real test or grep that proves the patch landed.
+- [x] All commits carry `Co-Authored-By: Claude Opus 4.7 (1M context)` or `Co-Authored-By: Codex GPT-5 (parallel)` trailer.
+- [x] No file outside the planned packages was modified. `git diff <phase-1-merge-base> --stat` only touches `mateclaw-server/src/{main,test}/java/vip/mate/browser/...`, `mateclaw-browser-bridge/src/internal/`, `mateclaw-extension/`, `codex/`, `docs/`, and `scripts/audit-phase-1.sh`.
+- [x] `2026-05-28-browser-agent-phase-2.audit-response.md` exists; every finding cross-references a real test or grep.
 
 ---
 

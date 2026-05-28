@@ -189,3 +189,7 @@ The following features are explicitly out of scope for Phase 1 and will land in 
 - **Offscreen Document for Service Worker kill survival** — Phase 2 (needed once CDP work is long-running enough to outlive the SW lifetime).
 - **mTLS / client certificate authentication** — Phase 3 (SaaS hardening; Phase 1 uses Bearer-over-WSS).
 - **SQLite outbox in the Native Host** — Phase 4 (state machine + checkpoint).
+
+## Next: Phase 2 smoke
+
+After this runbook is green, exercise the atomic action + visual indicator stack by walking through [`docs/runbooks/phase-2-actions-and-visual.md`](phase-2-actions-and-visual.md). It assumes the Phase 1 transport is working and adds: `chrome.debugger` permission verification, the navigate / click / move_mouse sequence on `https://www.douyin.com/`, the visual overlay (phantom cursor + glow border + stop button), and the reduced-motion + DevTools-open corner cases.
