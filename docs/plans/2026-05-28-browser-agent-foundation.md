@@ -12,6 +12,20 @@
 >   registry race fixed; auth APIs corrected; validSession now binding-aware;
 >   heartbeat ack monitoring and reconnect loop added; D3 stub replaced;
 >   C6/C7/SQLite outbox moved out of Phase 1 scope.
+> - 2026-05-28 v1.2 — **B-stream (Native Host) pivoted from Go to Node.js +
+>   TypeScript**. The system the plan ships on lacks a Go toolchain (and
+>   the `-race` test requirement adds a transitive GCC dependency on
+>   Windows). Architecture is **identical** — same `Client` /
+>   `Runner` / `Inbound() channel` / heartbeat monitor / reconnect with
+>   exponential backoff / single reader on the WS / Native-Host-stamps-
+>   `session_id` invariant — only the implementation language changes.
+>   Stack: TypeScript 5 + Node 20 + `ws` + `vitest`; distributed via
+>   `bun build --compile` to a single `bridge.exe` (eliminates the runtime
+>   Node dependency for end users). All audit findings P0-1 (session_id
+>   stamp), P1-5 (heartbeat ack), B7 reconnect loop and the single-reader
+>   contract transfer to the TS implementation verbatim. The B-stream
+>   tasks B1–B7 in this document remain the authoritative architectural
+>   contract; the implementer maps each Go API to its TS equivalent.
 
 **Goal:** Stand up the three-process infrastructure (Control Plane / Native Host / Extension) and prove an end-to-end structured ping flows Sidepanel → Service Worker → Native Messaging → Native Host → WSS → Control Plane → ack back. The single connection between Native Host and Control Plane is TLS-protected via WSS (in production behind a reverse proxy terminating TLS 1.3); authentication is Bearer (JWT or PAT). **mTLS is explicitly Phase 3 scope** — see Out-of-scope below.
 
