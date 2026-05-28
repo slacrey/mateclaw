@@ -1,0 +1,26 @@
+{
+  "name": "mateclaw-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MateClaw Browser Agent — Chrome MV3 extension",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.322",
+    "@vitejs/plugin-vue": "^5.2.4",
+    "@vue/compiler-sfc": "^3.5.16",
+    "@vue/test-utils": "^2.4.6",
+    "@vue/tsconfig": "^0.7.0",
+    "happy-dom": "^17.0.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.2.0",
+    "vue": "^3.5.16"
+  }
+}
