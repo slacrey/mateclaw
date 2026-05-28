@@ -8,6 +8,8 @@ import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
 import org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean;
+import vip.mate.browser.edge.EdgeWebSocketHandler;
+import vip.mate.browser.edge.auth.EdgeAuthInterceptor;
 import vip.mate.channel.web.TalkModeWebSocketHandler;
 
 /**
@@ -37,11 +39,21 @@ public class WebSocketConfig implements WebSocketConfigurer {
     private static final int MAX_TEXT_BUFFER_BYTES = 64 * 1024;
 
     private final TalkModeWebSocketHandler talkModeHandler;
+    private final EdgeWebSocketHandler edgeHandler;
+    private final EdgeAuthInterceptor edgeAuthInterceptor;
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         registry.addHandler(talkModeHandler, "/api/v1/talk/ws")
                 .setAllowedOrigins("*");
+
+        registry.addHandler(edgeHandler, "/api/v1/browser/edge")
+                .addInterceptors(edgeAuthInterceptor)
+                // Edge connections come from Native Host (server-to-server), not
+                // browsers — allowed origins is irrelevant; we authenticate via JWT/PAT
+                // on the handshake. Leaving the whitelist tight prevents the
+                // endpoint being abused as a browser WS surface.
+                .setAllowedOrigins("");
     }
 
     /**
