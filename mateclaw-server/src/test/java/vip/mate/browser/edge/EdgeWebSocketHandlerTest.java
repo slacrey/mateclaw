@@ -6,11 +6,14 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
+import vip.mate.browser.edge.action.ActionResult;
+import vip.mate.browser.edge.action.ClickSuccess;
 import vip.mate.browser.edge.auth.EdgeAuthInterceptor;
 import vip.mate.browser.edge.auth.EdgePrincipal;
 import vip.mate.browser.edge.protocol.EdgeMessage;
 import vip.mate.browser.edge.protocol.EdgeMessageKind;
 import vip.mate.browser.edge.session.BrowserSessionRegistry;
+import vip.mate.browser.orchestrator.ActionExecutionService;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -25,12 +28,14 @@ class EdgeWebSocketHandlerTest {
     private BrowserSessionRegistry registry;
     private EdgeWebSocketHandler handler;
     private ObjectMapper mapper;
+    private ActionExecutionService actionExecutionService;
 
     @BeforeEach
     void setUp() {
         registry = new BrowserSessionRegistry();
         mapper = new ObjectMapper();
-        handler = new EdgeWebSocketHandler(registry, mapper, "1.4.0");
+        actionExecutionService = mock(ActionExecutionService.class);
+        handler = new EdgeWebSocketHandler(registry, mapper, actionExecutionService, "1.4.0");
     }
 
     @Test
@@ -98,6 +103,43 @@ class EdgeWebSocketHandlerTest {
         assertThat(pong.getKind()).isEqualTo(EdgeMessageKind.PONG);
         assertThat(pong.getPayload().get("echo")).isEqualTo("hello-world");
         assertThat(pong.getPayload()).containsKey("server_ts");
+    }
+
+    @Test
+    void actionResult_dispatchesToExecutionService() throws Exception {
+        WebSocketSession ws = mockWs("user-1");
+        var session = registry.register("user-1", ws, "0.1.0");
+
+        EdgeMessage result = EdgeMessage.builder()
+                .v(1).msgId("result-1").kind(EdgeMessageKind.ACTION_RESULT)
+                .ts(0).traceId("t-action").sessionId(session.getId()).inReplyTo("action-1")
+                .payload(Map.of(
+                        "ok", true,
+                        "elapsed_ms", 15,
+                        "payload", Map.of("kind", "click")))
+                .build();
+
+        handler.handleTextMessage(ws, new TextMessage(mapper.writeValueAsString(result)));
+
+        verify(actionExecutionService).deliverResult(
+                eq("action-1"),
+                eq(new ActionResult.Success(15, new ClickSuccess())));
+    }
+
+    @Test
+    void indicatorStopClicked_dispatchesToExecutionService() throws Exception {
+        WebSocketSession ws = mockWs("user-1");
+        var session = registry.register("user-1", ws, "0.1.0");
+
+        EdgeMessage stopClicked = EdgeMessage.builder()
+                .v(1).msgId("stop-1").kind(EdgeMessageKind.INDICATOR_STOP_CLICKED)
+                .ts(0).traceId("t-stop").sessionId(session.getId())
+                .payload(Map.of("tab_ref", 42))
+                .build();
+
+        handler.handleTextMessage(ws, new TextMessage(mapper.writeValueAsString(stopClicked)));
+
+        verify(actionExecutionService).handleStopClicked(session);
     }
 
     @Test

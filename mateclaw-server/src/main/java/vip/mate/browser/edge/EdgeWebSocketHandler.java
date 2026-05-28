@@ -8,16 +8,19 @@ import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
+import vip.mate.browser.edge.action.ActionResult;
 import vip.mate.browser.edge.auth.EdgeAuthInterceptor;
 import vip.mate.browser.edge.auth.EdgePrincipal;
 import vip.mate.browser.edge.protocol.EdgeMessage;
 import vip.mate.browser.edge.protocol.EdgeMessageKind;
 import vip.mate.browser.edge.session.BrowserSession;
 import vip.mate.browser.edge.session.BrowserSessionRegistry;
+import vip.mate.browser.orchestrator.ActionExecutionService;
 
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Phase 1 Edge WebSocket handler.
@@ -39,13 +42,17 @@ public class EdgeWebSocketHandler extends TextWebSocketHandler {
 
     private final BrowserSessionRegistry registry;
     private final ObjectMapper mapper;
+    private final ActionExecutionService actionExecutionService;
     private final String serverVersion;
+    private final ConcurrentHashMap<String, String> sessionIdByWsId = new ConcurrentHashMap<>();
 
     public EdgeWebSocketHandler(BrowserSessionRegistry registry,
                                 ObjectMapper mapper,
+                                ActionExecutionService actionExecutionService,
                                 @Value("${revision:dev}") String serverVersion) {
         this.registry = registry;
         this.mapper = mapper;
+        this.actionExecutionService = actionExecutionService;
         this.serverVersion = serverVersion;
     }
 
@@ -70,6 +77,8 @@ public class EdgeWebSocketHandler extends TextWebSocketHandler {
             case HELLO -> onHello(ws, msg);
             case HEARTBEAT -> onHeartbeat(ws, msg);
             case PING -> onPing(ws, msg);
+            case ACTION_RESULT -> onActionResult(ws, msg);
+            case INDICATOR_STOP_CLICKED -> onIndicatorStopClicked(ws, msg);
             case UNKNOWN -> log.warn("[edge] dropping unknown kind from ws={}", ws.getId());
             default -> log.warn("[edge] kind {} not handled in phase 1", msg.getKind());
         }
@@ -83,6 +92,7 @@ public class EdgeWebSocketHandler extends TextWebSocketHandler {
         }
         String agentVersion = (String) hello.getPayload().getOrDefault("agent_version", "unknown");
         BrowserSession session = registry.register(principal.subject(), ws, agentVersion);
+        sessionIdByWsId.put(ws.getId(), session.getId());
 
         EdgeMessage ack = reply(hello, EdgeMessageKind.HELLO_ACK, Map.of(
                 "session_id", session.getId(),
@@ -105,6 +115,17 @@ public class EdgeWebSocketHandler extends TextWebSocketHandler {
                 "echo", echo,
                 "server_ts", Instant.now().toEpochMilli()
         )));
+    }
+
+    private void onActionResult(WebSocketSession ws, EdgeMessage msg) throws Exception {
+        if (!validSession(ws, msg)) return;
+        ActionResult result = mapper.convertValue(msg.getPayload(), ActionResult.class);
+        actionExecutionService.deliverResult(msg.getInReplyTo(), result);
+    }
+
+    private void onIndicatorStopClicked(WebSocketSession ws, EdgeMessage msg) throws Exception {
+        if (!validSession(ws, msg)) return;
+        registry.find(msg.getSessionId()).ifPresent(actionExecutionService::handleStopClicked);
     }
 
     /**
@@ -162,6 +183,10 @@ public class EdgeWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionClosed(WebSocketSession ws, CloseStatus status) {
+        String sessionId = sessionIdByWsId.remove(ws.getId());
+        if (sessionId != null) {
+            actionExecutionService.sessionClosed(sessionId);
+        }
         registry.removeByWs(ws.getId());
         log.info("[edge] ws {} closed: {}", ws.getId(), status);
     }
