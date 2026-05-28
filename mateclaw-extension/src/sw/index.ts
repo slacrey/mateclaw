@@ -11,6 +11,7 @@ import { ActionExecutor, type ActionHandlers } from './action/ActionExecutor'
 import { TabRefResolver } from './action/tab-ref-resolver'
 import { ActionRouter } from './action/action-router'
 import { SnapshotRequestHandler } from './snapshot-request-handler'
+import { VisualCoordinator } from './visual-coordinator'
 import { navigateHandler } from './action/handlers/navigate'
 import { clickHandler } from './action/handlers/click'
 import { typeHandler } from './action/handlers/type'
@@ -113,6 +114,12 @@ const snapshotHandler = new SnapshotRequestHandler({
   sendUp,
 })
 
+const visualCoordinator = new VisualCoordinator({
+  resolver,
+  sendUp,
+  chrome,
+})
+
 // -----------------------------------------------------------------
 // Inbound Edge messages
 // -----------------------------------------------------------------
@@ -132,6 +139,12 @@ bridge.onMessage(m => {
   if (m.kind === EdgeMessageKind.A11ySnapshotRequest) {
     snapshotHandler.handle(m).catch(e => {
       console.error('[mateclaw][sw] SnapshotRequestHandler.handle threw', e)
+    })
+  }
+
+  if (VisualCoordinator.handles(m.kind)) {
+    visualCoordinator.handle(m).catch(e => {
+      console.error('[mateclaw][sw] VisualCoordinator.handle threw', e)
     })
   }
 
