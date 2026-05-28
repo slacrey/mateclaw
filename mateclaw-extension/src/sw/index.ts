@@ -10,6 +10,7 @@ import { DebuggerManager } from './debugger-manager'
 import { ActionExecutor, type ActionHandlers } from './action/ActionExecutor'
 import { TabRefResolver } from './action/tab-ref-resolver'
 import { ActionRouter } from './action/action-router'
+import { SnapshotRequestHandler } from './snapshot-request-handler'
 import { navigateHandler } from './action/handlers/navigate'
 import { clickHandler } from './action/handlers/click'
 import { typeHandler } from './action/handlers/type'
@@ -107,6 +108,11 @@ const router = new ActionRouter({
   inflight,
 })
 
+const snapshotHandler = new SnapshotRequestHandler({
+  resolver,
+  sendUp,
+})
+
 // -----------------------------------------------------------------
 // Inbound Edge messages
 // -----------------------------------------------------------------
@@ -120,6 +126,12 @@ bridge.onMessage(m => {
   ) {
     router.handle(m).catch(e => {
       console.error('[mateclaw][sw] ActionRouter.handle threw', e)
+    })
+  }
+
+  if (m.kind === EdgeMessageKind.A11ySnapshotRequest) {
+    snapshotHandler.handle(m).catch(e => {
+      console.error('[mateclaw][sw] SnapshotRequestHandler.handle threw', e)
     })
   }
 
