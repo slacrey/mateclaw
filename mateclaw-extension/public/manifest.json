@@ -28,6 +28,12 @@
       "js": ["content/a11y-tree.js"],
       "all_frames": false,
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/visual-indicator.js"],
+      "all_frames": false,
+      "run_at": "document_idle"
     }
   ],
   "content_security_policy": {
