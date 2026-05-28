@@ -16,9 +16,19 @@
     "storage",
     "alarms",
     "notifications",
-    "nativeMessaging"
+    "nativeMessaging",
+    "scripting",
+    "webNavigation"
   ],
   "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/a11y-tree.js"],
+      "all_frames": false,
+      "run_at": "document_idle"
+    }
+  ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' ws://localhost:18088 wss://localhost:18088"
   }
