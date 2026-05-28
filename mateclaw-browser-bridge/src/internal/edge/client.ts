@@ -103,7 +103,7 @@ export class Client {
   #intervalMs: number
   /** epoch ms of most recent heartbeat.ack — Node is single-threaded, plain number is fine */
   #lastAckAt = 0
-  readonly #inbound = new AsyncQueue<Message>(64)
+  #inbound = new AsyncQueue<Message>(64)
 
   constructor(opt: ClientOptions) {
     this.#opt = {
@@ -123,6 +123,20 @@ export class Client {
   ws(): WebSocket {
     if (!this.#ws) throw new Error('edge: not connected')
     return this.#ws
+  }
+
+  /**
+   * Send a Message to the Control Plane as a JSON-encoded WebSocket frame.
+   * Throws if not connected.
+   */
+  send(msg: import('../edgeproto/edgeproto.js').Message): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      if (!this.#ws) { reject(new Error('edge: not connected')); return }
+      this.#ws.send(JSON.stringify(msg), (err) => {
+        if (err) reject(err)
+        else resolve()
+      })
+    })
   }
 
   /**
@@ -200,6 +214,12 @@ export class Client {
 
           // Register the single message handler (the ONE ws.on('message') registration)
           ws.on('message', this.#handleFrame)
+
+          // When the WS closes (cleanly or unexpectedly), drain the inbound queue
+          // so that any consumer blocked on inbound() can observe the EOF.
+          ws.once('close', () => {
+            this.#inbound.close()
+          })
 
           resolve(sid)
         })
@@ -294,5 +314,18 @@ export class Client {
       })
     }
     this.#ws = null
+  }
+
+  /**
+   * Reset the client state so it can be reconnected via connect().
+   * Call this after close() before attempting a new connect() on the same instance.
+   * Creates a fresh inbound queue so consumers can iterate again.
+   */
+  reset(): void {
+    this.#ws = null
+    this.#sessionId = ''
+    this.#lastAckAt = 0
+    this.#intervalMs = this.#opt.heartbeatIntervalMs
+    this.#inbound = new AsyncQueue<Message>(64)
   }
 }

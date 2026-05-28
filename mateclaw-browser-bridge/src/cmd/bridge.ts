@@ -5,21 +5,61 @@
  * MateClaw Control Plane (via Bearer-over-WSS).
  * See ../../docs/specs/edge-protocol.md for the wire format.
  */
+import { loadConfig } from '../internal/config/config.js'
+import { Client } from '../internal/edge/client.js'
+import { Runner } from '../internal/runner/runner.js'
 
 const VERSION = '0.1.0'
 
-function main(args: string[]): void {
+async function main(args: string[]): Promise<void> {
   if (args.includes('--version') || args.includes('-version')) {
     process.stdout.write(`mateclaw-browser-bridge ${VERSION}\n`)
     process.exit(0)
   }
 
   if (args[0] === 'run') {
-    // Runner wiring lands in Task B7 — imports Runner and starts the pipeline.
-    process.stderr.write(
-      'bridge run: Runner wiring not yet connected (B7 pending)\n',
-    )
-    process.exit(1)
+    const cfg = await loadConfig()
+
+    if (!cfg.authToken) {
+      process.stderr.write(
+        'bridge run: MATECLAW_BRIDGE_AUTH_TOKEN or bridge.yaml auth_token is required\n',
+      )
+      process.exit(1)
+    }
+
+    const client = new Client({
+      url: cfg.controlPlaneUrl,
+      authToken: cfg.authToken,
+      agentVersion: cfg.agentVersion,
+      heartbeatIntervalMs: cfg.heartbeatIntervalMs,
+    })
+
+    const runner = new Runner({
+      client,
+      stdin: process.stdin,
+      stdout: process.stdout,
+    })
+
+    // Wire SIGINT / SIGTERM to a graceful abort
+    const ac = new AbortController()
+    const handleSignal = (): void => {
+      if (!ac.signal.aborted) ac.abort()
+    }
+    process.once('SIGINT', handleSignal)
+    process.once('SIGTERM', handleSignal)
+
+    try {
+      await runner.run(ac.signal)
+    } catch (err) {
+      process.stderr.write(`bridge run: fatal — ${String(err)}\n`)
+      process.exit(1)
+    } finally {
+      process.off('SIGINT', handleSignal)
+      process.off('SIGTERM', handleSignal)
+    }
+
+    process.exit(0)
+    return
   }
 
   process.stderr.write(
@@ -28,4 +68,7 @@ function main(args: string[]): void {
   process.exit(1)
 }
 
-main(process.argv.slice(2))
+main(process.argv.slice(2)).catch((err) => {
+  process.stderr.write(`bridge: unexpected error — ${String(err)}\n`)
+  process.exit(1)
+})
