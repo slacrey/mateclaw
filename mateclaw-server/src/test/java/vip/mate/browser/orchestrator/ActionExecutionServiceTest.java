@@ -165,9 +165,13 @@ class ActionExecutionServiceTest {
 
         ActionResult result = mono.toFuture().get(1, TimeUnit.SECONDS);
         assertCancelled(result, "user_stop");
+        // P1-4 closure: stop-click emits the cancel AND the indicator.hide
+        // bookend so the on-page overlays come down. indicator.hide is the
+        // final outbound envelope on the wire.
         assertThat(sentKinds()).containsExactly(
                 EdgeMessageKind.ACTION_EXECUTE,
-                EdgeMessageKind.ACTION_CANCEL);
+                EdgeMessageKind.ACTION_CANCEL,
+                EdgeMessageKind.INDICATOR_HIDE);
     }
 
     @Test

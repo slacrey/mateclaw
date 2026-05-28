@@ -158,14 +158,60 @@ public class ActionExecutionService {
     }
 
     /**
-     * Called by the WebSocket handler when an indicator.stop_clicked envelope arrives.
+     * Called by the WebSocket handler when an indicator.stop_clicked envelope
+     * arrives. Cancels the in-flight action and then emits an
+     * {@code indicator.hide} envelope so the on-page overlays (cursor / glow
+     * / stop button) come down — the matching bookend to the
+     * {@code indicator.show} the orchestrator sent at plan start.
+     *
+     * <p>This is the Codex P1-4 closure invariant; the E1 integration test
+     * (stopButton_cancelsInflightAndFiresIndicatorHide) asserts that
+     * indicator.hide is the last outbound envelope on the wire.
+     *
+     * <p>If there is nothing in flight on this session, both operations
+     * are no-ops (no cancel to perform, and no overlays to hide because
+     * none were shown).
      */
     public void handleStopClicked(BrowserSession session) {
         String msgId = bySession.get(session.getId());
         if (msgId == null) {
             return;
         }
+
+        // Capture tab_ref BEFORE the cancel completes — cancel() drops the
+        // pending slot synchronously, after which slot.tabRef() is gone.
+        PendingRequest slot = pending.get(msgId);
+        TabRef tabRef = slot != null ? slot.tabRef() : null;
+
         cancel(session, msgId, "user_stop").subscribe();
+
+        if (tabRef != null) {
+            sendIndicatorHide(session, tabRef);
+        }
+    }
+
+    /**
+     * Fire-and-forget {@code indicator.hide} on the current session's WS.
+     * Emitted as the P1-4 bookend to an earlier {@code indicator.show};
+     * also emitted after a successful plan completes (Phase 3 work — for
+     * now only the cancel path emits it).
+     */
+    private void sendIndicatorHide(BrowserSession session, TabRef tabRef) {
+        try {
+            EdgeMessage message = EdgeMessage.builder()
+                    .v(1)
+                    .msgId(UUID.randomUUID().toString())
+                    .kind(EdgeMessageKind.INDICATOR_HIDE)
+                    .ts(clock.instant().toEpochMilli())
+                    .traceId(UUID.randomUUID().toString())
+                    .sessionId(session.getId())
+                    .payload(Map.of(
+                            "tab_ref", mapper.convertValue(tabRef, Object.class)))
+                    .build();
+            session.getWs().sendMessage(new TextMessage(mapper.writeValueAsString(message)));
+        } catch (Exception e) {
+            log.debug("[browser-action] failed to send indicator.hide: {}", e.getMessage());
+        }
     }
 
     /**

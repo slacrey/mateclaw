@@ -2,7 +2,6 @@ package vip.mate.browser.integration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -318,15 +317,6 @@ class EndToEndOrchestrationTest {
     // ------------------------------------------------------------------
 
     @Test
-    @Disabled("Wave 5 finding: orchestrator's cancel path does not emit "
-            + "INDICATOR_HIDE — the last outbound envelope on stop is "
-            + "ACTION_CANCEL. The first three assertions (CANCELLED future + "
-            + "Partial result) pass; only the final indicator.hide check "
-            + "fails. Re-enable once Wave 4.1 (or follow-up) wires "
-            + "indicator.hide into ActionExecutionService.handleStopClicked. "
-            + "Spec ref: docs/plans/2026-05-28-browser-agent-phase-2.md "
-            + "§Acceptance §P1-4. Do not modify the orchestrator from this "
-            + "test file per the Wave 5 task brief.")
     void stopButton_cancelsInflightAndFiresIndicatorHide() throws Exception {
         BrowserSession session = registry.register("alice-5", sink.mockWs("ws-5"), "0.1.0");
 
