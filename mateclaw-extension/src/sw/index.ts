@@ -7,10 +7,16 @@ import { EdgeMessageKind, type EdgeMessage } from '../shared/edge-protocol'
 import { NativeBridge } from './native-bridge'
 import { TabGroupManager } from './tab-group-manager'
 import { DebuggerManager } from './debugger-manager'
-import { ActionExecutor, ActionFailureError, type ActionHandler, type ActionHandlers } from './action/ActionExecutor'
+import { ActionExecutor, type ActionHandlers } from './action/ActionExecutor'
 import { TabRefResolver } from './action/tab-ref-resolver'
 import { ActionRouter } from './action/action-router'
-import type { ActionResult } from './action/types'
+import { navigateHandler } from './action/handlers/navigate'
+import { clickHandler } from './action/handlers/click'
+import { typeHandler } from './action/handlers/type'
+import { scrollHandler } from './action/handlers/scroll'
+import { moveMouseHandler } from './action/handlers/move_mouse'
+import { waitHandler } from './action/handlers/wait'
+import type { Point } from '../lib/windmouse'
 
 /** Canonical NM host name — must match com.mateclaw.browser_bridge manifest. */
 const HOST = 'com.mateclaw.browser_bridge'
@@ -47,12 +53,10 @@ tabGroupManager.load().catch(e => {
   console.error('[mateclaw][sw] TabGroupManager.load failed', e)
 })
 
-// DebuggerManager will be wired into per-kind handlers by B3-B8. The
-// instance lives here so SW restarts re-create it cleanly.
+// DebuggerManager: shared CDP attach/detach + send across all CDP-using
+// handlers (click/type/scroll/move_mouse). The instance lives here so
+// SW restarts re-create it cleanly.
 const debuggerManager = new DebuggerManager(chrome)
-// Keep a reference so unused-variable analysis (and merge-time greps for
-// B3-B8) find the swap-in point.
-void debuggerManager
 
 const resolver = new TabRefResolver({
   tabGroupManager,
@@ -61,34 +65,32 @@ const resolver = new TabRefResolver({
 })
 
 // -----------------------------------------------------------------
-// TODO(B3-B8): Stub handler registry.
+// Real handler registry (Wave 3 task 0 — swapped in from B3-B8 stubs).
 //
-// Real handlers ship via parallel Codex tasks (10/11/12/13) — when they
-// land, replace `stubHandlers` below with the real `makeAllHandlers(deps)`
-// imported from './action/handlers'. The DebuggerManager + TabGroupManager
-// + resolver are already in scope above.
+// All handlers built on Wave-2 deliverables:
+//   navigate   — chrome.tabs.update + webNavigation race
+//   click      — CDP Input.dispatchMouseEvent press/release with hold
+//   type       — CDP Input.dispatchKeyEvent keyDown+char+keyUp per char
+//   scroll     — CDP Input.dispatchMouseWheelEvent segmented
+//   move_mouse — WindMouse waypoints over CDP Input.dispatchMouseEvent
+//   wait       — three strategies (time / load_state / network_idle)
+//
+// Per-tab cursor state shared by move_mouse so consecutive moves continue
+// from the previous arrival point.
 // -----------------------------------------------------------------
 
-function makeStubHandler<P>(kind: string): ActionHandler<P> {
-  return async (): Promise<ActionResult> => {
-    throw new ActionFailureError(
-      'UNKNOWN_KIND',
-      `handler '${kind}' is not yet wired in the SW — B3-B8 ship via Codex 10-13`,
-      false,
-    )
-  }
+const cursorState = new Map<number, Point>()
+
+const handlers: ActionHandlers = {
+  navigate:   navigateHandler(chrome),
+  click:      clickHandler({ debugger: debuggerManager }),
+  type:       typeHandler({ debugger: debuggerManager }),
+  scroll:     scrollHandler({ debugger: debuggerManager }),
+  move_mouse: moveMouseHandler({ debugger: debuggerManager, cursorState }),
+  wait:       waitHandler({ chrome }),
 }
 
-const stubHandlers: ActionHandlers = {
-  navigate:   makeStubHandler('navigate'),
-  click:      makeStubHandler('click'),
-  type:       makeStubHandler('type'),
-  scroll:     makeStubHandler('scroll'),
-  move_mouse: makeStubHandler('move_mouse'),
-  wait:       makeStubHandler('wait'),
-}
-
-const executor = new ActionExecutor(stubHandlers)
+const executor = new ActionExecutor(handlers)
 
 /**
  * Map of in-flight ActionExecutor runs keyed by request msg_id. Phase 2-1
