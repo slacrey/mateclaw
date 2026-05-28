@@ -101,6 +101,8 @@ deploy/.env
 CLAUDE.md
 .claude/settings.local.json
 .claude/plans/
+.claude/worktrees/
+.claire/
 
 # Codex CLI local artifacts
 .codex/
