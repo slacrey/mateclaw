@@ -144,6 +144,11 @@ describe('navigate handler', () => {
       await Promise.resolve()
       expect(settled).toBe(false)
 
+      f.triggerRequest(42, 9)
+      await vi.advanceTimersByTimeAsync(499)
+      await Promise.resolve()
+      expect(settled).toBe(false)
+
       await vi.advanceTimersByTimeAsync(1)
 
       await expect(promise).resolves.toEqual({

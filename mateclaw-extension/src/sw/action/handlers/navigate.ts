@@ -31,7 +31,17 @@ export const navigateHandler = (
     }
 
     const readFinalUrl = async () => {
-      const tab = await chromeApi.tabs.get(tabId)
+      let tab: chrome.tabs.Tab | undefined
+      try {
+        tab = await chromeApi.tabs.get(tabId)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        throw new ActionFailureError(
+          'NO_TARGET_TAB',
+          `unable to read target tab ${tabId} after navigation: ${message}`,
+          false,
+        )
+      }
       if (!tab) {
         throw new ActionFailureError(
           'NO_TARGET_TAB',
@@ -99,6 +109,7 @@ export const navigateHandler = (
           return
         }
 
+        let completed = false
         const resolveAfterIdle = () => {
           clearTimer(idleTimeoutId)
           idleTimeoutId = setTimeout(resolve, NETWORK_IDLE_MS)
@@ -108,6 +119,7 @@ export const navigateHandler = (
           if (!isTopLevelTarget(details)) return
 
           if (waitFor === 'network_idle') {
+            completed = true
             resolveAfterIdle()
             return
           }
@@ -118,7 +130,7 @@ export const navigateHandler = (
 
         if (waitFor === 'network_idle' && chromeApi.webRequest?.onBeforeRequest) {
           requestListener = (details: WebRequestDetails) => {
-            if (isTopLevelTarget(details)) resolveAfterIdle()
+            if (completed && details.tabId === tabId) resolveAfterIdle()
           }
           chromeApi.webRequest.onBeforeRequest.addListener(
             requestListener,
@@ -130,10 +142,12 @@ export const navigateHandler = (
 
     try {
       const waitPromise = waitForNavigation()
+      const updatePromise = chromeApi.tabs.update(tabId, { url: params.url })
 
       try {
-        await chromeApi.tabs.update(tabId, { url: params.url })
+        await Promise.race([updatePromise, deadlinePromise, tabRemovedPromise])
       } catch (err) {
+        if (err instanceof ActionFailureError) throw err
         const message = err instanceof Error ? err.message : String(err)
         throw new ActionFailureError(
           'NO_TARGET_TAB',
