@@ -5,7 +5,7 @@ import { VisualCoordinator } from './visual-coordinator'
 
 function fakeResolver(tabId: number | null): TabRefResolver {
   return {
-    resolve: vi.fn(async () => tabId),
+    resolve: vi.fn(async tabRef => (typeof tabRef === 'number' ? tabRef : tabId)),
   } as unknown as TabRefResolver
 }
 
@@ -158,7 +158,7 @@ describe('VisualCoordinator', () => {
     }))
 
     expect(resolver.resolve).toHaveBeenCalledExactlyOnceWith(123)
-    expect(sendMessage).toHaveBeenCalledExactlyOnceWith(42, {
+    expect(sendMessage).toHaveBeenCalledExactlyOnceWith(123, {
       type: 'HIDE_AGENT_INDICATORS',
     })
   })
