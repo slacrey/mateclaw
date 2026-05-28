@@ -43,4 +43,72 @@ describe('edge-protocol', () => {
     expect(m).not.toBeNull()
     expect(m!.kind).toBe('__unknown__')
   })
+
+  // ---------------------------------------------------------------
+  // Protocol v1.1 — Phase 2 P1 wire kinds
+  // Must match EdgeMessageKind (Java) + Kind (NH bridge) byte-for-byte.
+  // ---------------------------------------------------------------
+
+  it('v1.1 action.* kinds have exact wire strings', () => {
+    expect(EdgeMessageKind.ActionExecute).toBe('action.execute')
+    expect(EdgeMessageKind.ActionResult).toBe('action.result')
+    expect(EdgeMessageKind.ActionCancel).toBe('action.cancel')
+  })
+
+  it('v1.1 indicator.* kinds have exact wire strings', () => {
+    expect(EdgeMessageKind.IndicatorShow).toBe('indicator.show')
+    expect(EdgeMessageKind.IndicatorHide).toBe('indicator.hide')
+    expect(EdgeMessageKind.IndicatorCursor).toBe('indicator.cursor')
+    expect(EdgeMessageKind.IndicatorToolUseHide).toBe('indicator.tool_use_hide')
+    expect(EdgeMessageKind.IndicatorToolUseShow).toBe('indicator.tool_use_show')
+    expect(EdgeMessageKind.IndicatorStopClicked).toBe('indicator.stop_clicked')
+  })
+
+  it('v1.1 a11y + event kinds have exact wire strings', () => {
+    expect(EdgeMessageKind.A11ySnapshotRequest).toBe('a11y.snapshot.request')
+    expect(EdgeMessageKind.A11ySnapshotResponse).toBe('a11y.snapshot.response')
+    expect(EdgeMessageKind.EventPageNavigated).toBe('event.page.navigated')
+    expect(EdgeMessageKind.EventTabClosed).toBe('event.tab.closed')
+  })
+
+  it('v1.1 action.execute round-trips with tab_ref payload', () => {
+    const m = makeEdgeMessage({
+      kind: EdgeMessageKind.ActionExecute,
+      payload: {
+        tab_ref: 'main',
+        kind: 'navigate',
+        params: { url: 'https://example.com' },
+        deadline_ms: 30000,
+      },
+    })
+    const back = parseEdgeMessage(JSON.stringify(m))
+    expect(back).not.toBeNull()
+    expect(back!.kind).toBe(EdgeMessageKind.ActionExecute)
+    expect((back!.payload as Record<string, unknown>)['tab_ref']).toBe('main')
+  })
+
+  it('v1.1 indicator.stop_clicked keeps session_id="" invariant (P0-1)', () => {
+    // Ext → NH → CP direction. Extension MUST emit session_id="".
+    const m = makeEdgeMessage({
+      kind: EdgeMessageKind.IndicatorStopClicked,
+      payload: { tab_ref: 42 },
+    })
+    expect(m.session_id).toBe('')
+  })
+
+  it('v1.1 a11y.snapshot.response round-trips', () => {
+    const m = makeEdgeMessage({
+      kind: EdgeMessageKind.A11ySnapshotResponse,
+      payload: {
+        snapshot_id: 'snap-1',
+        captured_at_ms: 1730000000123,
+        tab_ref: 42,
+        tree: 'Button[ref=ref_1]: Submit',
+        viewport: { w: 1280, h: 800 },
+      },
+    })
+    const back = parseEdgeMessage(JSON.stringify(m))
+    expect(back).not.toBeNull()
+    expect(back!.kind).toBe(EdgeMessageKind.A11ySnapshotResponse)
+  })
 })

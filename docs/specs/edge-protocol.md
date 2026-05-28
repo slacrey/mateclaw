@@ -1,8 +1,13 @@
-# MateClaw Edge Protocol v1.0
+# MateClaw Edge Protocol v1.1
 
 Canonical wire format between Control Plane, Native Host, and Extension.
 JSON over Chrome Native Messaging (Extension ↔ Native Host) and JSON-text-frame
 over WebSocket (Native Host ↔ Control Plane).
+
+**v1.1 (Phase 2 P-stream)** adds atomic browser actions, visual indicators,
+accessibility-tree snapshots, and unsolicited page-lifecycle events. The
+envelope is unchanged; v1.0 receivers continue to forward-compat ignore the
+new kinds, so this bump is fully backward-compatible.
 
 ## Envelope
 
@@ -32,7 +37,9 @@ Every message carries the same envelope:
   non-empty session_id it receives from stdin (defence against compromised
   extension trying to address another session).
 
-## EdgeMessageKind (Phase 1 subset)
+## EdgeMessageKind — v1.0 base
+
+Handshake + liveness; established in Phase 1. Unchanged in v1.1.
 
 | kind | direction | payload |
 |---|---|---|
@@ -44,17 +51,182 @@ Every message carries the same envelope:
 | `pong` | CP → NH → SW → Ext | `{ "echo": "string", "server_ts": 1730000000123 }` |
 | `error` | any direction | `{ "code": "string", "message": "string", "retryable": boolean }` |
 
-Future kinds (Phase 2+, listed only for forward-compatibility — receivers must
-ignore unknown kinds with a warning, not close the connection):
+## EdgeMessageKind — v1.1 additions (Phase 2 P-stream)
+
+Thirteen new kinds across four families. Every envelope addressed at a
+specific tab carries a `tab_ref` field — see [TabRef](#tabref) below.
+
+| kind | direction | summary |
+|---|---|---|
+| `action.execute` | CP → NH → Ext | request to perform an atomic action |
+| `action.result` | Ext → NH → CP | success or typed error |
+| `action.cancel` | CP → NH → Ext | cancel an in-flight action by `in_reply_to` |
+| `indicator.show` | CP → NH → Ext | show cursor + glow + stop button |
+| `indicator.hide` | CP → NH → Ext | hide everything |
+| `indicator.cursor` | CP → NH → Ext | move phantom cursor; result on `action.result` |
+| `indicator.tool_use_hide` | CP → NH → Ext | hide all overlays for a screenshot |
+| `indicator.tool_use_show` | CP → NH → Ext | restore prior visibility |
+| `indicator.stop_clicked` | Ext → NH → CP | user clicked stop button |
+| `a11y.snapshot.request` | CP → NH → Ext | request accessibility tree |
+| `a11y.snapshot.response` | Ext → NH → CP | tree + viewport metadata |
+| `event.page.navigated` | Ext → NH → CP | tab navigated (page loaded) |
+| `event.tab.closed` | Ext → NH → CP | tab the session was using was closed |
+
+### TabRef
+
+`tab_ref` is the connection between a v1.1 envelope and a physical Chrome
+tab. Three forms accepted on the wire:
+
+```
+"main"             → SW resolves via TabGroupManager.getMainTabId(sessionSubject)
+"active"           → SW resolves via chrome.tabs.query({active:true, lastFocusedWindow:true})
+<integer>          → explicit Chrome tab id (used for tests and future multi-tab orchestration)
+```
+
+If neither `"main"` nor `"active"` resolution succeeds, the SW emits
+`action.result` / `a11y.snapshot.response` Failure with `code: "NO_TARGET_TAB"`.
+
+On the Java side, `TabRef` is a sealed interface (`TabRef.Main`,
+`TabRef.Active`, `TabRef.Explicit(long tabId)`) with a custom Jackson
+serializer/deserializer — JSON-value shape (string vs. number) is the
+discriminator, since neither `NAME` nor `DEDUCTION` can express
+string-or-number on a single field.
+
+### v1.1 payload shapes
+
+**`action.execute`** (CP → NH → Ext):
+```json
+{
+  "tab_ref": "main",
+  "kind": "navigate",
+  "params": { /* per-action; see Action payload schemas below */ },
+  "deadline_ms": 30000
+}
+```
+
+**`action.result`** (Ext → NH → CP):
+```json
+// Success:
+{ "ok": true, "elapsed_ms": 12, "payload": { /* per-action success */ } }
+
+// Failure:
+{ "ok": false, "code": "TIMEOUT_PAGE_LOAD", "message": "...", "retryable": true }
+```
+
+Standard error codes: `TIMEOUT_PAGE_LOAD`, `GROUNDING_AMBIGUOUS`,
+`NO_TARGET_TAB`, `CANCELLED`, `DEADLINE_EXCEEDED`, `SESSION_DETACHED`,
+`DEVTOOLS_OPEN`.
+
+**`action.cancel`** (CP → NH → Ext):
+```json
+{ "tab_ref": "main", "reason": "user_stop" }
+```
+`reason` is one of `user_stop` | `timeout` | `deadline_exceeded`.
+
+**`indicator.show` / `indicator.hide` / `indicator.tool_use_hide` / `indicator.tool_use_show`**:
+```json
+{ "tab_ref": "main", "is_mcp": false }
+```
+`is_mcp` is only valid on `indicator.show`; controls a corner badge variant.
+
+**`indicator.cursor`**:
+```json
+// Request:
+{ "tab_ref": "main", "x": 540, "y": 320 }
+// Result (on action.result):
+{ "ok": true, "arrived_at_ms": 1730000000123 }
+```
+
+**`indicator.stop_clicked`** (Ext → CP):
+```json
+{ "tab_ref": 42 }
+```
+The Extension sends `session_id: ""` (NH stamps the real id). CP locates
+the in-flight action by `sessionId` lookup, not by any correlation id in
+this envelope.
+
+**`a11y.snapshot.request`**:
+```json
+{
+  "tab_ref": "main",
+  "filter": "interactive",
+  "depth": 15,
+  "max_chars": 200000,
+  "ref_id": "ref_42"
+}
+```
+`filter` is one of `interactive` | `all` | `default`. `ref_id` is optional;
+when present, the response includes only the subtree rooted at that ref.
+
+**`a11y.snapshot.response`**:
+```json
+{
+  "snapshot_id": "snap-uuid",
+  "captured_at_ms": 1730000000123,
+  "tab_ref": 42,
+  "tree": "Button[ref=ref_1]: Submit\n...",
+  "viewport": { "w": 1280, "h": 800 }
+}
+```
+`tab_ref` is **echoed as the resolved tab id** so the CP can update its
+freshness map keyed by absolute tab id.
+
+**`event.page.navigated`** (Ext → CP):
+```json
+{ "tab_ref": 42, "url": "https://example.com/new-page" }
+```
+
+**`event.tab.closed`** (Ext → CP):
+```json
+{ "tab_ref": 42 }
+```
+
+### Per-action success schemas (payload of `action.result.payload`)
+
+| `action.kind` | `payload` fields on success |
+|---|---|
+| `navigate` | `{ final_url: string, http_status?: int, load_state: "load"\|"domcontentloaded"\|"network_idle" }` |
+| `click` | `{ }` (empty — caller infers state via subsequent snapshot) |
+| `type` | `{ chars_typed: int }` |
+| `scroll` | `{ }` |
+| `move_mouse` | `{ arrived_at_ms: int, waypoints: int }` (waypoints≥1; `natural` profile emits N≥5) |
+| `wait` | `{ waited_ms: int }` |
+
+### A11y snapshot lifecycle
+
+The Control Plane maintains a per-`(sessionId, resolvedTabId)` freshness
+map for accessibility snapshots:
+
+```
+SnapshotState = { snapshot_id, captured_at_ms, status: FRESH | SUSPECT | STALE }
+```
+
+Status transitions:
+
+| Trigger | New status |
+|---|---|
+| Fresh `a11y.snapshot.response` arrives | FRESH |
+| `action.result` for `navigate` succeeds | STALE (ref_N invalidated by URL change) |
+| `action.result` for `click` / `type` / `scroll` succeeds | SUSPECT (one retry budget — if next ground misses, refresh) |
+| Snapshot age > 30 s | STALE |
+| `event.tab.closed` for this tab | (entry removed) |
+| `event.page.navigated` arrives (in-page nav) | STALE |
+
+`PageSnapshotService.request()` (task F5) auto-refreshes on STALE; on
+SUSPECT it serves the cached copy once, demoting to STALE after a failed
+ground attempt.
+
+## Future kinds (Phase 3+)
+
+Listed only for forward-compatibility — receivers must ignore unknown kinds
+with a warning, not close the connection:
 
 | kind | direction |
 |---|---|
-| `action.execute` | CP → NH → Ext |
-| `action.result` | Ext → NH → CP |
-| `event.page` | Ext → NH → CP |
 | `event.network` | Ext → NH → CP |
 | `event.risk` | Ext → NH → CP |
 | `session.snapshot` | NH → CP |
+| `hello.resume` | NH → CP |
 
 ## Auth failures and error codes
 
@@ -109,6 +281,11 @@ Auth failures are split into two distinct planes:
 ## Forward-compatibility invariant
 
 A receiver MUST silently log-and-drop any envelope whose `kind` is not in
-its known set (subject to v matching). Unknown kinds MUST NOT close the
-connection. This keeps Phase 1 receivers compatible with Phase 2+ senders
-that add new `action.*` / `indicator.*` / `a11y.*` kinds.
+its known set (subject to `v` matching). Unknown kinds MUST NOT close the
+connection. This invariant keeps v1.0 receivers compatible with v1.1
+senders (and keeps v1.1 receivers compatible with Phase 3+ senders).
+
+The three runtime mirrors (`EdgeMessageKind.java`,
+`mateclaw-browser-bridge/src/internal/edgeproto/edgeproto.ts`,
+`mateclaw-extension/src/shared/edge-protocol.ts`) all collapse unknown
+kinds to the `__unknown__` sentinel rather than rejecting the envelope.

@@ -11,6 +11,7 @@
 
 /** All known EdgeMessage kind strings (wire format). */
 export const Kind = {
+  // v1.0 — handshake + liveness
   Hello: 'hello',
   HelloAck: 'hello.ack',
   Heartbeat: 'heartbeat',
@@ -18,6 +19,24 @@ export const Kind = {
   Ping: 'ping',
   Pong: 'pong',
   Error: 'error',
+  // v1.1 — atomic browser actions
+  ActionExecute: 'action.execute',
+  ActionResult: 'action.result',
+  ActionCancel: 'action.cancel',
+  // v1.1 — visual indicators
+  IndicatorShow: 'indicator.show',
+  IndicatorHide: 'indicator.hide',
+  IndicatorCursor: 'indicator.cursor',
+  IndicatorToolUseHide: 'indicator.tool_use_hide',
+  IndicatorToolUseShow: 'indicator.tool_use_show',
+  IndicatorStopClicked: 'indicator.stop_clicked',
+  // v1.1 — accessibility tree snapshot
+  A11ySnapshotRequest: 'a11y.snapshot.request',
+  A11ySnapshotResponse: 'a11y.snapshot.response',
+  // v1.1 — unsolicited page-lifecycle events
+  EventPageNavigated: 'event.page.navigated',
+  EventTabClosed: 'event.tab.closed',
+  // Sentinel
   Unknown: '__unknown__',
 } as const
 
