@@ -8,11 +8,16 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "start": "node dist/cmd/bridge.js",
-    "dev": "tsx watch src/cmd/bridge.ts"
+    "dev": "tsx watch src/cmd/bridge.ts",
+    "bench:edge": "tsx bench/edge-protocol.bench.ts",
+    "bench:nm": "tsx bench/nm-codec.bench.ts",
+    "bench:heap": "node --expose-gc --import tsx bench/heap-profile.ts",
+    "bench": "pnpm bench:edge && pnpm bench:nm && pnpm bench:heap"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/ws": "^8.0.0",
+    "tinybench": "^6.0.2",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0",
     "vitest": "^2.0.0"
