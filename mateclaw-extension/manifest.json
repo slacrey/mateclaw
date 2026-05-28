@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "MateClaw Browser Agent (dev)",
+  "version": "0.1.0",
+  "description": "MateClaw Browser Agent — Phase 1 connectivity",
+  "minimum_chrome_version": "116",
+  "icons": { "128": "icon-128.png" },
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "action": { "default_title": "Open MateClaw" },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "permissions": [
+    "sidePanel",
+    "storage",
+    "alarms",
+    "notifications",
+    "nativeMessaging"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' ws://localhost:18088 wss://localhost:18088"
+  }
+}
