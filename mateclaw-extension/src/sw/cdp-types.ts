@@ -25,6 +25,18 @@ export interface CDP {
     }
     result: Record<string, never>
   }
+  'Input.dispatchMouseWheelEvent': {
+    params: {
+      type: 'mouseWheel'
+      x: number
+      y: number
+      deltaX: number
+      deltaY: number
+      /** Pointer modifiers; we always send 0 for now. */
+      modifiers?: number
+    }
+    result: {}
+  }
   'Input.dispatchKeyEvent': {
     params: {
       type: 'keyDown' | 'keyUp' | 'rawKeyDown' | 'char'
