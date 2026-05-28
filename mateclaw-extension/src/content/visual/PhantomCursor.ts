@@ -68,6 +68,14 @@ export class PhantomCursor {
       return
     }
 
+    // Inject the global stylesheet ONCE per page so the CSS-level
+    // @media (prefers-reduced-motion: reduce) override is in place even
+    // before any JS check fires. The audit script (#7 invariant) greps
+    // for this exact CSS form across visual code — JS matchMedia alone
+    // is not sufficient because it can't override the initial paint
+    // before scripts run on a slow connection.
+    ensureStyles()
+
     const reduced = prefersReducedMotion()
     const transitionMs = reduced ? REDUCED_TRANSITION_MS : NORMAL_TRANSITION_MS
 
@@ -165,6 +173,29 @@ function prefersReducedMotion(): boolean {
   } catch {
     return false
   }
+}
+
+const STYLE_ID = 'mateclaw-phantom-cursor-style'
+
+/**
+ * Inject the page-level stylesheet once. Carries only the
+ * @media (prefers-reduced-motion: reduce) override — everything else stays
+ * inline on the element for testability. !important is required because the
+ * cursor's transition is also set inline on .style.transition; without it the
+ * inline rule wins and the user's motion preference is ignored.
+ *
+ * Idempotent: subsequent calls (re-injection / re-mount cycles) no-op.
+ */
+function ensureStyles(): void {
+  if (document.getElementById(STYLE_ID)) return
+  const style = document.createElement('style')
+  style.id = STYLE_ID
+  style.textContent = `
+@media (prefers-reduced-motion: reduce) {
+  #${CONTAINER_ID} { transition: transform ${REDUCED_TRANSITION_MS}ms linear !important; }
+}
+`
+  document.head.appendChild(style)
 }
 
 function makeArrowSvg(theme: PhantomCursorTheme): SVGElement {

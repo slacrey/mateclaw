@@ -98,6 +98,41 @@ describe('StopButton', () => {
     const b = new StopButton()
     expect(() => b.hide()).not.toThrow()
   })
+
+  it('prefers-reduced-motion: button starts in final position with shortened transition (P1-8)', () => {
+    vi.spyOn(window, 'matchMedia').mockReturnValue({
+      matches: true,
+      media: '(prefers-reduced-motion: reduce)',
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      onchange: null,
+      dispatchEvent: () => false,
+      addListener: () => {},
+      removeListener: () => {},
+    } as MediaQueryList)
+
+    const b = new StopButton()
+    b.show({})
+    const btn = document.getElementById('mateclaw-stop-button')!
+    // Reduced motion skips the slide-in: button starts already at translateY(0)
+    // / opacity 1 rather than starting at translateY(100px) / opacity 0.
+    expect(btn.style.transform).toBe('translateY(0)')
+    expect(btn.style.opacity).toBe('1')
+    // And the transition is collapsed to ~30ms (functionally instant).
+    const match = /transform\s+(\d+)ms/.exec(btn.style.transition)
+    expect(match).not.toBeNull()
+    expect(parseInt(match![1], 10)).toBeLessThanOrEqual(30)
+  })
+
+  it('prefers-reduced-motion: CSS @media override stylesheet is injected (P1-8 belt-and-suspenders)', () => {
+    const b = new StopButton()
+    b.show({})
+    const style = document.getElementById('mateclaw-stop-button-style')
+    expect(style).not.toBeNull()
+    // The injected rule must carry the CSS media-query form for the audit
+    // script's invariant #7 grep.
+    expect(style!.textContent).toContain('@media (prefers-reduced-motion: reduce)')
+  })
 })
 
 function getContainerZ(): string {

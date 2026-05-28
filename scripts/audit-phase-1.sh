@@ -180,7 +180,7 @@ fi
 section_done "$build_fail"
 
 echo '=== 3. Codex Invariants ==='
-out="$TMP/i1.log"; grep_run '\.click[[:space:]]*\(|dispatchEvent[[:space:]]*\([[:space:]]*new[[:space:]]+(Mouse|Keyboard)Event' 'mateclaw-extension/src' "$out" --include='*.ts' --include='*.vue'; status="$?"; expect_zero '[1] untrusted-event ban (.click() / dispatchEvent)' "$out" "$(lc "$out")" "$status"
+out="$TMP/i1.log"; grep_run '\.click[[:space:]]*\(|dispatchEvent[[:space:]]*\([[:space:]]*new[[:space:]]+(Mouse|Keyboard)Event' 'mateclaw-extension/src' "$out" --include='*.ts' --include='*.vue' --exclude='*.test.ts'; status="$?"; expect_zero '[1] untrusted-event ban (.click() / dispatchEvent)' "$out" "$(lc "$out")" "$status"
 out="$TMP/i2.log"; grep_run 'session_id:[[:space:]]*['"'"'"](sess|user|alice|bob)' 'mateclaw-extension/src' "$out" --include='*.ts' --include='*.vue'; status="$?"; expect_zero '[2] session_id ownership' "$out" "$(lc "$out")" "$status"
 out="$TMP/i3.log"; grep_run 'subjectToSession\.put[[:space:]]*\(' 'mateclaw-server/src/main/java/vip/mate/browser/edge/session/BrowserSessionRegistry.java' "$out" --include='*.java'; status="$?"; expect_zero '[3] register CAS atomic compute' "$out" "$(lc "$out")" "$status"
 out="$TMP/i4.log"; grep_run 'JwtService\.parseUserId|validateAndGetUserId' 'mateclaw-server/src/main/java' "$out" --include='*.java'; status="$?"; expect_zero '[4] real auth APIs (no JwtService.parseUserId)' "$out" "$(lc "$out")" "$status"

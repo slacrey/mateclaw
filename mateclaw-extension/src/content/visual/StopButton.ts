@@ -19,9 +19,12 @@
 
 const CONTAINER_ID = 'mateclaw-stop-button-container'
 const BUTTON_ID = 'mateclaw-stop-button'
+const STYLE_ID = 'mateclaw-stop-button-style'
 
 const SHOW_TRANSITION_MS = 300
 const HIDE_TRANSITION_MS = 300
+/** prefers-reduced-motion fallback — functionally instant. (P1-8 invariant.) */
+const REDUCED_TRANSITION_MS = 30
 const EASING = 'cubic-bezier(0.4, 0, 0.2, 1)'
 
 // Max int — above the glow border (also max int but appended earlier, so DOM
@@ -49,6 +52,14 @@ export class StopButton {
       clearTimeout(this.hideTimer)
       this.hideTimer = null
     }
+
+    // Inject CSS-level @media (prefers-reduced-motion: reduce) override
+    // before any DOM goes in. The audit script (P1-8 invariant) requires
+    // the CSS form because JS matchMedia can't override the initial
+    // paint frame on a slow connection.
+    ensureStyles()
+    const reduced = prefersReducedMotion()
+    const transitionMs = reduced ? REDUCED_TRANSITION_MS : SHOW_TRANSITION_MS
 
     const container = document.createElement('div')
     container.id = CONTAINER_ID
@@ -86,12 +97,20 @@ export class StopButton {
     btn.style.boxShadow =
       `0 40px 80px rgba(${BRAND_RGB}, 0.24), 0 4px 14px rgba(${BRAND_RGB}, 0.24)`
     btn.style.transition =
-      `transform ${SHOW_TRANSITION_MS}ms ${EASING}, ` +
-      `opacity ${SHOW_TRANSITION_MS}ms ${EASING}, ` +
+      `transform ${transitionMs}ms ${EASING}, ` +
+      `opacity ${transitionMs}ms ${EASING}, ` +
       `background-color 150ms ease-in-out`
-    // Initial state for the slide-in fade.
-    btn.style.transform = 'translateY(100px)'
-    btn.style.opacity = '0'
+    if (reduced) {
+      // Skip the slide-in entirely — start in the final position. The CSS
+      // @media rule (injected above) is the defense-in-depth fail-safe; the
+      // JS short-circuit here is the fast path.
+      btn.style.transform = 'translateY(0)'
+      btn.style.opacity = '1'
+    } else {
+      // Initial state for the slide-in fade.
+      btn.style.transform = 'translateY(100px)'
+      btn.style.opacity = '0'
+    }
 
     // Hover affordance — switch the tint, do NOT change the box-shadow per
     // research §4.1 (shadow stability sells "floating").
@@ -179,4 +198,38 @@ function requestAnimationFrameSafe(cb: () => void): void {
   } else {
     setTimeout(cb, 0)
   }
+}
+
+function prefersReducedMotion(): boolean {
+  if (typeof window.matchMedia !== 'function') return false
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Inject the page-level stylesheet once. Carries only the
+ * @media (prefers-reduced-motion: reduce) override — the slide-in transform
+ * is set inline on the button, so the CSS override needs !important to win.
+ *
+ * Idempotent: subsequent calls no-op.
+ */
+function ensureStyles(): void {
+  if (document.getElementById(STYLE_ID)) return
+  const style = document.createElement('style')
+  style.id = STYLE_ID
+  style.textContent = `
+@media (prefers-reduced-motion: reduce) {
+  #${BUTTON_ID} {
+    transition: transform ${REDUCED_TRANSITION_MS}ms linear,
+                opacity ${REDUCED_TRANSITION_MS}ms linear,
+                background-color 150ms ease-in-out !important;
+    transform: translateY(0) !important;
+    opacity: 1 !important;
+  }
+}
+`
+  document.head.appendChild(style)
 }
