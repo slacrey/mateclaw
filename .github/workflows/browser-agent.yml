@@ -1,0 +1,106 @@
+name: Browser Agent Phase 1 Tests
+
+on:
+  pull_request:
+    branches:
+      - feat/browser-foundation
+      - dev
+  push:
+    branches:
+      - feat/browser-foundation
+      - dev
+
+permissions:
+  contents: read
+
+jobs:
+  java-browser-tests:
+    name: Java Control Plane — browser edge tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: |
+      contains(github.event.head_commit.modified, 'mateclaw-server/') ||
+      github.event_name == 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+          cache: maven
+
+      - name: Run Java browser edge tests
+        run: cd mateclaw-server && mvn -q test -Dtest='vip.mate.browser.**'
+
+  ts-native-host-tests:
+    name: TypeScript Native Host — build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: |
+      contains(github.event.head_commit.modified, 'mateclaw-browser-bridge/') ||
+      github.event_name == 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "dir=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.dir }}
+          key: pnpm-native-host-${{ runner.os }}-${{ hashFiles('mateclaw-browser-bridge/pnpm-lock.yaml') }}
+          restore-keys: pnpm-native-host-${{ runner.os }}-
+
+      - name: Install, test, and build native host
+        run: cd mateclaw-browser-bridge && pnpm install --frozen-lockfile && pnpm test && pnpm build
+
+  ts-extension-tests:
+    name: TypeScript Extension — build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: |
+      contains(github.event.head_commit.modified, 'mateclaw-extension/') ||
+      github.event_name == 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        run: echo "dir=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.dir }}
+          key: pnpm-extension-${{ runner.os }}-${{ hashFiles('mateclaw-extension/pnpm-lock.yaml') }}
+          restore-keys: pnpm-extension-${{ runner.os }}-
+
+      - name: Install, test, and build extension
+        run: cd mateclaw-extension && pnpm install --frozen-lockfile && pnpm test && pnpm build

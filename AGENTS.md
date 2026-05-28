@@ -112,3 +112,16 @@ Eight IM adapters under `vip/mate/channel/` (`dingtalk`, `feishu`, `discord`, `t
 - [UPGRADING.md](UPGRADING.md) is the canonical reference for moving between versions. Flyway repair auto-heals known checksum drift; Ollama auto-discovery rewrites broken `:latest` defaults.
 - Logs: `mateclaw-server/logs/mateclaw.log` + `mateclaw-error.log`. Flyway decisions are at INFO in the main log.
 - Doctor tab (`Settings → Doctor`) and the admin Runtime Console (`Settings → System → Runtime`) are first-stop debugging surfaces — check them before adding new diagnostic endpoints.
+
+## Browser Agent — Phase 1 paths
+
+Phase 1 ships a three-process infrastructure (Control Plane / Native Host / Extension) connected by the Edge Protocol.
+
+| Path | What lives there |
+|---|---|
+| `mateclaw-server/src/main/java/vip/mate/browser/edge/` | Java Control Plane: WebSocket endpoint `/api/v1/browser/edge`, in-memory `BrowserSessionRegistry`, JWT/PAT auth interceptor, `ping/pong` handler, session reaper |
+| `mateclaw-browser-bridge/` | TypeScript/Node Native Host — long-running user-machine daemon. Bears authenticated WSS connection to Control Plane; bridges Chrome Native Messaging stdio. Owns the server-issued `session_id` — stamps it on every forwarded frame |
+| `mateclaw-extension/` | Chrome MV3 extension (Vue 3 sidepanel). Service Worker manages `chrome.runtime.connectNative`; sidepanel provides the manual Ping button. Always emits `session_id=""` |
+| `docs/specs/edge-protocol.md` | Canonical wire format: envelope schema, `EdgeMessageKind` table, auth/close codes, heartbeat contract, forward-compatibility rules |
+| `docs/plans/2026-05-28-browser-agent-foundation*.md` | Phase 1 implementation plan (v1.2) and Codex audit trail — read before changing protocol or session logic |
+| `docs/runbooks/phase-1-foundation.md` | Install and smoke-test procedure: build all three components, install Native Messaging manifest, configure bridge, load extension, run end-to-end ping |
