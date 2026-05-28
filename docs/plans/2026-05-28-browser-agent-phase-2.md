@@ -185,12 +185,20 @@ Every B/C/D/F task has the same five-step shape. To honour the audit's "see fail
 | Task workspace | Command | Expected failure mode |
 |---|---|---|
 | `mateclaw-server/` (Java) | `mvn test -Dtest=<ClassName>` | `COMPILATION ERROR` (symbol not found) or `Tests run: N, Failures: M` |
-| `mateclaw-browser-bridge/` (Go) | `go test ./internal/<pkg>/...` | `undefined: <Symbol>` or `FAIL` |
-| `mateclaw-extension/` (TS) | `pnpm test <filter>` | `Cannot find module` / `<member> is not a function` |
+| `mateclaw-browser-bridge/` (TypeScript Node) | `pnpm test --run <filter>` | `Cannot find name` (tsc) / `is not a function` / failing assertion |
+| `mateclaw-extension/` (TypeScript) | `pnpm test --run <filter>` | `Cannot find module` / `<member> is not a function` |
+
+> **Note (Phase 1 pivot, ratified in v1.2):** the bridge runtime was
+> originally specified in Go but pivoted to TypeScript/Node during Phase 1
+> due to toolchain availability. The architectural contract (single reader,
+> heartbeat sentinel, session_id stamping, reconnect backoff) survived
+> 1:1; only the language differs. All Phase 2 task references below to
+> `.go` files / `go test` should be read as their TypeScript equivalents
+> (`.ts` files, `pnpm test`).
 
 **Standard Step 4 — "Run the test, confirm it passes"**
 
-Same command as Step 2; expect `Tests run: N, Failures: 0` (Java) / `ok ...` (Go) / `Test Files <n> passed` (Vitest).
+Same command as Step 2; expect `Tests run: N, Failures: 0` (Java) / `Test Files <n> passed` (Vitest, both bridge and extension).
 
 **Standard Step 5 — Commit**
 
@@ -220,7 +228,7 @@ Tasks that follow this template are flagged `[per template]`. Tasks whose Step 2
 
 **Files:**
 - Modify: `mateclaw-server/src/main/java/vip/mate/browser/edge/protocol/EdgeMessageKind.java`
-- Modify: `mateclaw-browser-bridge/internal/edgeproto/edgeproto.go`
+- Modify: `mateclaw-browser-bridge/src/internal/edgeproto/edgeproto.ts` (Phase 1 pivoted from Go to TS)
 - Modify: `mateclaw-extension/src/shared/edge-protocol.ts`
 - Modify: `docs/specs/edge-protocol.md`
 - Test: extend each of the three existing protocol tests
@@ -249,7 +257,7 @@ Tasks that follow this template are flagged `[per template]`. Tasks whose Step 2
 
 **Step 3: Add entries to `EdgeMessageKind.java`.** Pattern is the same as Phase 1 — one enum constant per row above, wire string set explicitly.
 
-**Step 4: Mirror in `edgeproto.go` and `edge-protocol.ts`.** Add the matching constants and update each unit test to assert their wire format. Add a new test that takes a JSON sample of each new kind, decodes, asserts the kind field is correct, re-encodes, and byte-compares.
+**Step 4: Mirror in `edgeproto.ts` (NH bridge) and `edge-protocol.ts` (extension).** Add the matching constants and update each unit test to assert their wire format. Add a new test that takes a JSON sample of each new kind, decodes, asserts the kind field is correct, re-encodes, and byte-compares.
 
 **Step 5: Update `docs/specs/edge-protocol.md`** with the new kinds table and payload shapes. **All envelopes targeted at a tab carry a `tab_ref` field (Codex P0-1).**
 
@@ -312,7 +320,7 @@ Bump spec header to v1.1; v1 receivers continue to ignore unknown kinds (forward
 ```bash
 git add mateclaw-server/src/main/java/vip/mate/browser/edge/protocol/EdgeMessageKind.java \
         mateclaw-server/src/test/java/vip/mate/browser/edge/protocol/EdgeMessageTest.java \
-        mateclaw-browser-bridge/internal/edgeproto/ \
+        mateclaw-browser-bridge/src/internal/edgeproto/ \
         mateclaw-extension/src/shared/edge-protocol.ts \
         mateclaw-extension/src/shared/edge-protocol.test.ts \
         docs/specs/edge-protocol.md
@@ -336,8 +344,14 @@ EOF
 - Create: `mateclaw-server/src/main/java/vip/mate/browser/edge/action/ActionKind.java`
 - Create: `mateclaw-server/src/main/java/vip/mate/browser/edge/action/ActionRequest.java`
 - Create: `mateclaw-server/src/main/java/vip/mate/browser/edge/action/ActionResult.java`
-- Create: `mateclaw-server/src/main/java/vip/mate/browser/edge/action/payloads/` (sealed subtypes)
+- Create: sealed payload subtypes flat under `mateclaw-server/src/main/java/vip/mate/browser/edge/action/` (no `payloads/` subdir — keeps Jackson discriminator paths short)
 - Test: `mateclaw-server/src/test/java/vip/mate/browser/edge/action/ActionRequestTest.java`
+
+> **Status note (v1.2 / Phase-2 Wave 0):** all five files in this list
+> already exist on `feat/browser-foundation` — created by Codex 03 + 04
+> during Phase 1 and `ActionRequest` added in Phase 2 Wave 0. The plan
+> step below describes the original design intent; the shipped code
+> matches it modulo the NAME discriminator and the flat directory layout.
 
 **Decisions:**
 
@@ -352,7 +366,7 @@ EOF
   ```
   Custom Jackson serializer emits `"main"`, `"active"`, or the long; deserializer reads the JSON node by type. Carried on every `ActionRequest`, `IndicatorRequest`, and `A11ySnapshotRequest`.
 - `ActionRequest` carries `tabRef`: `record ActionRequest(String msgId, TabRef tabRef, ActionKind kind, ActionPayload payload, long deadlineMs) {}`
-- Use Java sealed classes for the typed payload of each kind. `ActionPayload` is the sealed interface; permitted subtypes are `NavigatePayload`, `ClickPayload`, `TypePayload`, `ScrollPayload`, `MoveMousePayload`, `WaitPayload`. Jackson `@JsonTypeInfo(use=DEDUCTION)` discriminates over the outer `kind` field.
+- Use Java sealed classes for the typed payload of each kind. `ActionPayload` is the sealed interface; permitted subtypes are `NavigatePayload`, `ClickPayload`, `TypePayload`, `ScrollPayload`, `MoveMousePayload`, `WaitPayload`. **Jackson polymorphism uses `@JsonTypeInfo(use=NAME, property="kind")`** — DEDUCTION was specified in v1.0 but the Phase 1 audit (Codex 03 fix) caught that DEDUCTION cannot distinguish `ClickPayload`/`MoveMousePayload` (both have `{x,y}`) nor the empty success records. Concrete subtypes carry `@JsonTypeInfo(use=NONE)` so direct `readValue(json, Concrete.class)` still works without the discriminator.
 - **`ActionResult` is sealed (Codex P2-1)**:
   ```java
   public sealed interface ActionResult permits ActionResult.Success, ActionResult.Failure {
@@ -416,7 +430,7 @@ public record ClickPayload(
 }
 ```
 
-For Jackson polymorphism on `ActionPayload`, use Jackson's `JsonTypeInfo` with `use = DEDUCTION` (Jackson sees which subtype's fields match) — no `kind` field needed inside the payload because the outer `ActionRequest.kind` already discriminates.
+For Jackson polymorphism on `ActionPayload`, use **`@JsonTypeInfo(use=NAME, property="kind")`** with explicit `@JsonSubTypes` listing every concrete subtype. The wire format then carries `kind` both on the outer `ActionRequest` (for fast routing without parsing params) and inside `params` (for Jackson discrimination). `ActionRequest`'s compact constructor enforces that the two agree — a mismatch is a programmer error caught at the boundary. (DEDUCTION was tried first but rejected: `ClickPayload` and `MoveMousePayload` both have `{x,y}`, and the empty success records `ClickSuccess`/`ScrollSuccess` have no distinguishing fields at all.)
 
 **Step 4: Run, confirm pass.**
 
@@ -2734,7 +2748,7 @@ git commit -m "docs(browser): wire Phase 2 smoke runbook into the master smoke d
 
 **Unit / integration tests**
 - [ ] `cd mateclaw-server && mvn -q test` passes (P/F-stream tests including new F4, F5).
-- [ ] `cd mateclaw-browser-bridge && go test -race ./...` still passes (Phase 1 didn't regress; edgeproto adds new Kind constants).
+- [ ] `cd mateclaw-browser-bridge && pnpm test` still passes (Phase 1 TS pivot; edgeproto adds new Kind constants).
 - [ ] `cd mateclaw-extension && pnpm test` passes (B/C/D-stream including new B11).
 - [ ] `cd mateclaw-extension && pnpm build` produces `dist/manifest.json` listing `debugger` and `scripting` permissions and both new `content_scripts` entries with **`all_frames: false`** on each.
 
@@ -2768,7 +2782,7 @@ git commit -m "docs(browser): wire Phase 2 smoke runbook into the master smoke d
 
 **Hygiene**
 - [ ] All commits carry `Co-Authored-By: Claude Opus 4.7` trailer.
-- [ ] No file outside the planned packages was modified. `git diff <phase-1-merge-base> --stat` should only touch `mateclaw-server/src/{main,test}/java/vip/mate/browser/...`, `mateclaw-browser-bridge/internal/edgeproto/`, `mateclaw-extension/`, and `docs/`.
+- [ ] No file outside the planned packages was modified. `git diff <phase-1-merge-base> --stat` should only touch `mateclaw-server/src/{main,test}/java/vip/mate/browser/...`, `mateclaw-browser-bridge/src/internal/`, `mateclaw-extension/`, and `docs/`.
 - [ ] `2026-05-28-browser-agent-phase-2.audit-response.md` exists and every finding in it points to a real test or grep that proves the patch landed.
 
 ---
