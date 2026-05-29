@@ -81,6 +81,21 @@ class ActionExecutionServiceTest {
     }
 
     @Test
+    void actionExecutePayload_carriesMsgIdForExtensionParser() throws Exception {
+        // Regression guard: the extension's parseActionRequest reads
+        // msg.payload.msg_id and rejects the whole request (HANDLER_ERROR
+        // "malformed payload") when it is absent. The payload — not just the
+        // envelope — MUST carry msg_id alongside tab_ref/kind/params/deadline_ms.
+        service.execute(session, clickRequest("m-payload", 5_000));
+
+        EdgeMessage sent = mapper.readValue(ws.sent().get(0).getPayload(), EdgeMessage.class);
+        assertThat(sent.getKind()).isEqualTo(EdgeMessageKind.ACTION_EXECUTE);
+        assertThat(sent.getPayload())
+                .containsKeys("msg_id", "tab_ref", "kind", "params", "deadline_ms");
+        assertThat(sent.getPayload().get("msg_id")).isEqualTo("m-payload");
+    }
+
+    @Test
     void execute_resultBeforeReturn_isNotLost() throws Exception {
         ws.onSend(() -> service.deliverResult(
                 "m-race",
