@@ -1347,3 +1347,32 @@ export const approvalApi = {
     limit?: number
   }) => http.get<ResolutionLog[]>('/approval/resolutions', { params }),
 }
+
+// ==================== Browser Pairing (Phase 3.1) ====================
+
+/** Plaintext PAT + metadata returned by mint-token. Shown once, forwarded to
+ *  the extension, never displayed in the UI. Wire shape frozen in
+ *  docs/specs/phase-3.1-contract.md §3. */
+export interface BrowserPairingToken {
+  token: string
+  tokenId: string
+  expiresAt: string
+}
+
+/**
+ * Client for the /api/v1/browser/pairing/* surface (contract §3). Both calls
+ * ride the normal admin JWT via the shared `http` interceptor. mint-token is
+ * called immediately before pushing the PAT into the Chrome extension;
+ * revoke-token is a best-effort cleanup invoked on disconnect / pair failure.
+ */
+export const browserPairingApi = {
+  /** Mint a browser-scoped PAT for the logged-in user. deviceName is optional
+   *  (backend defaults to "browser-extension"). */
+  mintToken: (deviceName?: string) =>
+    http.post<BrowserPairingToken>('/browser/pairing/mint-token', { deviceName }),
+
+  /** Revoke a previously minted PAT by its tokenId. Best-effort: the UI
+   *  proceeds with unpair regardless of the outcome. */
+  revokeToken: (tokenId: string) =>
+    http.post<{ ok: boolean }>('/browser/pairing/revoke-token', { tokenId }),
+}
