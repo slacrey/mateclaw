@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import vip.mate.auth.service.AccountEntitlementService;
 import vip.mate.exception.MateClawException;
 import vip.mate.i18n.I18nService;
 import vip.mate.wiki.service.WikiKnowledgeBaseService;
@@ -42,6 +43,7 @@ public class WorkspaceService {
     private final ConversationMapper conversationMapper;
     private final WikiKnowledgeBaseService wikiKnowledgeBaseService;
     private final I18nService i18n;
+    private final AccountEntitlementService entitlementService;
 
     /** 默认工作区 slug */
     public static final String DEFAULT_SLUG = "default";
@@ -271,10 +273,12 @@ public class WorkspaceService {
         if (existing != null) {
             throw new MateClawException("err.workspace.member_exists", 409, "用户已经是该工作区的成员");
         }
+        String normalizedRole = normalizeAssignableRole(role);
+        entitlementService.assertCanAddSubAccount(workspaceId);
         WorkspaceMemberEntity member = new WorkspaceMemberEntity();
         member.setWorkspaceId(workspaceId);
         member.setUserId(userId);
-        member.setRole(normalizeAssignableRole(role));
+        member.setRole(normalizedRole);
         memberMapper.insert(member);
         evictMembershipCache(workspaceId, userId);
         log.info("Added member to workspace: userId={}, workspaceId={}, role={}", userId, workspaceId, member.getRole());
