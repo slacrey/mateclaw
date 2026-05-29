@@ -10,11 +10,12 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.time.Duration;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Rate limiter for login endpoint — prevents brute force attacks.
- * Allows max 5 login attempts per IP per minute.
+ * Rate limiter for anonymous auth endpoints — prevents brute force attacks.
+ * Allows max 5 attempts per IP per minute.
  *
  * @author MateClaw Team
  */
@@ -23,7 +24,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class LoginRateLimitFilter implements Filter {
 
     private static final int MAX_ATTEMPTS = 5;
-    private static final String LOGIN_PATH = "/api/v1/auth/login";
+    private static final Set<String> AUTH_PATHS = Set.of(
+            "/api/v1/auth/login",
+            "/api/v1/auth/register"
+    );
 
     /** IP → attempt count, auto-expires after 1 minute */
     private final Cache<String, AtomicInteger> attempts = Caffeine.newBuilder()
@@ -36,17 +40,18 @@ public class LoginRateLimitFilter implements Filter {
             throws IOException, ServletException {
         HttpServletRequest httpReq = (HttpServletRequest) request;
 
-        if ("POST".equalsIgnoreCase(httpReq.getMethod()) && LOGIN_PATH.equals(httpReq.getRequestURI())) {
+        if ("POST".equalsIgnoreCase(httpReq.getMethod()) && AUTH_PATHS.contains(httpReq.getRequestURI())) {
             String ip = getClientIp(httpReq);
             AtomicInteger count = attempts.get(ip, k -> new AtomicInteger(0));
             int current = count.incrementAndGet();
 
             if (current > MAX_ATTEMPTS) {
-                log.warn("[RateLimit] Login rate limit exceeded for IP: {} (attempts: {})", ip, current);
+                log.warn("[RateLimit] Auth rate limit exceeded for IP: {} path={} attempts={}",
+                        ip, httpReq.getRequestURI(), current);
                 HttpServletResponse httpResp = (HttpServletResponse) response;
                 httpResp.setStatus(429);
                 httpResp.setContentType("application/json;charset=UTF-8");
-                httpResp.getWriter().write("{\"code\":429,\"msg\":\"Too many login attempts, please try again later\",\"data\":null}");
+                httpResp.getWriter().write("{\"code\":429,\"msg\":\"Too many authentication attempts, please try again later\",\"data\":null}");
                 return;
             }
         }

@@ -94,6 +94,18 @@ class AuthServiceRegisterTest {
     }
 
     @Test
+    void registerRejectsMissingVerificationCode() {
+        RegisterRequest request = validRequest();
+        request.setCode(null);
+
+        MateClawException ex = assertThrows(MateClawException.class, () -> authService.register(request));
+
+        assertEquals("err.auth.invalid_verification_code", ex.getMsgKey());
+        verify(userMapper, never()).insert(any(UserEntity.class));
+        verifyNoInteractions(workspaceService);
+    }
+
+    @Test
     void registerRejectsInvalidPhone() {
         RegisterRequest request = validRequest();
         request.setPhone("555-abc-1212");

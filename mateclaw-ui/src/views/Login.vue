@@ -6,8 +6,31 @@
         <h1 class="logo-title">Mate<span class="logo-title-highlight">Claw</span></h1>
       </div>
 
-      <form class="login-form" @submit.prevent="handleLogin">
-        <div class="input-wrap">
+      <form class="login-form" @submit.prevent="handleSubmit">
+        <div class="auth-mode-tabs" role="tablist" :aria-label="t('login.modeLabel')">
+          <button
+            type="button"
+            class="auth-mode-tab"
+            :class="{ active: mode === 'login' }"
+            role="tab"
+            :aria-selected="mode === 'login'"
+            @click="switchMode('login')"
+          >
+            {{ t('login.signIn') }}
+          </button>
+          <button
+            type="button"
+            class="auth-mode-tab"
+            :class="{ active: mode === 'register' }"
+            role="tab"
+            :aria-selected="mode === 'register'"
+            @click="switchMode('register')"
+          >
+            {{ t('login.register') }}
+          </button>
+        </div>
+
+        <div v-if="mode === 'login'" class="input-wrap">
           <input
             v-model="form.username"
             type="text"
@@ -19,9 +42,47 @@
           />
         </div>
 
+        <template v-else>
+          <div class="input-wrap">
+            <input
+              v-model="registerForm.phone"
+              type="tel"
+              class="form-input"
+              :placeholder="t('login.placeholders.phone')"
+              :aria-label="t('login.fields.phone')"
+              autocomplete="tel"
+              required
+            />
+          </div>
+
+          <div class="input-wrap">
+            <input
+              v-model="registerForm.code"
+              type="text"
+              inputmode="numeric"
+              class="form-input"
+              :placeholder="t('login.placeholders.code')"
+              :aria-label="t('login.fields.code')"
+              autocomplete="one-time-code"
+              required
+            />
+          </div>
+
+          <div class="input-wrap">
+            <input
+              v-model="registerForm.nickname"
+              type="text"
+              class="form-input"
+              :placeholder="t('login.placeholders.nickname')"
+              :aria-label="t('login.fields.nickname')"
+              autocomplete="nickname"
+            />
+          </div>
+        </template>
+
         <div class="input-wrap">
           <input
-            v-model="form.password"
+            v-model="activePassword"
             :type="showPassword ? 'text' : 'password'"
             class="form-input form-input--has-eye"
             :placeholder="t('login.placeholders.password')"
@@ -44,7 +105,7 @@
         <div v-if="errorMsg" class="error-msg">{{ errorMsg }}</div>
 
         <button type="submit" class="login-btn" :disabled="loading">
-          <span v-if="!loading">{{ t('login.signIn') }}</span>
+          <span v-if="!loading">{{ mode === 'login' ? t('login.signIn') : t('login.register') }}</span>
           <span v-else class="loading-dots">
             <span></span><span></span><span></span>
           </span>
@@ -57,7 +118,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { authApi } from '@/api/index'
@@ -69,7 +130,49 @@ const workspaceStore = useWorkspaceStore()
 const loading = ref(false)
 const showPassword = ref(false)
 const errorMsg = ref('')
+const mode = ref<'login' | 'register'>('login')
 const form = reactive({ username: '', password: '' })
+const registerForm = reactive({ phone: '', code: '888888', password: '', nickname: '' })
+
+const activePassword = computed({
+  get: () => mode.value === 'login' ? form.password : registerForm.password,
+  set: (value: string) => {
+    if (mode.value === 'login') {
+      form.password = value
+    } else {
+      registerForm.password = value
+    }
+  },
+})
+
+function switchMode(nextMode: 'login' | 'register') {
+  mode.value = nextMode
+  errorMsg.value = ''
+}
+
+async function finishAuth(data: any, fallbackUsername: string) {
+  localStorage.setItem('token', data.token)
+  localStorage.setItem('userId', String(data.id || '1'))
+  localStorage.setItem('username', data.username || fallbackUsername)
+  localStorage.setItem('role', data.role || 'user')
+  // Resolve capabilities before deciding the landing route so a viewer
+  // lands on /chat (their only capability) and member+ on /dashboard.
+  try {
+    await workspaceStore.fetchWorkspaces()
+  } catch {
+    /* default-deny is fine; router guard will still steer */
+  }
+  const target = workspaceStore.can('view:dashboard') ? '/dashboard' : '/chat'
+  router.push(target)
+}
+
+async function handleSubmit() {
+  if (mode.value === 'login') {
+    await handleLogin()
+  } else {
+    await handleRegister()
+  }
+}
 
 async function handleLogin() {
   if (!form.username || !form.password) return
@@ -78,21 +181,30 @@ async function handleLogin() {
   try {
     const res: any = await authApi.login(form)
     const data = res.data || res
-    localStorage.setItem('token', data.token)
-    localStorage.setItem('userId', String(data.id || '1'))
-    localStorage.setItem('username', data.username || form.username)
-    localStorage.setItem('role', data.role || 'user')
-    // Resolve capabilities before deciding the landing route so a viewer
-    // lands on /chat (their only capability) and member+ on /dashboard.
-    try {
-      await workspaceStore.fetchWorkspaces()
-    } catch {
-      /* default-deny is fine; router guard will still steer */
-    }
-    const target = workspaceStore.can('view:dashboard') ? '/dashboard' : '/chat'
-    router.push(target)
+    await finishAuth(data, form.username)
   } catch (e: any) {
-    errorMsg.value = typeof e === 'string' ? e : t('login.failed')
+    errorMsg.value = e?.message || t('login.failed')
+  } finally {
+    loading.value = false
+  }
+}
+
+async function handleRegister() {
+  if (!registerForm.phone || !registerForm.code || !registerForm.password) return
+  loading.value = true
+  errorMsg.value = ''
+  try {
+    const payload = {
+      phone: registerForm.phone,
+      code: registerForm.code,
+      password: registerForm.password,
+      nickname: registerForm.nickname || undefined,
+    }
+    const res: any = await authApi.register(payload)
+    const data = res.data || res
+    await finishAuth(data, registerForm.phone)
+  } catch (e: any) {
+    errorMsg.value = e?.message || t('login.registerFailed')
   } finally {
     loading.value = false
   }
@@ -157,6 +269,39 @@ html.dark .login-page {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.auth-mode-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  background: var(--mc-bg-sunken);
+  border: 1px solid var(--mc-border);
+  border-radius: 12px;
+}
+
+.auth-mode-tab {
+  height: 36px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--mc-text-secondary);
+  background: transparent;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.18s, background 0.18s, box-shadow 0.18s;
+}
+
+.auth-mode-tab.active {
+  color: var(--mc-text-primary);
+  background: var(--mc-bg-elevated);
+  box-shadow: 0 2px 8px rgba(39, 31, 27, 0.08);
+}
+
+.auth-mode-tab:focus-visible {
+  outline: 2px solid var(--mc-primary);
+  outline-offset: 2px;
 }
 
 .input-wrap {

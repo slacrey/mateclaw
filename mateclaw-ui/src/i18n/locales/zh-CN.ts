@@ -2726,14 +2726,23 @@ export default {
     fields: {
       username: '用户名',
       password: '密码',
+      phone: '手机号',
+      code: '验证码',
+      nickname: '昵称',
     },
     placeholders: {
       username: '请输入用户名',
       password: '请输入密码',
+      phone: '请输入手机号',
+      code: '请输入验证码',
+      nickname: '昵称（可选）',
     },
+    modeLabel: '认证方式',
     signIn: '登录',
+    register: '注册',
     hint: '默认账号: <code>admin</code> / <code>admin123</code>',
     failed: '登录失败，请检查账号密码',
+    registerFailed: '注册失败，请检查手机号和验证码',
   },
   enterprise: {
     eyebrow: '企业场景',

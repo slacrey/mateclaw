@@ -7,6 +7,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import vip.mate.auth.model.LoginRequest;
 import vip.mate.auth.model.LoginResponse;
+import vip.mate.auth.model.RegisterRequest;
 import vip.mate.auth.model.UserEntity;
 import vip.mate.auth.service.AuthService;
 import vip.mate.common.result.R;
@@ -32,6 +33,12 @@ public class AuthController {
     @PostMapping("/login")
     public R<LoginResponse> login(@RequestBody LoginRequest request) {
         return R.ok(authService.login(request));
+    }
+
+    @Operation(summary = "手机号注册")
+    @PostMapping("/register")
+    public R<LoginResponse> register(@RequestBody RegisterRequest request) {
+        return R.ok(authService.register(request));
     }
 
     @Operation(summary = "获取用户列表")

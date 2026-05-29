@@ -2714,14 +2714,23 @@ export default {
     fields: {
       username: 'Username',
       password: 'Password',
+      phone: 'Phone',
+      code: 'Verification code',
+      nickname: 'Nickname',
     },
     placeholders: {
       username: 'Enter username',
       password: 'Enter password',
+      phone: 'Enter phone number',
+      code: 'Verification code',
+      nickname: 'Nickname (optional)',
     },
+    modeLabel: 'Authentication mode',
     signIn: 'Sign In',
+    register: 'Register',
     hint: 'Default: <code>admin</code> / <code>admin123</code>',
     failed: 'Login failed. Please check your credentials.',
+    registerFailed: 'Registration failed. Please check your phone and code.',
   },
   enterprise: {
     eyebrow: 'Enterprise',

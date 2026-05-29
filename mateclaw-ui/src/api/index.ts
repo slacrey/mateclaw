@@ -93,6 +93,8 @@ export async function fetchAuthenticatedBlob(fileUrl: string): Promise<Blob> {
 export const authApi = {
   login: (data: { username: string; password: string }) =>
     http.post('/auth/login', data),
+  register: (data: { phone: string; code: string; password: string; nickname?: string }) =>
+    http.post('/auth/register', data),
   listUsers: () => http.get('/auth/users'),
   createUser: (data: any) => http.post('/auth/users', data),
   changePassword: (id: string | number, oldPassword: string, newPassword: string) =>
