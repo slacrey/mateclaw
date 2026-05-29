@@ -328,10 +328,25 @@ public class ExtensionBrowserTool {
     // -----------------------------------------------------------------
 
     /** Resolve the active extension session for this tenant. Phase 4 will accept the
-     *  subject from ToolContext; Phase 3 uses a single configured subject. */
+     *  subject from ToolContext; Phase 3 uses a single configured subject with a
+     *  single-session fallback (below). */
     private BrowserSession resolveSession() {
         Optional<BrowserSession> s = registry.findBySubject(defaultSubject);
-        return s.orElse(null);
+        if (s.isPresent()) {
+            return s.get();
+        }
+        // Phase 3 single-session-per-tenant fallback. The edge session is
+        // registered under the authenticated user's subject (the PAT/JWT userId,
+        // e.g. "1"), NOT the configured `defaultSubject` ("default"). Until Phase 4
+        // resolves the subject from ToolContext's auth principal, when exactly one
+        // browser is connected we target it. With more than one live session this
+        // stays strict (returns null) rather than risk driving the wrong user's
+        // browser.
+        var all = registry.snapshot();
+        if (all.size() == 1) {
+            return registry.find(all.getFirst().sessionId()).orElse(null);
+        }
+        return null;
     }
 
     /** Execute the given list of action requests sequentially via PlanExecutionService.
@@ -360,9 +375,13 @@ public class ExtensionBrowserTool {
     }
 
     private String noSession() {
-        return error("NO_SESSION",
-                "no extension session registered for subject '" + defaultSubject
-                        + "'. Has the user opened the MateClaw sidepanel and clicked Ping?");
+        int live = registry.size();
+        String detail = live > 1
+                ? "multiple browsers are connected (" + live + "); per-user routing lands in"
+                        + " Phase 4. Connect exactly one browser for now."
+                : "no browser is connected. Open the MateClaw admin UI → Settings → Browser"
+                        + " and click \"Connect Browser\" (or paste a PAT in the extension sidepanel).";
+        return error("NO_SESSION", detail);
     }
 
     private String error(String code, String message) {

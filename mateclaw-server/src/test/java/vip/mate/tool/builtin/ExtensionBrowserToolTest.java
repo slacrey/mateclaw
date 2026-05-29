@@ -13,6 +13,7 @@ import vip.mate.browser.edge.action.NavigateSuccess;
 import vip.mate.browser.edge.action.TabRef;
 import vip.mate.browser.edge.session.BrowserSession;
 import vip.mate.browser.edge.session.BrowserSessionRegistry;
+import vip.mate.browser.edge.session.BrowserSessionView;
 import vip.mate.browser.orchestrator.ActionPlanner;
 import vip.mate.browser.orchestrator.GroundingDispatcher;
 import vip.mate.browser.orchestrator.PlanExecutionService;
@@ -81,6 +82,44 @@ class ExtensionBrowserToolTest {
     @Test
     void allTools_returnNO_SESSION_whenNoSubjectMatch() throws Exception {
         when(registry.findBySubject("default")).thenReturn(Optional.empty());
+
+        String out = tool.extension_browser_navigate("https://example.com", null, null);
+
+        JsonNode j = mapper.readTree(out);
+        assertThat(j.get("ok").asBoolean()).isFalse();
+        assertThat(j.get("code").asText()).isEqualTo("NO_SESSION");
+        verify(planExec, never()).execute(any(), any());
+    }
+
+    @Test
+    void resolveSession_fallsBackToSingleLiveSession_whenSubjectMisses() throws Exception {
+        // Real edge sessions register under the authed user's id (e.g. "1"), not
+        // the configured "default". With exactly one browser connected the tool
+        // should target it rather than fail NO_SESSION.
+        when(registry.findBySubject("default")).thenReturn(Optional.empty());
+        when(registry.snapshot()).thenReturn(List.of(
+                new BrowserSessionView("sess-1", "1", "0.1.0", java.time.Instant.now())));
+        when(registry.find("sess-1")).thenReturn(Optional.of(session));
+        when(planExec.execute(any(), any())).thenReturn(Mono.just((PlanResult)
+                new PlanResult.Success(List.of(new ActionResult.Success(10L,
+                        new NavigateSuccess("https://example.com", 200, "load"))))));
+
+        String out = tool.extension_browser_navigate("https://example.com", null, null);
+
+        JsonNode j = mapper.readTree(out);
+        assertThat(j.get("ok").asBoolean()).isTrue();
+        verify(planExec).execute(any(), any());
+    }
+
+    @Test
+    void resolveSession_staysStrict_whenMultipleSessionsAndSubjectMisses() throws Exception {
+        // Ambiguous: more than one browser connected and none match the subject.
+        // Don't guess — return NO_SESSION until Phase 4 resolves per-user routing.
+        when(registry.findBySubject("default")).thenReturn(Optional.empty());
+        when(registry.size()).thenReturn(2);
+        when(registry.snapshot()).thenReturn(List.of(
+                new BrowserSessionView("sess-1", "1", "0.1.0", java.time.Instant.now()),
+                new BrowserSessionView("sess-2", "2", "0.1.0", java.time.Instant.now())));
 
         String out = tool.extension_browser_navigate("https://example.com", null, null);
 
