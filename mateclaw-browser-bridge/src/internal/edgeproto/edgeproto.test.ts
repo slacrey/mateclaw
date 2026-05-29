@@ -98,6 +98,16 @@ describe('edgeproto', () => {
     }
   })
 
+  it('serialises v1.2 screenshot.capture.request to exact wire string', () => {
+    const parsed = JSON.parse(JSON.stringify(make({ kind: Kind.ScreenshotCaptureRequest })))
+    expect(parsed.kind).toBe('screenshot.capture.request')
+  })
+
+  it('serialises v1.2 screenshot.capture.response to exact wire string', () => {
+    const parsed = JSON.parse(JSON.stringify(make({ kind: Kind.ScreenshotCaptureResponse })))
+    expect(parsed.kind).toBe('screenshot.capture.response')
+  })
+
   it('round-trips action.execute envelope through parse()', () => {
     const msg = make({
       kind: Kind.ActionExecute,
@@ -128,6 +138,42 @@ describe('edgeproto', () => {
     const back = parse(JSON.stringify(msg))
     expect(back).not.toBeNull()
     expect(back!.kind).toBe(Kind.A11ySnapshotResponse)
+  })
+
+  it('round-trips screenshot.capture.request envelope through parse()', () => {
+    const msg = make({
+      kind: Kind.ScreenshotCaptureRequest,
+      payload: {
+        tab_ref: 'main',
+        format: 'png',
+        quality: 90,
+        scale_factor: 1,
+      },
+    })
+    const back = parse(JSON.stringify(msg))
+    expect(back).not.toBeNull()
+    expect(back!.kind).toBe(Kind.ScreenshotCaptureRequest)
+    expect((back!.payload as Record<string, unknown>)['tab_ref']).toBe('main')
+  })
+
+  it('round-trips screenshot.capture.response envelope through parse()', () => {
+    const msg = make({
+      kind: Kind.ScreenshotCaptureResponse,
+      sessionId: '',
+      payload: {
+        snapshot_id: 'shot-1',
+        captured_at_ms: 1730000000123,
+        tab_ref: 42,
+        format: 'png',
+        data_base64: 'iVBORw0KGgoAAAANS',
+        viewport: { w: 1280, h: 800 },
+        actual_dimensions: { w: 1280, h: 800 },
+      },
+    })
+    const back = parse(JSON.stringify(msg))
+    expect(back).not.toBeNull()
+    expect(back!.kind).toBe(Kind.ScreenshotCaptureResponse)
+    expect(back!.session_id).toBe('')
   })
 
   it('round-trips event.tab.closed envelope through parse()', () => {

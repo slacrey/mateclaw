@@ -33,6 +33,9 @@ export const Kind = {
   // v1.1 — accessibility tree snapshot
   A11ySnapshotRequest: 'a11y.snapshot.request',
   A11ySnapshotResponse: 'a11y.snapshot.response',
+  // v1.2 — screenshot capture (Phase 3 T3.2)
+  ScreenshotCaptureRequest: 'screenshot.capture.request',
+  ScreenshotCaptureResponse: 'screenshot.capture.response',
   // v1.1 — unsolicited page-lifecycle events
   EventPageNavigated: 'event.page.navigated',
   EventTabClosed: 'event.tab.closed',

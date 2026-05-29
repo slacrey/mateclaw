@@ -1,13 +1,16 @@
-# MateClaw Edge Protocol v1.1
+# MateClaw Edge Protocol v1.2
 
 Canonical wire format between Control Plane, Native Host, and Extension.
 JSON over Chrome Native Messaging (Extension ↔ Native Host) and JSON-text-frame
 over WebSocket (Native Host ↔ Control Plane).
 
 **v1.1 (Phase 2 P-stream)** adds atomic browser actions, visual indicators,
-accessibility-tree snapshots, and unsolicited page-lifecycle events. The
-envelope is unchanged; v1.0 receivers continue to forward-compat ignore the
-new kinds, so this bump is fully backward-compatible.
+accessibility-tree snapshots, and unsolicited page-lifecycle events.
+
+**v1.2 (Phase 3 T3.2)** adds screenshot capture request/response kinds for
+VisionEngine's base64 PNG input channel. The envelope is unchanged; older
+receivers continue to forward-compat ignore the new kinds, so this bump is
+fully backward-compatible.
 
 ## Envelope
 
@@ -72,6 +75,15 @@ specific tab carries a `tab_ref` field — see [TabRef](#tabref) below.
 | `event.page.navigated` | Ext → NH → CP | tab navigated (page loaded) |
 | `event.tab.closed` | Ext → NH → CP | tab the session was using was closed |
 
+## EdgeMessageKind — v1.2 additions (Phase 3 T3.2)
+
+Two new kinds carry screenshot capture requests and base64 PNG responses.
+
+| kind | direction | summary |
+|---|---|---|
+| `screenshot.capture.request` | CP → NH → Ext | request a base64 PNG of the current tab |
+| `screenshot.capture.response` | Ext → NH → CP | base64 PNG payload + viewport metadata |
+
 ### TabRef
 
 `tab_ref` is the connection between a v1.1 envelope and a physical Chrome
@@ -84,7 +96,8 @@ tab. Three forms accepted on the wire:
 ```
 
 If neither `"main"` nor `"active"` resolution succeeds, the SW emits
-`action.result` / `a11y.snapshot.response` Failure with `code: "NO_TARGET_TAB"`.
+`action.result` / `a11y.snapshot.response` / `screenshot.capture.response`
+Failure with `code: "NO_TARGET_TAB"`.
 
 On the Java side, `TabRef` is a sealed interface (`TabRef.Main`,
 `TabRef.Active`, `TabRef.Explicit(long tabId)`) with a custom Jackson
@@ -170,6 +183,52 @@ when present, the response includes only the subtree rooted at that ref.
 ```
 `tab_ref` is **echoed as the resolved tab id** so the CP can update its
 freshness map keyed by absolute tab id.
+
+### v1.2 payload shapes
+
+**`screenshot.capture.request`**:
+```json
+{
+  "tab_ref": "main",
+  "format": "png",                  // future: webp / jpeg with quality
+  "quality": 90,                    // ignored for png; spec for future jpeg
+  "scale_factor": 1                 // 1 = native pixel; >1 = downscale for vision LLM token budget
+}
+```
+
+**`screenshot.capture.response`** (success):
+```json
+{
+  "snapshot_id": "shot-uuid",
+  "captured_at_ms": 1730000000123,
+  "tab_ref": 42,                    // resolved tab id echoed
+  "format": "png",
+  "data_base64": "iVBORw0KGgoAAAANS...",  // ≤500 KB encoded; SW must reject larger
+  "viewport": { "w": 1280, "h": 800 },
+  "actual_dimensions": { "w": 1280, "h": 800 }  // post-scale_factor
+}
+```
+
+**`screenshot.capture.response`** (failure shape — same envelope, different keys):
+```json
+{
+  "snapshot_id": "shot-uuid",
+  "captured_at_ms": 1730000000123,
+  "tab_ref": -1,
+  "error": {
+    "code": "NO_TARGET_TAB | SCREENSHOT_TOO_LARGE | PERMISSION_DENIED",
+    "message": "..."
+  }
+}
+```
+
+Screenshot capture error codes:
+
+| code | Meaning |
+|---|---|
+| `NO_TARGET_TAB` | `tab_ref` resolution failed |
+| `SCREENSHOT_TOO_LARGE` | Base64 payload exceeded 500 KB; Native Messaging has a 1 MB frame cap, so half is reserved for envelope overhead |
+| `PERMISSION_DENIED` | `chrome.tabs.captureVisibleTab` failed on a restricted page such as `chrome://` |
 
 **`event.page.navigated`** (Ext → CP):
 ```json
@@ -283,7 +342,7 @@ Auth failures are split into two distinct planes:
 A receiver MUST silently log-and-drop any envelope whose `kind` is not in
 its known set (subject to `v` matching). Unknown kinds MUST NOT close the
 connection. This invariant keeps v1.0 receivers compatible with v1.1
-senders (and keeps v1.1 receivers compatible with Phase 3+ senders).
+senders, and keeps v1.1 receivers compatible with v1.2/Phase 3+ senders.
 
 The three runtime mirrors (`EdgeMessageKind.java`,
 `mateclaw-browser-bridge/src/internal/edgeproto/edgeproto.ts`,

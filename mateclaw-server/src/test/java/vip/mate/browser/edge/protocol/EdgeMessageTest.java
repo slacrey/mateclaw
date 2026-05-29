@@ -85,6 +85,16 @@ class EdgeMessageTest {
     }
 
     @Test
+    void v12_screenshotCaptureRequest_hasExactWireString() {
+        assertThat(EdgeMessageKind.SCREENSHOT_CAPTURE_REQUEST.wire()).isEqualTo("screenshot.capture.request");
+    }
+
+    @Test
+    void v12_screenshotCaptureResponse_hasExactWireString() {
+        assertThat(EdgeMessageKind.SCREENSHOT_CAPTURE_RESPONSE.wire()).isEqualTo("screenshot.capture.response");
+    }
+
+    @Test
     void v11_eventKinds_haveExactWireStrings() {
         assertThat(EdgeMessageKind.EVENT_PAGE_NAVIGATED.wire()).isEqualTo("event.page.navigated");
         assertThat(EdgeMessageKind.EVENT_TAB_CLOSED.wire()).isEqualTo("event.tab.closed");
@@ -141,6 +151,47 @@ class EdgeMessageTest {
 
         assertThat(json).contains("\"kind\":\"a11y.snapshot.response\"");
         assertThat(back.getKind()).isEqualTo(EdgeMessageKind.A11Y_SNAPSHOT_RESPONSE);
+    }
+
+    @Test
+    void v12_screenshotCaptureRequest_roundTrips() throws Exception {
+        EdgeMessage msg = EdgeMessage.builder()
+                .v(1).msgId("m5").kind(EdgeMessageKind.SCREENSHOT_CAPTURE_REQUEST).ts(5L).traceId("t5").sessionId("s")
+                .payload(Map.of(
+                        "tab_ref", "main",
+                        "format", "png",
+                        "quality", 90,
+                        "scale_factor", 1))
+                .build();
+
+        String json = mapper.writeValueAsString(msg);
+        EdgeMessage back = mapper.readValue(json, EdgeMessage.class);
+
+        assertThat(json).contains("\"kind\":\"screenshot.capture.request\"");
+        assertThat(back.getKind()).isEqualTo(EdgeMessageKind.SCREENSHOT_CAPTURE_REQUEST);
+        assertThat(back.getPayload()).containsEntry("tab_ref", "main");
+    }
+
+    @Test
+    void v12_screenshotCaptureResponse_roundTrips() throws Exception {
+        EdgeMessage msg = EdgeMessage.builder()
+                .v(1).msgId("m6").kind(EdgeMessageKind.SCREENSHOT_CAPTURE_RESPONSE).ts(6L).traceId("t6").sessionId("")
+                .payload(Map.of(
+                        "snapshot_id", "shot-1",
+                        "captured_at_ms", 1730000000123L,
+                        "tab_ref", 42,
+                        "format", "png",
+                        "data_base64", "iVBORw0KGgoAAAANS",
+                        "viewport", Map.of("w", 1280, "h", 800),
+                        "actual_dimensions", Map.of("w", 1280, "h", 800)))
+                .build();
+
+        String json = mapper.writeValueAsString(msg);
+        EdgeMessage back = mapper.readValue(json, EdgeMessage.class);
+
+        assertThat(json).contains("\"kind\":\"screenshot.capture.response\"");
+        assertThat(back.getKind()).isEqualTo(EdgeMessageKind.SCREENSHOT_CAPTURE_RESPONSE);
+        assertThat(back.getSessionId()).isEmpty();
     }
 
     @Test

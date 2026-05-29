@@ -49,6 +49,18 @@ public enum EdgeMessageKind {
     A11Y_SNAPSHOT_RESPONSE("a11y.snapshot.response"),
 
     // -----------------------------------------------------------------
+    // Protocol v1.2 — screenshot capture (Phase 3 T3.2)
+    //
+    // CP → NH → Ext: screenshot.capture.request
+    // Ext → NH → CP: screenshot.capture.response
+    // Response carries base64-encoded PNG; large payloads (>500 KB at the
+    // 1MB NM cap) should fail Failure(SCREENSHOT_TOO_LARGE) rather than
+    // truncate.
+    // -----------------------------------------------------------------
+    SCREENSHOT_CAPTURE_REQUEST("screenshot.capture.request"),
+    SCREENSHOT_CAPTURE_RESPONSE("screenshot.capture.response"),
+
+    // -----------------------------------------------------------------
     // Protocol v1.1 — unsolicited page-lifecycle events from Ext → CP
     // -----------------------------------------------------------------
     EVENT_PAGE_NAVIGATED("event.page.navigated"),

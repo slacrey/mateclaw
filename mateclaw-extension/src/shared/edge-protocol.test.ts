@@ -71,6 +71,14 @@ describe('edge-protocol', () => {
     expect(EdgeMessageKind.EventTabClosed).toBe('event.tab.closed')
   })
 
+  it('v1.2 screenshot.capture.request has exact wire string', () => {
+    expect(EdgeMessageKind.ScreenshotCaptureRequest).toBe('screenshot.capture.request')
+  })
+
+  it('v1.2 screenshot.capture.response has exact wire string', () => {
+    expect(EdgeMessageKind.ScreenshotCaptureResponse).toBe('screenshot.capture.response')
+  })
+
   it('v1.1 action.execute round-trips with tab_ref payload', () => {
     const m = makeEdgeMessage({
       kind: EdgeMessageKind.ActionExecute,
@@ -110,5 +118,40 @@ describe('edge-protocol', () => {
     const back = parseEdgeMessage(JSON.stringify(m))
     expect(back).not.toBeNull()
     expect(back!.kind).toBe(EdgeMessageKind.A11ySnapshotResponse)
+  })
+
+  it('v1.2 screenshot.capture.request round-trips', () => {
+    const m = makeEdgeMessage({
+      kind: EdgeMessageKind.ScreenshotCaptureRequest,
+      payload: {
+        tab_ref: 'main',
+        format: 'png',
+        quality: 90,
+        scale_factor: 1,
+      },
+    })
+    const back = parseEdgeMessage(JSON.stringify(m))
+    expect(back).not.toBeNull()
+    expect(back!.kind).toBe(EdgeMessageKind.ScreenshotCaptureRequest)
+    expect((back!.payload as Record<string, unknown>)['tab_ref']).toBe('main')
+  })
+
+  it('v1.2 screenshot.capture.response round-trips with session_id="" invariant', () => {
+    const m = makeEdgeMessage({
+      kind: EdgeMessageKind.ScreenshotCaptureResponse,
+      payload: {
+        snapshot_id: 'shot-1',
+        captured_at_ms: 1730000000123,
+        tab_ref: 42,
+        format: 'png',
+        data_base64: 'iVBORw0KGgoAAAANS',
+        viewport: { w: 1280, h: 800 },
+        actual_dimensions: { w: 1280, h: 800 },
+      },
+    })
+    const back = parseEdgeMessage(JSON.stringify(m))
+    expect(back).not.toBeNull()
+    expect(back!.kind).toBe(EdgeMessageKind.ScreenshotCaptureResponse)
+    expect(back!.session_id).toBe('')
   })
 })

@@ -11,6 +11,7 @@ import { ActionExecutor, type ActionHandlers } from './action/ActionExecutor'
 import { TabRefResolver } from './action/tab-ref-resolver'
 import { ActionRouter } from './action/action-router'
 import { SnapshotRequestHandler } from './snapshot-request-handler'
+import { ScreenshotCaptureHandler } from './screenshot-capture-handler'
 import { VisualCoordinator } from './visual-coordinator'
 import { navigateHandler } from './action/handlers/navigate'
 import { clickHandler } from './action/handlers/click'
@@ -114,6 +115,11 @@ const snapshotHandler = new SnapshotRequestHandler({
   sendUp,
 })
 
+const screenshotCaptureHandler = new ScreenshotCaptureHandler({
+  resolver,
+  sendUp,
+})
+
 const visualCoordinator = new VisualCoordinator({
   resolver,
   sendUp,
@@ -139,6 +145,12 @@ bridge.onMessage(m => {
   if (m.kind === EdgeMessageKind.A11ySnapshotRequest) {
     snapshotHandler.handle(m).catch(e => {
       console.error('[mateclaw][sw] SnapshotRequestHandler.handle threw', e)
+    })
+  }
+
+  if (m.kind === EdgeMessageKind.ScreenshotCaptureRequest) {
+    screenshotCaptureHandler.handle(m).catch(e => {
+      console.error('[mateclaw][sw] ScreenshotCaptureHandler.handle threw', e)
     })
   }
 
