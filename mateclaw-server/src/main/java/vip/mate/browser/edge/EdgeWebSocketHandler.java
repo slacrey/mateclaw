@@ -138,27 +138,50 @@ public class EdgeWebSocketHandler extends TextWebSocketHandler implements SubPro
                 "server_version", serverVersion,
                 "heartbeat_interval_ms", (int) HEARTBEAT_INTERVAL_MS
         ));
-        send(ws, ack);
+        // Send via the session's concurrency-safe decorated ws (same instance
+        // every other component sends through), not the raw handshake socket.
+        send(session.getWs(), ack);
     }
 
     private void onHeartbeat(WebSocketSession ws, EdgeMessage hb) throws Exception {
         if (!validSession(ws, hb)) return;
         registry.heartbeat(hb.getSessionId());
-        send(ws, reply(hb, EdgeMessageKind.HEARTBEAT_ACK, Map.of()));
+        send(sessionWs(hb.getSessionId(), ws), reply(hb, EdgeMessageKind.HEARTBEAT_ACK, Map.of()));
     }
 
     private void onPing(WebSocketSession ws, EdgeMessage ping) throws Exception {
         if (!validSession(ws, ping)) return;
         Object echo = ping.getPayload().getOrDefault("echo", "");
-        send(ws, reply(ping, EdgeMessageKind.PONG, Map.of(
+        send(sessionWs(ping.getSessionId(), ws), reply(ping, EdgeMessageKind.PONG, Map.of(
                 "echo", echo,
                 "server_ts", Instant.now().toEpochMilli()
         )));
     }
 
+    /** The session's concurrency-safe (decorated) ws, falling back to the raw
+     *  socket when no session is registered (pre-hello / error paths). */
+    private WebSocketSession sessionWs(String sessionId, WebSocketSession fallback) {
+        return registry.find(sessionId).map(BrowserSession::getWs).orElse(fallback);
+    }
+
     private void onActionResult(WebSocketSession ws, EdgeMessage msg) throws Exception {
         if (!validSession(ws, msg)) return;
-        ActionResult result = mapper.convertValue(msg.getPayload(), ActionResult.class);
+        ActionResult result;
+        try {
+            result = mapper.convertValue(msg.getPayload(), ActionResult.class);
+        } catch (Exception e) {
+            // A malformed action.result must NOT close the WebSocket — letting the
+            // exception propagate makes Spring close the socket (1011), which
+            // detaches the whole session and turns one bad result into a cascade
+            // of SESSION_DETACHED failures. Deliver a typed failure for this one
+            // action instead and keep the connection alive.
+            log.warn("[edge] unparseable action.result in_reply_to={}: {}",
+                    msg.getInReplyTo(), e.getMessage());
+            result = new ActionResult.Failure(
+                    "RESULT_PARSE_ERROR",
+                    "server could not parse action.result payload: " + e.getMessage(),
+                    false);
+        }
         actionExecutionService.deliverResult(msg.getInReplyTo(), result);
     }
 

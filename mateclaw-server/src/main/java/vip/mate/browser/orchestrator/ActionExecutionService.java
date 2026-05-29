@@ -263,7 +263,11 @@ public class ActionExecutionService {
                         "tab_ref", mapper.convertValue(req.tabRef(), Object.class),
                         "kind", req.kind().wire(),
                         "params", mapper.convertValue(req.params(), MAP_TYPE),
-                        "deadline_ms", req.deadlineMs()))
+                        // int, not long: the global ObjectMapper stringifies Long/long
+                        // (Snowflake-ID guard in JacksonConfig), but the extension's
+                        // parseActionRequest requires deadline_ms to be a JSON *number*.
+                        // Deadlines are seconds-to-minutes, far within int range.
+                        "deadline_ms", Math.toIntExact(req.deadlineMs())))
                 .build();
         session.getWs().sendMessage(new TextMessage(mapper.writeValueAsString(message)));
     }

@@ -99,7 +99,15 @@ export class ActionExecutor {
       // arrived_at_ms is a logical timestamp, not wall-clock); the
       // executor is the authoritative timing source for the wire.
       if (result.ok === true) {
-        return { ...result, elapsed_ms: Date.now() - startedAt }
+        // Stamp the action kind as the success-payload discriminator. The
+        // server's ActionSuccessPayload uses Jackson NAME dispatch on `kind`;
+        // without it the server throws InvalidTypeIdException and closes the
+        // socket (observed as SESSION_DETACHED on the next action).
+        return {
+          ...result,
+          elapsed_ms: Date.now() - startedAt,
+          payload: { kind: req.kind, ...(result.payload ?? {}) },
+        }
       }
       return result
     } catch (err) {

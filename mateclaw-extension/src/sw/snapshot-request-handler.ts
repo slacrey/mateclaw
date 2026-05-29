@@ -168,11 +168,13 @@ export class SnapshotRequestHandler {
   }
 
   private uuid(): string {
-    return (this.deps.uuid ?? crypto.randomUUID)()
+    // crypto.randomUUID requires `this === crypto`; `(x ?? crypto.randomUUID)()`
+    // calls it detached → "Illegal invocation". Call it with its receiver.
+    return this.deps.uuid ? this.deps.uuid() : crypto.randomUUID()
   }
 
   private clock(): number {
-    return (this.deps.clock ?? Date.now)()
+    return this.deps.clock ? this.deps.clock() : Date.now()
   }
 }
 

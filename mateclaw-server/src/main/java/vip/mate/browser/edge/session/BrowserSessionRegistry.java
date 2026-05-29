@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 
 import java.io.IOException;
 import java.time.Clock;
@@ -32,6 +33,17 @@ public class BrowserSessionRegistry {
     /** Heartbeat grace window: if no message seen for this long, session is stale. */
     public static final Duration STALE_GRACE = Duration.ofSeconds(30);
 
+    /**
+     * Tomcat/JSR-356 WebSocket sessions forbid concurrent sends — two threads
+     * calling sendMessage at once throws "TEXT_PARTIAL_WRITING" / corrupts the
+     * stream. The edge protocol sends from several threads (heartbeat-ack,
+     * action.execute, a11y.snapshot.request, …), so every session is wrapped in
+     * a {@link ConcurrentWebSocketSessionDecorator} that serialises sends behind
+     * a per-session lock + bounded buffer.
+     */
+    private static final int SEND_TIME_LIMIT_MS = 15_000;
+    private static final int SEND_BUFFER_BYTES = 1024 * 1024;
+
     private final ConcurrentHashMap<String, BrowserSession> byId = new ConcurrentHashMap<>();
     /** subject -> live sessionId. compute() on this map is the per-subject serialisation lock. */
     private final ConcurrentHashMap<String, String> subjectToSession = new ConcurrentHashMap<>();
@@ -53,11 +65,16 @@ public class BrowserSessionRegistry {
      */
     public BrowserSession register(String subject, WebSocketSession ws, String agentVersion) {
         String newId = "sess-" + UUID.randomUUID();
+        // Wrap so ALL sends through session.getWs() are serialised — every
+        // component (handler, ActionExecutionService, snapshot/screenshot
+        // clients) sends through this one decorated instance.
+        WebSocketSession concurrentWs =
+                new ConcurrentWebSocketSessionDecorator(ws, SEND_TIME_LIMIT_MS, SEND_BUFFER_BYTES);
         BrowserSession session = BrowserSession.builder()
                 .id(newId)
                 .subject(subject)
                 .agentVersion(agentVersion)
-                .ws(ws)
+                .ws(concurrentWs)
                 .lastHeartbeatAt(clock.instant())
                 .build();
 
