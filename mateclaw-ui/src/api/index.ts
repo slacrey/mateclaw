@@ -17,6 +17,28 @@ export const http = axios.create({
   timeout: 30000,
 })
 
+type AccountExpiredPayload = {
+  reason?: string
+  expiresAt?: string | null
+}
+
+function isAccountExpiredResponse(data: unknown): data is { data?: AccountExpiredPayload; msg?: string } {
+  if (!data || typeof data !== 'object') return false
+
+  const body = data as { data?: AccountExpiredPayload; msg?: unknown }
+  const reason = body.data?.reason
+  const msg = typeof body.msg === 'string' ? body.msg : ''
+  return reason === 'ACCOUNT_EXPIRED' || msg.includes('账号已过期')
+}
+
+function markAccountExpired(payload?: AccountExpiredPayload) {
+  import('@/stores/useAccountStore')
+    .then(({ useAccountStore }) => {
+      useAccountStore().markExpired({ expiresAt: payload?.expiresAt })
+    })
+    .catch(() => {})
+}
+
 // 请求拦截器：注入 Token + Workspace ID + Accept-Language
 http.interceptors.request.use((config) => {
   const token = localStorage.getItem('token')
@@ -49,6 +71,9 @@ http.interceptors.response.use(
     // 后端统一响应格式 R<T>: { code: number, msg: string, data: T }
     if (data && typeof data === 'object' && 'code' in data) {
       if (data.code === 200) return data
+      if (isAccountExpiredResponse(data)) {
+        markAccountExpired(data.data)
+      }
       // 401 = authentication failure → log out
       // 403 = authorization failure (e.g. workspace permission denied) → keep session, surface error to caller
       if (data.code === 401) {
@@ -60,6 +85,10 @@ http.interceptors.response.use(
     return data
   },
   (err) => {
+    const responseData = err.response?.data
+    if (isAccountExpiredResponse(responseData)) {
+      markAccountExpired(responseData.data)
+    }
     if (err.response?.status === 401) {
       handleAuthFailure()
     }

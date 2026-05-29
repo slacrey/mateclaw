@@ -83,6 +83,13 @@ export default {
     passwordChanged: '密码修改成功',
     passwordChangeFailed: '密码修改失败',
   },
+  account: {
+    permanent: '永久有效',
+    validUntil: '有效期至 {time}',
+    expired: '已过期',
+    expiredTitle: '账号已过期',
+    expiredDesc: '请扫码联系商务续费',
+  },
   chat: {
     status: {
       idle: '就绪',
@@ -1269,6 +1276,11 @@ export default {
         removeConfirm: '确定要移除该成员吗？',
         removeSuccess: '成员已移除',
         removeFailed: '移除成员失败',
+      },
+      limitModal: {
+        title: '超过最大团队成员数量',
+        desc: '请扫码联系商务开通更多成员',
+        close: '我知道了',
       },
     },
     workspaces: {

@@ -83,6 +83,13 @@ export default {
     passwordChanged: 'Password changed successfully',
     passwordChangeFailed: 'Failed to change password',
   },
+  account: {
+    permanent: 'Permanent',
+    validUntil: 'Valid until {time}',
+    expired: 'Expired',
+    expiredTitle: 'Account expired',
+    expiredDesc: 'Scan the QR code to contact sales for renewal.',
+  },
   chat: {
     status: {
       idle: 'Ready',
@@ -1377,6 +1384,11 @@ export default {
         removeConfirm: 'Are you sure you want to remove this member?',
         removeSuccess: 'Member removed',
         removeFailed: 'Failed to remove member',
+      },
+      limitModal: {
+        title: 'Maximum team member count exceeded',
+        desc: 'Scan the QR code to contact sales for more seats.',
+        close: 'Got it',
       },
     },
     workspaces: {
