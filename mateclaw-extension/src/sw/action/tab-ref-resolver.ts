@@ -28,7 +28,23 @@ export class TabRefResolver {
     }
 
     if (tabRef === 'main') {
-      return this.deps.tabGroupManager.getMainTabId(this.deps.subject)
+      const bound = await this.deps.tabGroupManager.getMainTabId(this.deps.subject)
+      if (bound !== null) return bound
+      // No main tab bound yet. Provision a dedicated agent tab rather than
+      // failing (NO_TARGET_TAB) or hijacking whatever the user is looking at.
+      // This is what makes "open a page in my browser" work on first use: the
+      // agent gets its own visible tab, and the binding persists so follow-up
+      // observe/click/type actions resolve "main" to the same tab.
+      const chrome = this.deps.chrome ?? globalThis.chrome
+      let created: chrome.tabs.Tab
+      try {
+        created = await chrome.tabs.create({ url: 'about:blank', active: true })
+      } catch {
+        return null
+      }
+      if (typeof created.id !== 'number') return null
+      await this.deps.tabGroupManager.setMainTabId(this.deps.subject, created.id)
+      return created.id
     }
 
     if (tabRef === 'active') {

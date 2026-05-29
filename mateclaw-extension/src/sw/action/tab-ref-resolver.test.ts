@@ -9,6 +9,7 @@ import type { TabGroupManager } from '../tab-group-manager'
 function fakeTabGroupManager(mainTabId: number | null): TabGroupManager {
   return {
     getMainTabId: vi.fn(async () => mainTabId),
+    setMainTabId: vi.fn(async () => {}),
   } as unknown as TabGroupManager
 }
 
@@ -17,11 +18,12 @@ function fakeTabGroupManager(mainTabId: number | null): TabGroupManager {
  * Chrome's real API is callback-based, but the resolver should use the
  * Promise overload (Chrome 88+, MV3-friendly) for clean async/await.
  */
-function fakeChrome(activeTabId: number | null): typeof globalThis.chrome {
+function fakeChrome(activeTabId: number | null, createdTabId = 500): typeof globalThis.chrome {
   const result = activeTabId == null ? [] : [{ id: activeTabId }]
   return {
     tabs: {
       query: vi.fn(async () => result),
+      create: vi.fn(async () => ({ id: createdTabId })),
     },
   } as unknown as typeof globalThis.chrome
 }
@@ -45,17 +47,19 @@ describe('TabRefResolver', () => {
     expect(tgm.getMainTabId).toHaveBeenCalledExactlyOnceWith('alice')
   })
 
-  it('"main" with no bound tab returns null', async () => {
+  it('"main" with no bound tab provisions + binds a dedicated agent tab', async () => {
+    // The agent must operate in its own tab. On first use, "main" creates a
+    // fresh tab and binds it (never hijacks the user's active tab).
     const tgm = fakeTabGroupManager(null)
-    const resolver = new TabRefResolver({
-      tabGroupManager: tgm,
-      chrome: fakeChrome(99),  // active tab exists but should NOT be used
-      subject: 'alice',
-    })
+    const chrome = fakeChrome(99, 500)  // active tab exists but must NOT be used
+    const resolver = new TabRefResolver({ tabGroupManager: tgm, chrome, subject: 'alice' })
 
     const tabId = await resolver.resolve('main')
 
-    expect(tabId).toBeNull()
+    expect(tabId).toBe(500)
+    expect(chrome.tabs.create).toHaveBeenCalledExactlyOnceWith({ url: 'about:blank', active: true })
+    expect(tgm.setMainTabId).toHaveBeenCalledExactlyOnceWith('alice', 500)
+    expect(chrome.tabs.query).not.toHaveBeenCalled()  // never falls back to active
   })
 
   // -----------------------------------------------------------------
