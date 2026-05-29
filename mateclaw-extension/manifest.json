@@ -20,7 +20,9 @@
     "nativeMessaging",
     "scripting",
     "webNavigation",
-    "debugger"
+    "debugger",
+    "tabGroups",
+    "tabs"
   ],
   "host_permissions": ["<all_urls>"],
   "externally_connectable": {

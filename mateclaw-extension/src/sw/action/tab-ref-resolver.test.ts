@@ -4,19 +4,21 @@ import type { TabGroupManager } from '../tab-group-manager'
 
 /**
  * Build a minimal fake TabGroupManager that only implements the surface
- * area the resolver depends on (getMainTabId).
+ * area the resolver depends on (getMainTabId / setMainTabId / joinChromeGroup).
  */
 function fakeTabGroupManager(mainTabId: number | null): TabGroupManager {
   return {
     getMainTabId: vi.fn(async () => mainTabId),
     setMainTabId: vi.fn(async () => {}),
+    joinChromeGroup: vi.fn(async () => 7001),
   } as unknown as TabGroupManager
 }
 
 /**
- * Build a minimal fake chrome object exposing only chrome.tabs.query.
- * Chrome's real API is callback-based, but the resolver should use the
- * Promise overload (Chrome 88+, MV3-friendly) for clean async/await.
+ * Build a minimal fake chrome object exposing chrome.tabs.query/create plus
+ * the tab-group API the agent tab joins on provisioning. Chrome's real API is
+ * callback-based, but the resolver should use the Promise overload (Chrome
+ * 88+, MV3-friendly) for clean async/await.
  */
 function fakeChrome(activeTabId: number | null, createdTabId = 500): typeof globalThis.chrome {
   const result = activeTabId == null ? [] : [{ id: activeTabId }]
@@ -24,6 +26,10 @@ function fakeChrome(activeTabId: number | null, createdTabId = 500): typeof glob
     tabs: {
       query: vi.fn(async () => result),
       create: vi.fn(async () => ({ id: createdTabId })),
+      group: vi.fn(async (info: { tabIds: number[]; groupId?: number }) => info.groupId ?? 7001),
+    },
+    tabGroups: {
+      update: vi.fn(async (groupId: number, props: unknown) => ({ id: groupId, ...(props as object) })),
     },
   } as unknown as typeof globalThis.chrome
 }
@@ -59,6 +65,8 @@ describe('TabRefResolver', () => {
     expect(tabId).toBe(500)
     expect(chrome.tabs.create).toHaveBeenCalledExactlyOnceWith({ url: 'about:blank', active: true })
     expect(tgm.setMainTabId).toHaveBeenCalledExactlyOnceWith('alice', 500)
+    // The freshly provisioned tab joins the labeled agent group (visual only).
+    expect(tgm.joinChromeGroup).toHaveBeenCalledExactlyOnceWith('alice', 500)
     expect(chrome.tabs.query).not.toHaveBeenCalled()  // never falls back to active
   })
 

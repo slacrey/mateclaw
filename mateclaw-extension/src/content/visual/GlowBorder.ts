@@ -42,9 +42,10 @@ const PULSE_PERIOD_S = 2
 const Z_INDEX = 2147483647
 
 // Brand color in RGB triples — kept in sync with PhantomCursor's styled fill
-// (#3D75FF). Consumers may override via the --mateclaw-brand-rgb CSS variable
-// before calling show().
-const DEFAULT_BRAND_RGB = '61, 117, 255'
+// and the StopButton. Matches the official "Claude in Chrome" agent indicator
+// terracotta (#D97757 → rgb(217, 119, 87)). Consumers may override via the
+// --mateclaw-brand-rgb CSS variable before calling show().
+const DEFAULT_BRAND_RGB = '217, 119, 87'
 
 type State = 'HIDDEN' | 'SHOWING' | 'VISIBLE' | 'HIDING'
 

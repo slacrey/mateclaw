@@ -44,9 +44,25 @@ const SVG_VIEWBOX = '0 0 20 26'
 const SVG_WIDTH = 20
 const SVG_HEIGHT = 26
 
-// Arrow path: tip at (0,0), tail bending down-right. Roughly Apple-HIG shape
-// but distinct enough that a careful observer can tell "this isn't my OS cursor".
-const ARROW_PATH = 'M0 0 L0 18 L5 13.5 L8.5 22 L11.5 20.7 L8 12.5 L14 12.5 Z'
+// Arrow path: tip at (0,0), tail bending down-right. Copied verbatim from the
+// official "Claude in Chrome" agent-visual-indicator so the phantom cursor has
+// the same silhouette — distinct enough that a careful observer can tell "this
+// isn't my OS cursor".
+const ARROW_PATH = 'M0 0 L0 18 L4.5 14 L7.5 21.5 L11 20 L8 13 L14 13 Z'
+
+// Brand terracotta (#D97757) and the off-white outline used by the official
+// styled cursor. The plain (fallback / high-contrast) cursor is white with a
+// near-black outline.
+const STYLED_FILL = '#D97757'
+const STYLED_STROKE = '#FAF9F5'
+const PLAIN_FILL = '#FFFFFF'
+const PLAIN_STROKE = '#111111'
+
+// CSS drop-shadow stack lifted from the official indicator — two layered
+// terracotta glows around the arrow. Applied to the styled SVG via inline
+// `filter` (no inline SVG <filter> needed).
+const STYLED_GLOW =
+  'drop-shadow(0 0 4px rgba(217, 119, 87, 0.9)) drop-shadow(0 0 10px rgba(217, 119, 87, 0.45))'
 
 export type PhantomCursorTheme = 'plain' | 'styled'
 
@@ -206,53 +222,48 @@ function makeArrowSvg(theme: PhantomCursorTheme): SVGElement {
   svg.setAttribute('viewBox', SVG_VIEWBOX)
   svg.setAttribute('data-theme', theme)
   // Make sure SVGs sit in the same spot — absolute relative to the container.
+  // overflow:visible lets the drop-shadow glow spill past the 20x26 box, same
+  // as the official indicator.
   ;(svg as unknown as SVGElement).style.position = 'absolute'
   ;(svg as unknown as SVGElement).style.top = '0'
   ;(svg as unknown as SVGElement).style.left = '0'
+  ;(svg as unknown as SVGElement).style.overflow = 'visible'
 
+  // The official draws the arrow as two stacked paths: a thick stroke+fill
+  // underlay (the colored outline) and the fill on top. We mirror that so the
+  // outline thickness reads identically. The styled glow is a CSS drop-shadow
+  // on the whole SVG (not an inline <filter>), matching the official.
   if (theme === 'styled') {
-    // Brand-colored arrow with a soft drop-shadow filter for the "agent is
-    // active" look. Filter is inlined to keep the content script self-contained.
-    const defs = document.createElementNS(ns, 'defs')
-    const filter = document.createElementNS(ns, 'filter')
-    filter.setAttribute('id', 'mateclaw-phantom-glow')
-    filter.setAttribute('x', '-50%')
-    filter.setAttribute('y', '-50%')
-    filter.setAttribute('width', '200%')
-    filter.setAttribute('height', '200%')
-    const blur = document.createElementNS(ns, 'feGaussianBlur')
-    blur.setAttribute('stdDeviation', '1.5')
-    blur.setAttribute('result', 'glow')
-    const merge = document.createElementNS(ns, 'feMerge')
-    const m1 = document.createElementNS(ns, 'feMergeNode')
-    m1.setAttribute('in', 'glow')
-    const m2 = document.createElementNS(ns, 'feMergeNode')
-    m2.setAttribute('in', 'SourceGraphic')
-    merge.appendChild(m1)
-    merge.appendChild(m2)
-    filter.appendChild(blur)
-    filter.appendChild(merge)
-    defs.appendChild(filter)
-    svg.appendChild(defs)
-  }
-
-  const path = document.createElementNS(ns, 'path')
-  path.setAttribute('d', ARROW_PATH)
-  if (theme === 'plain') {
-    path.setAttribute('fill', '#FFFFFF')
-    path.setAttribute('stroke', '#222222')
-    path.setAttribute('stroke-width', '1.5')
-    path.setAttribute('stroke-linejoin', 'round')
+    ;(svg as unknown as SVGElement).style.filter = STYLED_GLOW
+    svg.appendChild(makeArrowPath(ns, {
+      stroke: STYLED_STROKE,
+      strokeWidth: '3',
+      fill: STYLED_STROKE,
+    }))
+    svg.appendChild(makeArrowPath(ns, { fill: STYLED_FILL }))
   } else {
-    // Styled = MateClaw brand. We pick a saturated blue to stay distinct from
-    // typical content (red/orange CTAs, green success indicators). Filter
-    // provides the glow per research §2.1.
-    path.setAttribute('fill', '#3D75FF')
-    path.setAttribute('stroke', '#FFFFFF')
-    path.setAttribute('stroke-width', '1')
-    path.setAttribute('stroke-linejoin', 'round')
-    path.setAttribute('filter', 'url(#mateclaw-phantom-glow)')
+    svg.appendChild(makeArrowPath(ns, {
+      stroke: PLAIN_STROKE,
+      strokeWidth: '3',
+      fill: PLAIN_STROKE,
+    }))
+    svg.appendChild(makeArrowPath(ns, { fill: PLAIN_FILL }))
   }
-  svg.appendChild(path)
   return svg
+}
+
+/** Build one arrow <path>, applying the given presentation attributes. */
+function makeArrowPath(
+  ns: string,
+  attrs: { fill: string; stroke?: string; strokeWidth?: string },
+): SVGPathElement {
+  const path = document.createElementNS(ns, 'path') as SVGPathElement
+  path.setAttribute('d', ARROW_PATH)
+  path.setAttribute('fill', attrs.fill)
+  if (attrs.stroke) {
+    path.setAttribute('stroke', attrs.stroke)
+    path.setAttribute('stroke-linejoin', 'round')
+  }
+  if (attrs.strokeWidth) path.setAttribute('stroke-width', attrs.strokeWidth)
+  return path
 }

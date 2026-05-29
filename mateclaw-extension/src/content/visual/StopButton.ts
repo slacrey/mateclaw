@@ -31,7 +31,14 @@ const EASING = 'cubic-bezier(0.4, 0, 0.2, 1)'
 // order keeps stop on top).
 const Z_INDEX = 2147483647
 
-const BRAND_RGB = '61, 117, 255'
+// Brand terracotta (#D97757) — matches the official "Claude in Chrome" stop
+// button glow. The pill body uses Anthropic's neutral surface (#FAF9F5) and
+// ink (#141413) with a hairline border.
+const BRAND_RGB = '217, 119, 87'
+const SURFACE = '#FAF9F5'
+const SURFACE_HOVER = '#F5F4F0'
+const INK = '#141413'
+const BORDER = '0.5px solid rgba(31, 30, 29, 0.4)'
 
 export class StopButton {
   private container: HTMLDivElement | null = null
@@ -66,7 +73,8 @@ export class StopButton {
     container.style.position = 'fixed'
     container.style.left = '0'
     container.style.right = '0'
-    container.style.bottom = '24px'
+    // 16px from the bottom — matches the official indicator's resting offset.
+    container.style.bottom = '16px'
     container.style.display = 'flex'
     container.style.justifyContent = 'center'
     // Container is pointer-transparent so clicks outside the pill body reach
@@ -83,15 +91,20 @@ export class StopButton {
     btn.style.display = 'inline-flex'
     btn.style.alignItems = 'center'
     btn.style.gap = '8px'
-    btn.style.padding = '10px 18px'
-    btn.style.border = 'none'
-    btn.style.borderRadius = '999px'
-    btn.style.background = '#FAF9F5'
-    btn.style.color = '#222222'
-    btn.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+    // Match the official pill: 12x16 padding, hairline border, 12px radius,
+    // neutral surface + ink. (Was a borderless 999px blue pill.)
+    btn.style.padding = '12px 16px'
+    btn.style.border = BORDER
+    btn.style.borderRadius = '12px'
+    btn.style.background = SURFACE
+    btn.style.color = INK
+    btn.style.fontFamily =
+      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
     btn.style.fontSize = '14px'
     btn.style.fontWeight = '600'
     btn.style.cursor = 'pointer'
+    btn.style.userSelect = 'none'
+    btn.style.whiteSpace = 'nowrap'
     // Layered drop-shadow per research §4.1 — investment in the "floating
     // above content" perceptual cue.
     btn.style.boxShadow =
@@ -115,37 +128,35 @@ export class StopButton {
     // Hover affordance — switch the tint, do NOT change the box-shadow per
     // research §4.1 (shadow stability sells "floating").
     btn.addEventListener('mouseenter', () => {
-      btn.style.background = '#F5F4F0'
+      btn.style.background = SURFACE_HOVER
     })
     btn.addEventListener('mouseleave', () => {
-      btn.style.background = '#FAF9F5'
+      btn.style.background = SURFACE
     })
 
-    // Icon (square inside circle = universal stop glyph).
+    // Icon — the official "stop in circle" glyph (rounded square inside a ring),
+    // drawn at the 256 viewBox and inheriting the ink color via currentColor.
     const ns = 'http://www.w3.org/2000/svg'
     const svg = document.createElementNS(ns, 'svg')
-    svg.setAttribute('width', '18')
-    svg.setAttribute('height', '18')
-    svg.setAttribute('viewBox', '0 0 18 18')
+    svg.setAttribute('width', '16')
+    svg.setAttribute('height', '16')
+    svg.setAttribute('viewBox', '0 0 256 256')
+    svg.setAttribute('fill', 'currentColor')
     svg.setAttribute('aria-hidden', 'true')
-    const circle = document.createElementNS(ns, 'circle')
-    circle.setAttribute('cx', '9')
-    circle.setAttribute('cy', '9')
-    circle.setAttribute('r', '8')
-    circle.setAttribute('fill', `rgb(${BRAND_RGB})`)
-    const square = document.createElementNS(ns, 'rect')
-    square.setAttribute('x', '6')
-    square.setAttribute('y', '6')
-    square.setAttribute('width', '6')
-    square.setAttribute('height', '6')
-    square.setAttribute('rx', '1')
-    square.setAttribute('fill', '#FFFFFF')
-    svg.appendChild(circle)
-    svg.appendChild(square)
+    svg.style.verticalAlign = 'middle'
+    const path = document.createElementNS(ns, 'path')
+    path.setAttribute(
+      'd',
+      'M128,20A108,108,0,1,0,236,128,108.12,108.12,0,0,0,128,20Zm0,192a84,84,0,1,1,84-84' +
+        'A84.09,84.09,0,0,1,128,212Zm40-112v56a12,12,0,0,1-12,12H100a12,12,0,0,1-12-12V100' +
+        'a12,12,0,0,1,12-12h56A12,12,0,0,1,168,100Z',
+    )
+    svg.appendChild(path)
     btn.appendChild(svg)
 
     const label = document.createElement('span')
     label.textContent = 'Stop Agent'
+    label.style.verticalAlign = 'middle'
     btn.appendChild(label)
 
     btn.addEventListener('click', () => {

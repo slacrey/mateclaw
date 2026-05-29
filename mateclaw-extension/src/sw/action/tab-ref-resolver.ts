@@ -44,6 +44,12 @@ export class TabRefResolver {
       }
       if (typeof created.id !== 'number') return null
       await this.deps.tabGroupManager.setMainTabId(this.deps.subject, created.id)
+      // Drop the new agent tab into a labeled, colored Chrome tab group so the
+      // user can see at a glance which tabs the agent owns (mirrors the
+      // official "Claude in Chrome" group). Purely visual — the resolved tab
+      // id is unchanged. Best-effort: joinChromeGroup swallows its own errors
+      // and the manager returns null when the API is unavailable.
+      await this.deps.tabGroupManager.joinChromeGroup(this.deps.subject, created.id)
       return created.id
     }
 
