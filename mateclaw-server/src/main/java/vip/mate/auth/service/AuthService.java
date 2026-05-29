@@ -7,18 +7,23 @@ import io.jsonwebtoken.security.Keys;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import vip.mate.auth.model.LoginRequest;
 import vip.mate.auth.model.LoginResponse;
+import vip.mate.auth.model.RegisterRequest;
 import vip.mate.auth.model.UserEntity;
 import vip.mate.auth.repository.UserMapper;
 import vip.mate.exception.MateClawException;
+import vip.mate.workspace.core.service.WorkspaceService;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * 认证服务（JWT）
@@ -30,8 +35,13 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AuthService {
 
+    private static final long DEFAULT_WORKSPACE_ID = 1L;
+    private static final String FIXED_REGISTER_CODE = "888888";
+    private static final Pattern PHONE_PATTERN = Pattern.compile("^\\+?\\d{6,20}$");
+
     private final UserMapper userMapper;
     private final BCryptPasswordEncoder passwordEncoder;
+    private final WorkspaceService workspaceService;
 
     @Value("${mateclaw.jwt.secret:MateClaw-Secret-Key-2024-Very-Long-String}")
     private String jwtSecret;
@@ -52,6 +62,50 @@ public class AuthService {
 
         if (user == null || !passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             throw new MateClawException("err.auth.invalid_credentials", 401, "用户名或密码错误");
+        }
+
+        String token = generateToken(user);
+        return new LoginResponse(user.getId(), token, user.getUsername(), user.getNickname(), user.getRole());
+    }
+
+    /**
+     * 手机号注册。验证码临时固定为 888888，手机号作为 username 保存。
+     */
+    @Transactional
+    public LoginResponse register(RegisterRequest request) {
+        String phone = normalizePhone(request != null ? request.getPhone() : null);
+        if (!PHONE_PATTERN.matcher(phone).matches()) {
+            throw new MateClawException("err.auth.invalid_phone", 400, "手机号格式不正确");
+        }
+        if (!FIXED_REGISTER_CODE.equals(request.getCode())) {
+            throw new MateClawException("err.auth.invalid_verification_code", 400, "验证码错误");
+        }
+        if (request.getPassword() == null || request.getPassword().isBlank()) {
+            throw new MateClawException("err.auth.password_required", 400, "Password is required");
+        }
+
+        Long count = userMapper.selectCount(new LambdaQueryWrapper<UserEntity>()
+                .eq(UserEntity::getUsername, phone));
+        if (count > 0) {
+            throw new MateClawException("err.auth.username_exists", 409, "手机号已注册: " + phone);
+        }
+
+        UserEntity user = new UserEntity();
+        user.setUsername(phone);
+        user.setPassword(passwordEncoder.encode(request.getPassword().trim()));
+        user.setNickname(request.getNickname() == null || request.getNickname().isBlank()
+                ? phone
+                : request.getNickname().trim());
+        user.setRole("user");
+        user.setEnabled(true);
+        try {
+            userMapper.insert(user);
+        } catch (DuplicateKeyException e) {
+            throw new MateClawException("err.auth.username_exists", 409, "手机号已注册: " + phone);
+        }
+
+        if (workspaceService.getMembership(DEFAULT_WORKSPACE_ID, user.getId()) == null) {
+            workspaceService.addMember(DEFAULT_WORKSPACE_ID, user.getId(), "member");
         }
 
         String token = generateToken(user);
@@ -232,5 +286,12 @@ public class AuthService {
             keyBytes = padded;
         }
         return Keys.hmacShaKeyFor(keyBytes);
+    }
+
+    private String normalizePhone(String phone) {
+        if (phone == null) {
+            return "";
+        }
+        return phone.trim().replaceAll("[\\s-]", "");
     }
 }
