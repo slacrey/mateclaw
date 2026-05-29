@@ -16,6 +16,7 @@ import vip.mate.browser.edge.protocol.EdgeMessageKind;
 import vip.mate.browser.edge.session.BrowserSession;
 import vip.mate.browser.edge.session.BrowserSessionRegistry;
 import vip.mate.browser.orchestrator.ActionExecutionService;
+import vip.mate.browser.orchestrator.snapshot.DefaultSnapshotEdgeClient;
 
 import java.time.Instant;
 import java.util.Map;
@@ -43,16 +44,19 @@ public class EdgeWebSocketHandler extends TextWebSocketHandler {
     private final BrowserSessionRegistry registry;
     private final ObjectMapper mapper;
     private final ActionExecutionService actionExecutionService;
+    private final DefaultSnapshotEdgeClient snapshotEdgeClient;
     private final String serverVersion;
     private final ConcurrentHashMap<String, String> sessionIdByWsId = new ConcurrentHashMap<>();
 
     public EdgeWebSocketHandler(BrowserSessionRegistry registry,
                                 ObjectMapper mapper,
                                 ActionExecutionService actionExecutionService,
+                                DefaultSnapshotEdgeClient snapshotEdgeClient,
                                 @Value("${revision:dev}") String serverVersion) {
         this.registry = registry;
         this.mapper = mapper;
         this.actionExecutionService = actionExecutionService;
+        this.snapshotEdgeClient = snapshotEdgeClient;
         this.serverVersion = serverVersion;
     }
 
@@ -79,6 +83,7 @@ public class EdgeWebSocketHandler extends TextWebSocketHandler {
             case PING -> onPing(ws, msg);
             case ACTION_RESULT -> onActionResult(ws, msg);
             case INDICATOR_STOP_CLICKED -> onIndicatorStopClicked(ws, msg);
+            case A11Y_SNAPSHOT_RESPONSE -> onA11ySnapshotResponse(ws, msg);
             case UNKNOWN -> log.warn("[edge] dropping unknown kind from ws={}", ws.getId());
             default -> log.warn("[edge] kind {} not handled in phase 1", msg.getKind());
         }
@@ -126,6 +131,11 @@ public class EdgeWebSocketHandler extends TextWebSocketHandler {
     private void onIndicatorStopClicked(WebSocketSession ws, EdgeMessage msg) throws Exception {
         if (!validSession(ws, msg)) return;
         registry.find(msg.getSessionId()).ifPresent(actionExecutionService::handleStopClicked);
+    }
+
+    private void onA11ySnapshotResponse(WebSocketSession ws, EdgeMessage msg) throws Exception {
+        if (!validSession(ws, msg)) return;
+        snapshotEdgeClient.deliverSnapshot(msg.getInReplyTo(), msg.getPayload());
     }
 
     /**
@@ -186,6 +196,7 @@ public class EdgeWebSocketHandler extends TextWebSocketHandler {
         String sessionId = sessionIdByWsId.remove(ws.getId());
         if (sessionId != null) {
             actionExecutionService.sessionClosed(sessionId);
+            snapshotEdgeClient.sessionClosed(sessionId);
         }
         registry.removeByWs(ws.getId());
         log.info("[edge] ws {} closed: {}", ws.getId(), status);

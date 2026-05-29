@@ -29,13 +29,16 @@ class EdgeWebSocketHandlerTest {
     private EdgeWebSocketHandler handler;
     private ObjectMapper mapper;
     private ActionExecutionService actionExecutionService;
+    private vip.mate.browser.orchestrator.snapshot.DefaultSnapshotEdgeClient snapshotEdgeClient;
 
     @BeforeEach
     void setUp() {
         registry = new BrowserSessionRegistry();
         mapper = new ObjectMapper();
         actionExecutionService = mock(ActionExecutionService.class);
-        handler = new EdgeWebSocketHandler(registry, mapper, actionExecutionService, "1.4.0");
+        snapshotEdgeClient = mock(vip.mate.browser.orchestrator.snapshot.DefaultSnapshotEdgeClient.class);
+        handler = new EdgeWebSocketHandler(registry, mapper, actionExecutionService,
+                snapshotEdgeClient, "1.4.0");
     }
 
     @Test
