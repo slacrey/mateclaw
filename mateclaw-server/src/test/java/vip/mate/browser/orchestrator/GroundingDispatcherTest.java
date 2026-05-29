@@ -63,12 +63,11 @@ class GroundingDispatcherTest {
                 new Viewport(1280, 800));
         hint = new GroundingHint.A11yMatch("button", Pattern.compile("Submit"), "interactive");
         dispatcher = new GroundingDispatcher(dom, a11y, vision, snapshotService);
-        when(snapshotService.request(eq(session), eq(new TabRef.Main()), eq(hint.filter())))
-                .thenReturn(Mono.just(snapshot));
     }
 
     @Test
     void domHit_returnsHit_doesNotInvokeA11yOrVision() {
+        givenSnapshot(snapshot, hint);
         var hit = hit("dom");
         when(dom.ground(snapshot, hint)).thenReturn(hit);
 
@@ -81,6 +80,7 @@ class GroundingDispatcherTest {
 
     @Test
     void domMissAllStubs_returnsMiss() {
+        givenSnapshot(snapshot, hint);
         when(dom.ground(snapshot, hint)).thenReturn(new GroundingResult.Miss("dom miss"));
         when(a11y.ground(snapshot, hint)).thenReturn(new GroundingResult.Miss("stub-phase-2"));
         when(vision.ground(snapshot, hint)).thenReturn(new GroundingResult.Miss("stub-phase-2"));
@@ -92,6 +92,7 @@ class GroundingDispatcherTest {
 
     @Test
     void domAmbiguous_a11yStubMiss_visionStubMiss_returnsTheFirstAmbiguous() {
+        givenSnapshot(snapshot, hint);
         var ambiguous = ambiguous("dom", "ref_1", "ref_2");
         when(dom.ground(snapshot, hint)).thenReturn(ambiguous);
         when(a11y.ground(snapshot, hint)).thenReturn(new GroundingResult.Miss("stub-phase-2"));
@@ -104,6 +105,7 @@ class GroundingDispatcherTest {
 
     @Test
     void domAmbiguous_a11yHit_returnsA11yHit_disambiguation() {
+        givenSnapshot(snapshot, hint);
         when(dom.ground(snapshot, hint)).thenReturn(ambiguous("dom", "ref_1", "ref_2"));
         var a11yHit = hit("narrowed");
         when(a11y.ground(snapshot, hint)).thenReturn(a11yHit);
@@ -115,7 +117,33 @@ class GroundingDispatcherTest {
     }
 
     @Test
+    void domAmbiguous_a11yHitViaNearLabel_returnsA11yHit() {
+        PageSnapshot localSnapshot = PageSnapshot.fromA11yText("""
+                Article[ref=ref_1]: Posts @{0,0 600x300}
+                  Button[ref=ref_2]: Like @{100,200 80x32}
+                Article[ref=ref_3]: Comments @{0,400 600x300}
+                  Button[ref=ref_4]: Like @{100,600 80x32}
+                """, new Viewport(1280, 800));
+        GroundingHint localHint = new GroundingHint.A11yMatch(
+                "button",
+                Pattern.compile("Like"),
+                "interactive",
+                "Comments");
+        givenSnapshot(localSnapshot, localHint);
+        var localDispatcher = new GroundingDispatcher(new DomEngine(), new A11yEngine(), vision, snapshotService);
+
+        var result = localDispatcher.ground(session, new TabRef.Main(), localHint);
+
+        assertThat(result).isInstanceOfSatisfying(GroundingResult.Hit.class, hit -> {
+            assertThat(hit.target()).isEqualTo(new GroundedTarget(new BBox(100, 600, 80, 32), "ref_4"));
+            assertThat(hit.evidence()).contains("narrowed by ancestor").contains("Comments");
+        });
+        verify(vision, never()).ground(any(), any());
+    }
+
+    @Test
     void domMiss_a11yAmbiguous_visionHit_returnsVisionHit() {
+        givenSnapshot(snapshot, hint);
         when(dom.ground(snapshot, hint)).thenReturn(new GroundingResult.Miss("dom miss"));
         when(a11y.ground(snapshot, hint)).thenReturn(ambiguous("a11y", "ref_1", "ref_2"));
         var visionHit = hit("vision");
@@ -128,6 +156,7 @@ class GroundingDispatcherTest {
 
     @Test
     void refreshesSnapshotBeforeGround_viaPageSnapshotService() {
+        givenSnapshot(snapshot, hint);
         when(dom.ground(snapshot, hint)).thenReturn(hit("dom"));
 
         dispatcher.ground(session, new TabRef.Main(), hint);
@@ -138,6 +167,7 @@ class GroundingDispatcherTest {
 
     @Test
     void firstAmbiguousIsRemembered_evenIfLaterEnginesAlsoAmbiguous() {
+        givenSnapshot(snapshot, hint);
         var domAmbiguous = ambiguous("dom", "ref_1", "ref_2");
         var a11yAmbiguous = ambiguous("a11y", "ref_3", "ref_4");
         when(dom.ground(snapshot, hint)).thenReturn(domAmbiguous);
@@ -147,6 +177,11 @@ class GroundingDispatcherTest {
         var result = dispatcher.ground(session, new TabRef.Main(), hint);
 
         assertThat(result).isSameAs(domAmbiguous);
+    }
+
+    private void givenSnapshot(PageSnapshot snapshot, GroundingHint hint) {
+        when(snapshotService.request(eq(session), eq(new TabRef.Main()), eq(hint.filter())))
+                .thenReturn(Mono.just(snapshot));
     }
 
     private GroundingResult.Hit hit(String evidence) {

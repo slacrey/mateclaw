@@ -16,18 +16,23 @@ public sealed interface GroundingHint
     String filter();
 
     /** Match by role + accessible-name regex against the A11y tree. */
-    record A11yMatch(String role, Pattern namePattern, String filter) implements GroundingHint {
+    record A11yMatch(String role, Pattern namePattern, String filter, String nearLabel) implements GroundingHint {
         public A11yMatch {
             if (role == null || role.isBlank())
                 throw new IllegalArgumentException("role is required");
             if (namePattern == null)
                 throw new IllegalArgumentException("namePattern is required");
             if (filter == null) filter = "interactive";
+            // nearLabel may be null; engines that do not honor it ignore it.
         }
 
         /** Convenience constructor — default filter='interactive'. */
         public A11yMatch(String role, Pattern namePattern) {
-            this(role, namePattern, "interactive");
+            this(role, namePattern, "interactive", null);
+        }
+
+        public A11yMatch(String role, Pattern namePattern, String filter) {
+            this(role, namePattern, filter, null);
         }
     }
 
