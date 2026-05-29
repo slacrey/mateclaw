@@ -255,6 +255,11 @@ public class ActionExecutionService {
                 .traceId(UUID.randomUUID().toString())
                 .sessionId(session.getId())
                 .payload(Map.of(
+                        // msg_id MUST be inside the payload, not just on the envelope:
+                        // the extension's parseActionRequest reads msg.payload.msg_id and
+                        // rejects the whole request (HANDLER_ERROR "malformed payload") when
+                        // it's absent. Envelope msgId alone is not enough.
+                        "msg_id", req.msgId(),
                         "tab_ref", mapper.convertValue(req.tabRef(), Object.class),
                         "kind", req.kind().wire(),
                         "params", mapper.convertValue(req.params(), MAP_TYPE),
