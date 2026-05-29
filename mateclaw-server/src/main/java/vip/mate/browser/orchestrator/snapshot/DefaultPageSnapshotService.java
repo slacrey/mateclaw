@@ -112,9 +112,20 @@ public class DefaultPageSnapshotService implements PageSnapshotService {
                     // before publishing the snapshot to subscribers. No fan-out,
                     // no parallel dispatch — single Mono in, single Mono out.
                     long resolvedTabId = snap.resolvedTabId();
+                    // A blank tree is a DEGENERATE snapshot — the tab was blank,
+                    // closed, or not yet laid out when the extractor ran. Cache it
+                    // as STALE (never FRESH) so the very NEXT observe REFETCHES
+                    // rather than replaying the empty tree for MAX_AGE. Without this
+                    // a single transient empty snapshot sticks for 30s, turning one
+                    // unlucky read into a half-minute of "empty page" (the
+                    // intermittent "时好时坏" the user hit). A non-degenerate snapshot
+                    // is cached FRESH as before.
+                    SnapshotState state = snap.tree().isBlank()
+                            ? SnapshotState.STALE
+                            : SnapshotState.FRESH;
                     cache.put(
                             new TabKey(sessionId, resolvedTabId),
-                            new Cached(snap, SnapshotState.FRESH, clock.instant()));
+                            new Cached(snap, state, clock.instant()));
                     refIndex.put(refKey, resolvedTabId);
                     return Mono.just(snap);
                 })

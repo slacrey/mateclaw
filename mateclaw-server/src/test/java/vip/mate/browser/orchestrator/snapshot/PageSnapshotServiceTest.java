@@ -112,6 +112,36 @@ class PageSnapshotServiceTest {
     }
 
     @Test
+    void emptyTreeSnapshot_notCachedFresh_nextRequestRefetches() {
+        // A blank-tree snapshot (blank / closed / not-yet-laid-out tab) must NOT
+        // be replayed from cache: it is cached STALE so the very next observe
+        // refetches. Otherwise one transient empty tree sticks for MAX_AGE — the
+        // "时好时坏" empty-observe the user hit (a single empty read amplified to 30s).
+        PageSnapshot emptySnap = new PageSnapshot(
+                "snap-empty",
+                clock.instant().toEpochMilli(),
+                TAB_ID,
+                "",
+                new Viewport(1280, 800));
+        reset(client);
+        when(client.request(any(BrowserSession.class), any(TabRef.class), anyString()))
+                .thenReturn(Mono.just(emptySnap));
+
+        PageSnapshot first = service.request(session, new TabRef.Main(), "default").block();
+        assertThat(first).isNotNull();
+        assertThat(first.tree()).isEmpty();
+
+        // Next request must refetch (cache miss on STALE), NOT serve the empty.
+        reset(client);
+        when(client.request(any(BrowserSession.class), any(TabRef.class), anyString()))
+                .thenReturn(Mono.just(secondSnap));
+        PageSnapshot second = service.request(session, new TabRef.Main(), "default").block();
+
+        assertThat(second.snapshotId()).isEqualTo("snap-2");
+        verify(client, times(1)).request(eq(session), any(TabRef.class), eq("default"));
+    }
+
+    @Test
     void navigateAction_marksStale_nextRequestRefetches() {
         service.request(session, new TabRef.Main(), "default").block();
         service.onActionSuccess(SESSION_ID, TAB_ID, ActionKind.NAVIGATE);
