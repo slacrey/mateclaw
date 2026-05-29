@@ -11,7 +11,14 @@ const STORAGE_KEY = 'tabGroups'
  * MateClaw uses its own brand name; orange reads as "the agent's tabs".
  */
 const GROUP_TITLE = 'MateClaw'
-const GROUP_COLOR: chrome.tabGroups.ColorEnum = 'orange'
+/**
+ * Chrome's fixed tab-group palette. The installed @types/chrome in this tree
+ * doesn't export `tabGroups.ColorEnum`, so we declare the literal union locally
+ * (the wire value is just one of these strings).
+ */
+type TabGroupColor =
+  | 'grey' | 'blue' | 'red' | 'yellow' | 'green' | 'pink' | 'purple' | 'cyan' | 'orange'
+const GROUP_COLOR: TabGroupColor = 'orange'
 
 type TabGroup = {
   mainTabId: number | null

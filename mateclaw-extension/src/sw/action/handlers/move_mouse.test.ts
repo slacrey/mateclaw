@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ActionFailureError } from '../ActionExecutor'
 import type { DebuggerManager } from '../../debugger-manager'
@@ -80,6 +80,36 @@ function fixedClock(start: number, step = 0): () => number {
     now += step
     return v
   }
+}
+
+interface CursorMessage {
+  tabId: number
+  x: number
+  y: number
+}
+
+/**
+ * Fake chrome.tabs.sendMessage recorder for the visual phantom-cursor relay.
+ *
+ * `mode`:
+ *   - 'resolve' (default): every send resolves (the happy path).
+ *   - 'reject': every send returns a rejected promise — the handler must
+ *     swallow it and still complete the real CDP path.
+ *   - 'throw': sendMessage throws synchronously — same expectation.
+ */
+function fakeCursorChrome(mode: 'resolve' | 'reject' | 'throw' = 'resolve') {
+  const cursors: CursorMessage[] = []
+  const sendMessage = vi.fn((tabId: number, message: unknown) => {
+    const m = message as { type?: string; x?: number; y?: number }
+    if (m?.type === 'INDICATOR_CURSOR') {
+      cursors.push({ tabId, x: m.x as number, y: m.y as number })
+    }
+    if (mode === 'throw') throw new Error('SW tearing down')
+    if (mode === 'reject') return Promise.reject(new Error('no receiver'))
+    return Promise.resolve({ ok: true })
+  })
+  const chrome = { tabs: { sendMessage } } as unknown as typeof globalThis.chrome
+  return { chrome, sendMessage, cursors }
 }
 
 // ---------------------------------------------------------------------------
@@ -400,4 +430,173 @@ describe('move_mouse handler', () => {
     expect(attachOrder.slice(1).every(op => op === 'send' || op === 'detach')).toBe(true)
     expect(debuggerStub.attach).toHaveBeenCalledExactlyOnceWith(42)
   })
+
+  // -------------------------------------------------------------------------
+  // Visual phantom-cursor relay — the on-page overlay must GLIDE the same
+  // WindMouse path the real CDP pointer takes (not teleport to the endpoint).
+  // -------------------------------------------------------------------------
+
+  it('relays INDICATOR_CURSOR to the same tab for the visual phantom cursor as it walks the path', async () => {
+    const { debuggerStub, sent } = fakeDebugger()
+    const { sleep } = fakeSleep()
+    const { chrome, sendMessage, cursors } = fakeCursorChrome()
+    const handler = moveMouseHandler({
+      debugger: debuggerStub,
+      random: seededRandom(5),
+      clock: () => 0,
+      sleep,
+      chrome,
+      // Relay every waypoint (no throttling) so the count lines up with the
+      // dispatched CDP events exactly.
+      cursorEmitMinIntervalMs: 0,
+    })
+
+    await handler(77, { x: 400, y: 300, profile: 'natural' }, 5000)
+
+    // With throttling disabled, one INDICATOR_CURSOR per dispatched waypoint.
+    expect(cursors.length).toBe(sent.length)
+    expect(cursors.length).toBeGreaterThanOrEqual(4)
+    // Every relay targets the action's tab and carries the matching waypoint
+    // coordinate — i.e. the visual cursor traces the SAME points as the real one.
+    for (let i = 0; i < cursors.length; i++) {
+      expect(cursors[i]!.tabId).toBe(77)
+      expect(cursors[i]!.x).toBe(sent[i]!.params.x)
+      expect(cursors[i]!.y).toBe(sent[i]!.params.y)
+    }
+    // sendMessage was used for the relay (type === INDICATOR_CURSOR).
+    expect(sendMessage).toHaveBeenCalled()
+  })
+
+  it('always relays the FINAL waypoint so the phantom lands exactly on target', async () => {
+    const { debuggerStub, sent } = fakeDebugger()
+    const { sleep } = fakeSleep()
+    // A large throttle window would normally suppress interior relays, but the
+    // last waypoint must ALWAYS emit so the overlay ends on the click point.
+    const { chrome, cursors } = fakeCursorChrome()
+    const handler = moveMouseHandler({
+      debugger: debuggerStub,
+      random: seededRandom(5),
+      clock: () => 0,
+      sleep,
+      chrome,
+      cursorEmitMinIntervalMs: 10_000, // larger than any path duration
+    })
+
+    await handler(77, { x: 420, y: 360, profile: 'natural' }, 5000)
+
+    const lastDispatch = sent[sent.length - 1]!
+    const lastCursor = cursors[cursors.length - 1]!
+    expect(lastCursor.x).toBe(420)
+    expect(lastCursor.y).toBe(360)
+    // The destination is exactly the requested target.
+    expect(lastDispatch.params).toMatchObject({ x: 420, y: 360 })
+    expect(lastCursor.x).toBe(lastDispatch.params.x)
+    expect(lastCursor.y).toBe(lastDispatch.params.y)
+  })
+
+  it('throttles dense waypoints: fewer cursor relays than dispatched CDP moves, but never zero', async () => {
+    const { debuggerStub, sent } = fakeDebugger()
+    const { sleep } = fakeSleep()
+    const { chrome, cursors } = fakeCursorChrome()
+    const handler = moveMouseHandler({
+      debugger: debuggerStub,
+      random: seededRandom(5),
+      clock: () => 0,
+      sleep,
+      chrome,
+      // 60ms window over a ~200-800ms path → some interior waypoints coalesce.
+      cursorEmitMinIntervalMs: 60,
+    })
+
+    await handler(77, { x: 600, y: 450, profile: 'natural' }, 5000)
+
+    expect(cursors.length).toBeGreaterThan(0)
+    // A 600x450 natural path emits ~200 CDP waypoints; the 60ms throttle must
+    // coalesce them into far fewer relays (strictly fewer than dispatched).
+    expect(cursors.length).toBeLessThan(sent.length)
+    // Final waypoint still made it through.
+    expect(cursors[cursors.length - 1]!).toMatchObject({ x: 600, y: 450 })
+  })
+
+  it('linear profile relays exactly one INDICATOR_CURSOR (the destination)', async () => {
+    const { debuggerStub } = fakeDebugger()
+    const { sleep } = fakeSleep()
+    const { chrome, cursors } = fakeCursorChrome()
+    const handler = moveMouseHandler({
+      debugger: debuggerStub,
+      random: seededRandom(1),
+      clock: () => 0,
+      sleep,
+      chrome,
+    })
+
+    await handler(5, { x: 500, y: 400, profile: 'linear' }, 5000)
+
+    expect(cursors).toEqual([{ tabId: 5, x: 500, y: 400 }])
+  })
+
+  it('a rejecting sendMessage never breaks the real CDP path', async () => {
+    const { debuggerStub, sent } = fakeDebugger()
+    const { sleep } = fakeSleep()
+    const { chrome } = fakeCursorChrome('reject')
+    const handler = moveMouseHandler({
+      debugger: debuggerStub,
+      random: seededRandom(5),
+      clock: () => 0,
+      sleep,
+      chrome,
+      cursorEmitMinIntervalMs: 0,
+    })
+
+    const result = await handler(77, { x: 400, y: 300, profile: 'natural' }, 5000)
+
+    expect(result.ok).toBe(true)
+    // All CDP mouseMoved events still dispatched despite every relay rejecting.
+    expect(sent.length).toBeGreaterThanOrEqual(4)
+    for (const call of sent) expect(call.params.type).toBe('mouseMoved')
+  })
+
+  it('a synchronously-throwing sendMessage never breaks the real CDP path', async () => {
+    const { debuggerStub, sent } = fakeDebugger()
+    const { sleep } = fakeSleep()
+    const { chrome } = fakeCursorChrome('throw')
+    const handler = moveMouseHandler({
+      debugger: debuggerStub,
+      random: seededRandom(5),
+      clock: () => 0,
+      sleep,
+      chrome,
+      cursorEmitMinIntervalMs: 0,
+    })
+
+    const result = await handler(77, { x: 400, y: 300, profile: 'natural' }, 5000)
+
+    expect(result.ok).toBe(true)
+    expect(sent.length).toBeGreaterThanOrEqual(4)
+  })
+
+  it('omitting chrome (and with no global) skips the relay but still dispatches CDP moves', async () => {
+    // Pin globalThis.chrome to undefined so this assertion is independent of
+    // test ordering (another suite could leak a global chrome stub).
+    vi.stubGlobal('chrome', undefined)
+    const { debuggerStub, sent } = fakeDebugger()
+    const { sleep } = fakeSleep()
+    // No `chrome` dep + no global chrome → relay is a silent no-op; the CDP
+    // path must be unaffected.
+    const handler = moveMouseHandler({
+      debugger: debuggerStub,
+      random: seededRandom(5),
+      clock: () => 0,
+      sleep,
+    })
+
+    const result = await handler(77, { x: 400, y: 300, profile: 'natural' }, 5000)
+
+    expect(result.ok).toBe(true)
+    expect(sent.length).toBeGreaterThanOrEqual(4)
+  })
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
 })

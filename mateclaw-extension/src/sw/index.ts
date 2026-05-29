@@ -168,7 +168,7 @@ const handlers: ActionHandlers = {
   click:      clickHandler({ debugger: debuggerManager }),
   type:       typeHandler({ debugger: debuggerManager }),
   scroll:     scrollHandler({ debugger: debuggerManager }),
-  move_mouse: moveMouseHandler({ debugger: debuggerManager, cursorState }),
+  move_mouse: moveMouseHandler({ debugger: debuggerManager, cursorState, chrome }),
   wait:       waitHandler({ chrome }),
 }
 

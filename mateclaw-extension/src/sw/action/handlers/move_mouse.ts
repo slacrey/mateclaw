@@ -14,6 +14,19 @@ function defaultSleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+/**
+ * Minimum wall-clock gap (ms) between two consecutive `INDICATOR_CURSOR`
+ * messages pushed to the visual phantom cursor. WindMouse can emit dozens of
+ * sub-pixel waypoints on a long haul; relaying every single one would flood
+ * chrome.tabs.sendMessage. 16ms (~60fps) keeps the glide perfectly smooth
+ * while bounding the message rate — the content-script's 180ms CSS transition
+ * already interpolates between whatever positions actually arrive.
+ *
+ * The FINAL waypoint is always emitted regardless of this throttle so the
+ * phantom lands exactly on target.
+ */
+const DEFAULT_CURSOR_EMIT_MIN_INTERVAL_MS = 16
+
 export interface MoveMouseHandlerDeps {
   /**
    * The DebuggerManager owning the CDP session for this tab. The handler
@@ -34,6 +47,27 @@ export interface MoveMouseHandlerDeps {
    * phases may promote it onto a session-scoped state object.
    */
   cursorState?: Map<number, Point>
+  /**
+   * Chrome API used to drive the VISUAL phantom cursor along the WindMouse
+   * path. As each waypoint is dispatched to the real CDP mouse, the handler
+   * also fires `chrome.tabs.sendMessage(tabId, { type: 'INDICATOR_CURSOR', x, y })`
+   * so the on-page overlay glides the same human-like path the real pointer
+   * takes — mirroring the official "Claude in Chrome" extension, whose
+   * `dispatchMouseEvent` couples every `mouseMoved` with an `UPDATE_PHANTOM_CURSOR`.
+   *
+   * Injectable so tests can assert the relayed positions without a real
+   * chrome runtime. When omitted (and `globalThis.chrome` is unavailable, e.g.
+   * unit tests) the visual relay is silently skipped — the real CDP path is
+   * unaffected.
+   */
+  chrome?: typeof globalThis.chrome
+  /**
+   * Minimum gap (ms, measured against WindMouse waypoint `t` timestamps)
+   * between two relayed `INDICATOR_CURSOR` messages. Defaults to
+   * {@link DEFAULT_CURSOR_EMIT_MIN_INTERVAL_MS}. The final waypoint always
+   * emits regardless. Set to 0 to relay every waypoint.
+   */
+  cursorEmitMinIntervalMs?: number
 }
 
 /**
@@ -55,7 +89,13 @@ export interface MoveMouseHandlerDeps {
  *   4. For each waypoint **after the first** (the cursor is already at
  *      `from`, so dispatching it would be redundant):
  *        a. `sleep(waypoint.t - prevWaypoint.t)` ms.
- *        b. `debugger.send(tabId, 'Input.dispatchMouseEvent',
+ *        b. Relay the waypoint to the VISUAL phantom cursor via
+ *           `chrome.tabs.sendMessage(tabId, { type: 'INDICATOR_CURSOR', x, y })`
+ *           (throttled to ~60fps; the final waypoint always emits). This makes
+ *           the on-page overlay glide the same path the real pointer travels,
+ *           matching the official extension's motion feel. Fire-and-forget —
+ *           a missing/asleep content script never blocks the real CDP path.
+ *        c. `debugger.send(tabId, 'Input.dispatchMouseEvent',
  *                          { type: 'mouseMoved', x, y, button: 'none' })`.
  *   5. Update `cursorState[tabId] = { x: params.x, y: params.y }`.
  *   6. Return Success — payload carries `waypoints` (total count, including
@@ -80,6 +120,7 @@ export const moveMouseHandler = (deps: MoveMouseHandlerDeps): ActionHandler<Move
   const clock = deps.clock ?? Date.now
   const sleep = deps.sleep ?? defaultSleep
   const cursorState = deps.cursorState ?? new Map<number, Point>()
+  const emitMinIntervalMs = deps.cursorEmitMinIntervalMs ?? DEFAULT_CURSOR_EMIT_MIN_INTERVAL_MS
 
   return async (tabId, params, _deadlineMs) => {
     await deps.debugger.attach(tabId)
@@ -92,6 +133,39 @@ export const moveMouseHandler = (deps: MoveMouseHandlerDeps): ActionHandler<Move
       random,
     })
 
+    // Resolve the chrome runtime once. The visual relay is best-effort: if
+    // neither an injected chrome nor a global one is present (unit tests),
+    // `emitCursor` becomes a no-op and only the real CDP path runs.
+    const chromeApi = deps.chrome ?? (typeof globalThis !== 'undefined' ? globalThis.chrome : undefined)
+    // Throttle bookkeeping: `t` of the last waypoint we relayed to the
+    // phantom cursor. Seeded to -Infinity so the first interior waypoint
+    // always emits.
+    let lastEmittedT = Number.NEGATIVE_INFINITY
+
+    /**
+     * Push one position to the on-page phantom cursor. Fire-and-forget:
+     * the returned promise is intentionally not awaited and its rejection
+     * is swallowed (a closed channel / absent content script must never
+     * derail the real mouse path). Mirrors the official extension's
+     * `chrome.tabs.sendMessage(...).catch(()=>{})`.
+     */
+    const emitCursor = (x: number, y: number): void => {
+      const tabs = chromeApi?.tabs
+      if (!tabs || typeof tabs.sendMessage !== 'function') return
+      try {
+        const ret = tabs.sendMessage(tabId, { type: 'INDICATOR_CURSOR', x, y }) as
+          | Promise<unknown>
+          | undefined
+        // MV3 returns a Promise; older shims may return void. Guard before .catch.
+        if (ret && typeof (ret as Promise<unknown>).catch === 'function') {
+          ;(ret as Promise<unknown>).catch(() => {})
+        }
+      } catch {
+        // sendMessage can throw synchronously if the SW is tearing down.
+        // Nothing actionable — the real CDP dispatch below is what matters.
+      }
+    }
+
     // Skip the very first waypoint — it equals `from` and the cursor is
     // already there. Walking from index 1 also lets us read `t` deltas
     // cleanly: each dispatch is preceded by a sleep equal to (current
@@ -102,6 +176,17 @@ export const moveMouseHandler = (deps: MoveMouseHandlerDeps): ActionHandler<Move
       const gap = Math.max(0, wp.t - prev.t)
 
       await sleep(gap)
+
+      // Drive the VISUAL phantom cursor along the SAME path as the real
+      // pointer. Emit when enough path-time has elapsed since the last
+      // relay (≈60fps), and ALWAYS emit the final waypoint so the overlay
+      // lands exactly on target. The emit precedes the CDP dispatch (visual
+      // leads fractionally), matching the official choreography.
+      const isLast = i === waypoints.length - 1
+      if (isLast || wp.t - lastEmittedT >= emitMinIntervalMs) {
+        emitCursor(wp.x, wp.y)
+        lastEmittedT = wp.t
+      }
 
       try {
         await deps.debugger.send(tabId, 'Input.dispatchMouseEvent', {
