@@ -1,6 +1,8 @@
 package vip.mate.browser.orchestrator.engine;
 
 import org.junit.jupiter.api.Test;
+import vip.mate.browser.edge.action.TabRef;
+import vip.mate.browser.edge.session.BrowserSession;
 import vip.mate.browser.orchestrator.domain.BBox;
 import vip.mate.browser.orchestrator.domain.GroundedTarget;
 import vip.mate.browser.orchestrator.domain.GroundingHint;
@@ -14,11 +16,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class A11yEngineTest {
 
+    // A11yEngine ignores session/tabRef (they're part of the contract for
+    // VisionEngine's auxiliary edge calls); pass sentinels.
+    private static final BrowserSession SESSION = null;
+    private static final TabRef TAB_REF = new TabRef.Main();
+
     private final A11yEngine engine = new A11yEngine();
 
     @Test
     void nullNearLabel_returnsMiss() {
-        var result = engine.ground(snapshot("""
+        var result = engine.ground(SESSION, TAB_REF, snapshot("""
                 Article[ref=ref_1]: Comments @{0,0 600x400}
                   Button[ref=ref_2]: Like @{100,200 80x32}
                 """), new GroundingHint.A11yMatch("button", Pattern.compile("Like")));
@@ -29,7 +36,7 @@ class A11yEngineTest {
 
     @Test
     void singleCandidateMatchingNearLabelAncestor_returnsHit() {
-        var result = engine.ground(snapshot("""
+        var result = engine.ground(SESSION, TAB_REF, snapshot("""
                 Article[ref=ref_1]: Comments @{0,0 600x400}
                   Button[ref=ref_2]: Like @{100,200 80x32}
                 Article[ref=ref_3]: Posts @{0,500 600x400}
@@ -44,7 +51,7 @@ class A11yEngineTest {
 
     @Test
     void multipleCandidatesAllUnderSameAncestor_returnsAmbiguous() {
-        var result = engine.ground(snapshot("""
+        var result = engine.ground(SESSION, TAB_REF, snapshot("""
                 Article[ref=ref_1]: Comments @{0,0 600x400}
                   Button[ref=ref_2]: Like @{100,200 80x32}
                   Region[ref=ref_3]: Replies @{200,100 300x200}
@@ -61,7 +68,7 @@ class A11yEngineTest {
 
     @Test
     void nearLabelMatchesCaseInsensitive() {
-        var result = engine.ground(snapshot("""
+        var result = engine.ground(SESSION, TAB_REF, snapshot("""
                 Article[ref=ref_1]: Comments @{0,0 600x400}
                   Button[ref=ref_2]: Like @{100,200 80x32}
                 """), hint("Like", "comments"));
@@ -72,7 +79,7 @@ class A11yEngineTest {
 
     @Test
     void nearestAncestorWins_p0Invariant() {
-        var result = engine.ground(snapshot("""
+        var result = engine.ground(SESSION, TAB_REF, snapshot("""
                 Main[ref=ref_1] @{0,0 900x900}
                   Article[ref=ref_2] @{10,10 800x300}
                     Heading[ref=ref_3]: Posts @{20,20 300x40}
@@ -89,7 +96,7 @@ class A11yEngineTest {
 
     @Test
     void nearLabelOnlyMatchesHeadinglikeRoles() {
-        var result = engine.ground(snapshot("""
+        var result = engine.ground(SESSION, TAB_REF, snapshot("""
                 Button[ref=ref_1]: Submit @{0,0 80x32}
                   Button[ref=ref_2]: Like @{100,200 80x32}
                 """), hint("Like", "Submit"));
@@ -100,7 +107,7 @@ class A11yEngineTest {
 
     @Test
     void byRefIdHint_returnsMiss() {
-        var result = engine.ground(snapshot("""
+        var result = engine.ground(SESSION, TAB_REF, snapshot("""
                 Button[ref=ref_1]: Submit @{100,200 80x32}
                 """), new GroundingHint.ByRefId("ref_1"));
 
@@ -110,7 +117,7 @@ class A11yEngineTest {
 
     @Test
     void evidenceFieldOnHit_describesNearLabelMatch() {
-        var result = engine.ground(snapshot("""
+        var result = engine.ground(SESSION, TAB_REF, snapshot("""
                 Article[ref=ref_1]: Comments @{0,0 600x400}
                   Button[ref=ref_2]: Like @{100,200 80x32}
                 """), hint("Like", "Comments"));
@@ -124,7 +131,7 @@ class A11yEngineTest {
 
     @Test
     void roleAndNameStillFilterCandidateSetBeforeNearLabel() {
-        var result = engine.ground(snapshot("""
+        var result = engine.ground(SESSION, TAB_REF, snapshot("""
                 Article[ref=ref_1]: Comments @{0,0 600x400}
                   Link[ref=ref_2]: Like @{100,200 80x32}
                   Button[ref=ref_3]: Reply @{200,200 80x32}

@@ -69,21 +69,21 @@ class GroundingDispatcherTest {
     void domHit_returnsHit_doesNotInvokeA11yOrVision() {
         givenSnapshot(snapshot, hint);
         var hit = hit("dom");
-        when(dom.ground(snapshot, hint)).thenReturn(hit);
+        when(dom.ground(session, new TabRef.Main(), snapshot, hint)).thenReturn(hit);
 
         var result = dispatcher.ground(session, new TabRef.Main(), hint);
 
         assertThat(result).isSameAs(hit);
-        verify(a11y, never()).ground(any(), any());
-        verify(vision, never()).ground(any(), any());
+        verify(a11y, never()).ground(any(), any(), any(), any());
+        verify(vision, never()).ground(any(), any(), any(), any());
     }
 
     @Test
     void domMissAllStubs_returnsMiss() {
         givenSnapshot(snapshot, hint);
-        when(dom.ground(snapshot, hint)).thenReturn(new GroundingResult.Miss("dom miss"));
-        when(a11y.ground(snapshot, hint)).thenReturn(new GroundingResult.Miss("stub-phase-2"));
-        when(vision.ground(snapshot, hint)).thenReturn(new GroundingResult.Miss("stub-phase-2"));
+        when(dom.ground(session, new TabRef.Main(), snapshot, hint)).thenReturn(new GroundingResult.Miss("dom miss"));
+        when(a11y.ground(session, new TabRef.Main(), snapshot, hint)).thenReturn(new GroundingResult.Miss("stub-phase-2"));
+        when(vision.ground(session, new TabRef.Main(), snapshot, hint)).thenReturn(new GroundingResult.Miss("stub-phase-2"));
 
         var result = dispatcher.ground(session, new TabRef.Main(), hint);
 
@@ -94,9 +94,9 @@ class GroundingDispatcherTest {
     void domAmbiguous_a11yStubMiss_visionStubMiss_returnsTheFirstAmbiguous() {
         givenSnapshot(snapshot, hint);
         var ambiguous = ambiguous("dom", "ref_1", "ref_2");
-        when(dom.ground(snapshot, hint)).thenReturn(ambiguous);
-        when(a11y.ground(snapshot, hint)).thenReturn(new GroundingResult.Miss("stub-phase-2"));
-        when(vision.ground(snapshot, hint)).thenReturn(new GroundingResult.Miss("stub-phase-2"));
+        when(dom.ground(session, new TabRef.Main(), snapshot, hint)).thenReturn(ambiguous);
+        when(a11y.ground(session, new TabRef.Main(), snapshot, hint)).thenReturn(new GroundingResult.Miss("stub-phase-2"));
+        when(vision.ground(session, new TabRef.Main(), snapshot, hint)).thenReturn(new GroundingResult.Miss("stub-phase-2"));
 
         var result = dispatcher.ground(session, new TabRef.Main(), hint);
 
@@ -106,14 +106,14 @@ class GroundingDispatcherTest {
     @Test
     void domAmbiguous_a11yHit_returnsA11yHit_disambiguation() {
         givenSnapshot(snapshot, hint);
-        when(dom.ground(snapshot, hint)).thenReturn(ambiguous("dom", "ref_1", "ref_2"));
+        when(dom.ground(session, new TabRef.Main(), snapshot, hint)).thenReturn(ambiguous("dom", "ref_1", "ref_2"));
         var a11yHit = hit("narrowed");
-        when(a11y.ground(snapshot, hint)).thenReturn(a11yHit);
+        when(a11y.ground(session, new TabRef.Main(), snapshot, hint)).thenReturn(a11yHit);
 
         var result = dispatcher.ground(session, new TabRef.Main(), hint);
 
         assertThat(result).isSameAs(a11yHit);
-        verify(vision, never()).ground(any(), any());
+        verify(vision, never()).ground(any(), any(), any(), any());
     }
 
     @Test
@@ -138,16 +138,16 @@ class GroundingDispatcherTest {
             assertThat(hit.target()).isEqualTo(new GroundedTarget(new BBox(100, 600, 80, 32), "ref_4"));
             assertThat(hit.evidence()).contains("narrowed by ancestor").contains("Comments");
         });
-        verify(vision, never()).ground(any(), any());
+        verify(vision, never()).ground(any(), any(), any(), any());
     }
 
     @Test
     void domMiss_a11yAmbiguous_visionHit_returnsVisionHit() {
         givenSnapshot(snapshot, hint);
-        when(dom.ground(snapshot, hint)).thenReturn(new GroundingResult.Miss("dom miss"));
-        when(a11y.ground(snapshot, hint)).thenReturn(ambiguous("a11y", "ref_1", "ref_2"));
+        when(dom.ground(session, new TabRef.Main(), snapshot, hint)).thenReturn(new GroundingResult.Miss("dom miss"));
+        when(a11y.ground(session, new TabRef.Main(), snapshot, hint)).thenReturn(ambiguous("a11y", "ref_1", "ref_2"));
         var visionHit = hit("vision");
-        when(vision.ground(snapshot, hint)).thenReturn(visionHit);
+        when(vision.ground(session, new TabRef.Main(), snapshot, hint)).thenReturn(visionHit);
 
         var result = dispatcher.ground(session, new TabRef.Main(), hint);
 
@@ -157,12 +157,12 @@ class GroundingDispatcherTest {
     @Test
     void refreshesSnapshotBeforeGround_viaPageSnapshotService() {
         givenSnapshot(snapshot, hint);
-        when(dom.ground(snapshot, hint)).thenReturn(hit("dom"));
+        when(dom.ground(session, new TabRef.Main(), snapshot, hint)).thenReturn(hit("dom"));
 
         dispatcher.ground(session, new TabRef.Main(), hint);
 
         verify(snapshotService).request(eq(session), eq(new TabRef.Main()), eq(hint.filter()));
-        verify(dom).ground(snapshot, hint);
+        verify(dom).ground(session, new TabRef.Main(), snapshot, hint);
     }
 
     @Test
@@ -170,9 +170,9 @@ class GroundingDispatcherTest {
         givenSnapshot(snapshot, hint);
         var domAmbiguous = ambiguous("dom", "ref_1", "ref_2");
         var a11yAmbiguous = ambiguous("a11y", "ref_3", "ref_4");
-        when(dom.ground(snapshot, hint)).thenReturn(domAmbiguous);
-        when(a11y.ground(snapshot, hint)).thenReturn(a11yAmbiguous);
-        when(vision.ground(snapshot, hint)).thenReturn(new GroundingResult.Miss("stub-phase-2"));
+        when(dom.ground(session, new TabRef.Main(), snapshot, hint)).thenReturn(domAmbiguous);
+        when(a11y.ground(session, new TabRef.Main(), snapshot, hint)).thenReturn(a11yAmbiguous);
+        when(vision.ground(session, new TabRef.Main(), snapshot, hint)).thenReturn(new GroundingResult.Miss("stub-phase-2"));
 
         var result = dispatcher.ground(session, new TabRef.Main(), hint);
 

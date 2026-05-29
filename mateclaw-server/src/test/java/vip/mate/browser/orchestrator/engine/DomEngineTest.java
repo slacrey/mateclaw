@@ -1,6 +1,8 @@
 package vip.mate.browser.orchestrator.engine;
 
 import org.junit.jupiter.api.Test;
+import vip.mate.browser.edge.action.TabRef;
+import vip.mate.browser.edge.session.BrowserSession;
 import vip.mate.browser.orchestrator.domain.BBox;
 import vip.mate.browser.orchestrator.domain.GroundedTarget;
 import vip.mate.browser.orchestrator.domain.GroundingHint;
@@ -14,11 +16,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class DomEngineTest {
 
+    // DOM engine ignores session + tabRef — pass null sentinels rather than full mocks.
+    private static final BrowserSession SESSION = null;
+    private static final TabRef TAB_REF = new TabRef.Main();
+
     private final DomEngine engine = new DomEngine();
 
     @Test
     void hitWhenExactlyOneA11yLineMatchesRoleAndName() {
-        var result = engine.ground(snapshot("""
+        var result = engine.ground(SESSION, TAB_REF, snapshot("""
                 Button[ref=ref_1]: Submit @{100,200 80x32}
                 Link[ref=ref_2]: Help @{300,400 60x18}
                 """), new GroundingHint.A11yMatch("button", Pattern.compile("Submit")));
@@ -31,7 +37,7 @@ class DomEngineTest {
 
     @Test
     void ambiguousWhenTwoLinesMatchSameRoleAndName() {
-        var result = engine.ground(snapshot("""
+        var result = engine.ground(SESSION, TAB_REF, snapshot("""
                 Button[ref=ref_1]: Submit @{100,200 80x32}
                 Link[ref=ref_2]: Submit @{300,400 60x18}
                 Button[ref=ref_3]: Submit @{500,600 90x40}
@@ -47,7 +53,7 @@ class DomEngineTest {
 
     @Test
     void missWhenPatternDoesNotMatch() {
-        var result = engine.ground(snapshot("""
+        var result = engine.ground(SESSION, TAB_REF, snapshot("""
                 Button[ref=ref_1]: Cancel @{100,200 80x32}
                 """), new GroundingHint.A11yMatch("button", Pattern.compile("Submit")));
 
@@ -57,7 +63,7 @@ class DomEngineTest {
 
     @Test
     void missWhenRoleDoesNotMatch_evenIfNameDoes() {
-        var result = engine.ground(snapshot("""
+        var result = engine.ground(SESSION, TAB_REF, snapshot("""
                 Link[ref=ref_1]: Submit @{100,200 80x32}
                 """), new GroundingHint.A11yMatch("button", Pattern.compile("Submit")));
 
@@ -67,7 +73,7 @@ class DomEngineTest {
 
     @Test
     void refIdHit_whenRefIdHintProvidedAndPresent() {
-        var result = engine.ground(snapshot("""
+        var result = engine.ground(SESSION, TAB_REF, snapshot("""
                 Button[ref=ref_1]: Submit @{100,200 80x32}
                 """), new GroundingHint.ByRefId("ref_1"));
 
@@ -78,7 +84,7 @@ class DomEngineTest {
 
     @Test
     void refIdMiss_whenRefIdHintProvidedButAbsent() {
-        var result = engine.ground(snapshot("""
+        var result = engine.ground(SESSION, TAB_REF, snapshot("""
                 Button[ref=ref_1]: Submit @{100,200 80x32}
                 """), new GroundingHint.ByRefId("ref_2"));
 
@@ -87,7 +93,7 @@ class DomEngineTest {
 
     @Test
     void roleMatchIsCaseInsensitive() {
-        var result = engine.ground(snapshot("""
+        var result = engine.ground(SESSION, TAB_REF, snapshot("""
                 button[ref=ref_1]: Submit @{100,200 80x32}
                 """), new GroundingHint.A11yMatch("Button", Pattern.compile("Submit")));
 
@@ -96,7 +102,7 @@ class DomEngineTest {
 
     @Test
     void namePatternUsesRegex_notSubstring() {
-        var result = engine.ground(snapshot("""
+        var result = engine.ground(SESSION, TAB_REF, snapshot("""
                 Button[ref=ref_1]: Submit @{100,200 80x32}
                 Button[ref=ref_2]: Submit form @{300,400 120x32}
                 """), new GroundingHint.A11yMatch("button", Pattern.compile("^Submit$")));
@@ -107,7 +113,7 @@ class DomEngineTest {
 
     @Test
     void evidenceFieldOnHit_isInformative() {
-        var result = engine.ground(snapshot("""
+        var result = engine.ground(SESSION, TAB_REF, snapshot("""
                 Button[ref=ref_1]: Submit @{100,200 80x32}
                 """), new GroundingHint.A11yMatch("button", Pattern.compile("Submit")));
 

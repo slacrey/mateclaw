@@ -132,7 +132,7 @@ class ExtensionBrowserToolTest {
                 new PlanResult.Success(List.of(
                         new ActionResult.Success(50L, new ClickSuccess())))));
 
-        String out = tool.extension_browser_click("Submit", "button", null);
+        String out = tool.extension_browser_click("Submit", "button", null, null);
 
         JsonNode j = mapper.readTree(out);
         assertThat(j.get("ok").asBoolean()).isTrue();
@@ -146,7 +146,7 @@ class ExtensionBrowserToolTest {
         when(dispatcher.ground(any(), any(), any()))
                 .thenReturn(new GroundingResult.Ambiguous(List.of(t1, t2), "two Submits"));
 
-        String out = tool.extension_browser_click("Submit", null, null);
+        String out = tool.extension_browser_click("Submit", null, null, null);
 
         JsonNode j = mapper.readTree(out);
         assertThat(j.get("ok").asBoolean()).isFalse();
@@ -161,7 +161,7 @@ class ExtensionBrowserToolTest {
         when(dispatcher.ground(any(), any(), any()))
                 .thenReturn(new GroundingResult.Miss("no element matches"));
 
-        String out = tool.extension_browser_click("Nonexistent", null, null);
+        String out = tool.extension_browser_click("Nonexistent", null, null, null);
 
         JsonNode j = mapper.readTree(out);
         assertThat(j.get("ok").asBoolean()).isFalse();
@@ -173,7 +173,7 @@ class ExtensionBrowserToolTest {
         when(dispatcher.ground(any(), any(), any()))
                 .thenReturn(new GroundingResult.Miss("not found"));
 
-        tool.extension_browser_click("Submit", null, null);
+        tool.extension_browser_click("Submit", null, null, null);
 
         var captor = org.mockito.ArgumentCaptor.forClass(GroundingHint.class);
         verify(dispatcher).ground(any(), any(), captor.capture());

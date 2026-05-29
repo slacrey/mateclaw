@@ -30,6 +30,7 @@ class EdgeWebSocketHandlerTest {
     private ObjectMapper mapper;
     private ActionExecutionService actionExecutionService;
     private vip.mate.browser.orchestrator.snapshot.SnapshotEdgeClient snapshotEdgeClient;
+    private vip.mate.browser.orchestrator.screenshot.ScreenshotEdgeClient screenshotEdgeClient;
 
     @BeforeEach
     void setUp() {
@@ -37,8 +38,9 @@ class EdgeWebSocketHandlerTest {
         mapper = new ObjectMapper();
         actionExecutionService = mock(ActionExecutionService.class);
         snapshotEdgeClient = mock(vip.mate.browser.orchestrator.snapshot.SnapshotEdgeClient.class);
+        screenshotEdgeClient = mock(vip.mate.browser.orchestrator.screenshot.ScreenshotEdgeClient.class);
         handler = new EdgeWebSocketHandler(registry, mapper, actionExecutionService,
-                snapshotEdgeClient, "1.4.0");
+                snapshotEdgeClient, screenshotEdgeClient, "1.4.0");
     }
 
     @Test
@@ -127,6 +129,29 @@ class EdgeWebSocketHandlerTest {
         verify(actionExecutionService).deliverResult(
                 eq("action-1"),
                 eq(new ActionResult.Success(15, new ClickSuccess())));
+    }
+
+    @Test
+    void screenshotCaptureResponse_dispatchesToScreenshotEdgeClient() throws Exception {
+        WebSocketSession ws = mockWs("user-1");
+        var session = registry.register("user-1", ws, "0.1.0");
+
+        Map<String, Object> payload = Map.of(
+                "snapshot_id", "shot-1",
+                "captured_at_ms", 1L,
+                "tab_ref", 42,
+                "format", "png",
+                "data_base64", "iVBORw0KGgo");
+
+        EdgeMessage resp = EdgeMessage.builder()
+                .v(1).msgId("shot-msg-1").kind(EdgeMessageKind.SCREENSHOT_CAPTURE_RESPONSE)
+                .ts(0).traceId("t-shot").sessionId(session.getId()).inReplyTo("shot-req-1")
+                .payload(payload)
+                .build();
+
+        handler.handleTextMessage(ws, new TextMessage(mapper.writeValueAsString(resp)));
+
+        verify(screenshotEdgeClient).deliverScreenshot(eq("shot-req-1"), any());
     }
 
     @Test
