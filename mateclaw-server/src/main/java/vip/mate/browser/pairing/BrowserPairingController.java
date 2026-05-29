@@ -13,6 +13,7 @@ import vip.mate.auth.pat.PersonalAccessTokenService;
 import vip.mate.auth.service.AuthService;
 import vip.mate.common.result.R;
 import vip.mate.exception.MateClawException;
+import vip.mate.tool.builtin.ExtensionBrowserTool;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -53,6 +54,7 @@ public class BrowserPairingController {
 
     private final PersonalAccessTokenService patService;
     private final AuthService authService;
+    private final ExtensionBrowserTool browserTool;
 
     @Operation(summary = "Mint a browser-scoped PAT for the extension (plaintext returned once)")
     @PostMapping("/mint-token")
@@ -89,6 +91,25 @@ public class BrowserPairingController {
         return R.ok(Map.of("ok", true));
     }
 
+    /**
+     * Dev/diagnostic: drive the connected extension through the REAL
+     * {@link ExtensionBrowserTool} path (navigate → observe) and return both
+     * raw JSON results. Lets an automated harness verify the full
+     * server↔extension↔CDP round-trip without going through the LLM. Admin-JWT
+     * gated like the rest of this controller.
+     */
+    @Operation(summary = "Dev: drive the connected extension (navigate + observe) and return raw results")
+    @PostMapping("/test-drive")
+    public R<Map<String, Object>> testDrive(@RequestBody(required = false) TestDriveRequest req,
+                                            Authentication auth) {
+        requireUser(auth);
+        String url = (req == null || req.url() == null || req.url().isBlank())
+                ? "https://example.com" : req.url().trim();
+        String navigate = browserTool.extension_browser_navigate(url, "load", null);
+        String observe = browserTool.extension_browser_observe("interactive", null);
+        return R.ok(Map.of("navigate", navigate, "observe", observe));
+    }
+
     private Long parseTokenId(String raw) {
         try {
             return Long.valueOf(raw.trim());
@@ -114,6 +135,9 @@ public class BrowserPairingController {
 
     /** Inbound DTO for {@link #revokeToken}. */
     public record RevokeRequest(String tokenId) {}
+
+    /** Inbound DTO for {@link #testDrive}. {@code url} defaults to example.com. */
+    public record TestDriveRequest(String url) {}
 
     /**
      * Mint response (contract §3). {@code token} is the one-shot plaintext;

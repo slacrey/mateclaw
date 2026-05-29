@@ -10,6 +10,7 @@ import vip.mate.auth.pat.PersonalAccessTokenService;
 import vip.mate.auth.service.AuthService;
 import vip.mate.common.result.R;
 import vip.mate.exception.MateClawException;
+import vip.mate.tool.builtin.ExtensionBrowserTool;
 
 import java.time.LocalDateTime;
 import java.util.Map;
@@ -45,7 +46,8 @@ class BrowserPairingControllerTest {
     void setUp() {
         patService = mock(PersonalAccessTokenService.class);
         authService = mock(AuthService.class);
-        controller = new BrowserPairingController(patService, authService);
+        controller = new BrowserPairingController(patService, authService,
+                mock(ExtensionBrowserTool.class));
 
         auth = mock(Authentication.class);
         when(auth.getName()).thenReturn("alice");
