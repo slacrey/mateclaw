@@ -1,9 +1,57 @@
 # MateClaw Browser Agent — Phase 3 Plan
 
-Date: 2026-05-29
+Date: 2026-05-29 (revised 2026-05-29 after user steer)
 Author: Claude Opus 4.7 (1M context)
-Status: **draft, awaiting user decision on Thrust priority**
+Status: **v1.1 — user decisions locked in; ready to dispatch Wave 3-A1**
 Branch (proposed): `feat/browser-phase-3`
+
+## v1.1 changes (user decisions)
+
+| Open question | Decision |
+|---|---|
+| Thrust priority | **Thrust A first.** "先完成能打开浏览器达成目标 然后再考虑sop". Thrust B (SOP) deferred to after Thrust A is proven end-to-end. |
+| Vision engine model | **MateClaw failover chain** (per-tenant config). |
+| Trajectory storage | **JSONL on disk** (Phase 3 ships fast; Phase 4 migrates to Postgres). |
+
+## v1.1 plan-gap fix — Agent loop
+
+The original draft assumed the caller hand-crafts each `Step` for the planner. To genuinely "open browser and complete a goal", we need the LLM to drive the dispatch loop autonomously. The existing MateClaw `StateGraphReActAgent` already does this for server-side Playwright (via `BrowserUseTool.java` — see `vip/mate/tool/builtin/`). Phase 3 adds a **sibling tool** that targets the user's real Chrome via the Phase 2 stack:
+
+**T3.AGENT-TOOL — `ExtensionBrowserTool`** (new `@Tool` callbacks under `vip/mate/tool/builtin/`):
+- `browser_navigate(url, wait_for)` → builds `ActionRequest.Navigate`, calls `actionExecutionService.execute`.
+- `browser_click(hint_text, near_label?)` → constructs `GroundingHint.A11yMatch`, calls `GroundingDispatcher.ground`, hands the resulting `Step` to `ActionPlanner`, runs through `PlanExecutionService`.
+- `browser_type(text)` / `browser_scroll(direction, distance)` / `browser_wait(strategy)` — similar shape.
+- `browser_observe()` → returns the current `PageSnapshot.tree` as a text blob for the LLM's next reasoning turn.
+- `browser_screenshot()` → returns a base64 PNG (uses T3.2-protocol's `screenshot.capture.*` wire kinds).
+- All callbacks honour Phase 1's session-id ownership: the tool resolves the active session from `ToolContext` → `BrowserSession` → routes through the existing transport.
+
+Tests: 5-7 cases verifying each `@Tool` annotation produces the right `ActionRequest`. Integration test: feed a goal to the ReAct agent + a stub LLM that emits the expected tool sequence → verify the Chrome side received the right CDP events (via Phase 2's `RecordingWsSink` fixture).
+
+This tool COEXISTS with the existing server-side `BrowserUseTool`. Tenants pick which surface (own headless vs user's real Chrome) per agent config.
+
+## Revised Wave structure (v1.1)
+
+```
+Wave 3-A1 (parallel — foundation):
+  - T3.A iframe-internal grounding  (Codex 19)
+  - T3.2-protocol screenshot.capture.* wire kinds  (Codex 20)
+  ↓
+Wave 3-A2 (parallel — engines + tool):
+  - T3.1 A11yEngine real impl  (Codex 21)
+  - T3.2 VisionEngine real impl using failover chain  (Sub-agent H)
+  - T3.AGENT-TOOL ExtensionBrowserTool  (me inline)
+  ↓
+Wave 3-A3 (smoke + audit):
+  - End-to-end manual: "search 'mateclaw' on duckduckgo.com → return first result title"
+    Agent uses ExtensionBrowserTool in user's real Chrome.
+  - Phase 1 audit script + new T3.A bbox-translation invariant
+  - Wave A closure report
+
+  Then user verifies "open browser, complete goal" is real, and we decide
+  whether to start Thrust B (SOP).
+```
+
+
 
 ---
 
