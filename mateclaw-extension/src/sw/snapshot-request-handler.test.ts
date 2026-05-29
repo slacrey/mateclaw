@@ -73,7 +73,13 @@ describe('SnapshotRequestHandler', () => {
 
     await handler.handle(snapshotRequest())
 
-    expect(chrome.scripting.executeScript).toHaveBeenCalledOnce()
+    // Two calls now: (1) inject the idempotent a11y content script so the
+    // extractor is guaranteed present, (2) run the extraction func.
+    expect(chrome.scripting.executeScript).toHaveBeenCalledTimes(2)
+    expect(chrome.scripting.executeScript).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      target: { tabId: 42, allFrames: false },
+      files: ['content/a11y-tree.js'],
+    }))
     expect(chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
       target: { tabId: 42, allFrames: false },
       args: ['interactive', 15, 200000, undefined, undefined],

@@ -102,10 +102,22 @@ export class SnapshotRequestHandler {
 
   private async captureSnapshot(tabId: number, req: SnapshotRequestPayload): Promise<SnapshotResult> {
     const chrome = this.deps.chrome ?? globalThis.chrome
+    const target = req.frame_id === undefined
+      ? { tabId, allFrames: false }
+      : { tabId, frameIds: [req.frame_id] }
+    // Ensure window.__mateclaw_a11y_tree exists before extracting. The manifest
+    // content script may not have run yet — document_idle races the navigate
+    // load event, the tab may have started as about:blank, or it predates the
+    // extension. Programmatic injection is idempotent (the content script no-ops
+    // if already present) and guarantees the extractor is available, instead of
+    // failing with "not available" + an empty/zero-viewport snapshot.
+    try {
+      await chrome.scripting.executeScript({ target, files: ['content/a11y-tree.js'] })
+    } catch {
+      // best-effort — the func below surfaces a clear error if still missing
+    }
     const results = await chrome.scripting.executeScript({
-      target: req.frame_id === undefined
-        ? { tabId, allFrames: false }
-        : { tabId, frameIds: [req.frame_id] },
+      target,
       func: (filter, depth, maxChars, refId, frameId) => {
         // The arg types come back loose (string|number|undefined) — the
         // call-site contract guarantees correct concrete types; assert.
