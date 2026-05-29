@@ -2,8 +2,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import App from './App.vue'
 
+type ChromeShim = {
+  runtime: {
+    sendMessage: ReturnType<typeof vi.fn>
+    onMessage: { addListener: ReturnType<typeof vi.fn> }
+  }
+}
+
+function chromeShim(): ChromeShim {
+  return (globalThis as unknown as { chrome: ChromeShim }).chrome
+}
+
 beforeEach(() => {
-  ;(globalThis as unknown as Record<string, unknown>).chrome = {
+  ;(globalThis as unknown as { chrome: ChromeShim }).chrome = {
     runtime: {
       sendMessage: vi.fn().mockResolvedValue({ ok: true }),
       onMessage: { addListener: vi.fn() },
@@ -20,13 +31,11 @@ describe('Sidepanel App', () => {
   it('sends an edge.outbound on click', async () => {
     const w = mount(App)
     await w.find('button[data-test=ping]').trigger('click')
-    expect(
-      (globalThis as Record<string, unknown>).chrome.runtime.sendMessage,
-    ).toHaveBeenCalled()
-    const arg = (
-      (globalThis as Record<string, unknown>).chrome.runtime
-        .sendMessage as ReturnType<typeof vi.fn>
-    ).mock.calls[0]?.[0]
+    expect(chromeShim().runtime.sendMessage).toHaveBeenCalled()
+    const arg = chromeShim().runtime.sendMessage.mock.calls[0]?.[0] as {
+      kind: string
+      message: { kind: string }
+    }
     expect(arg.kind).toBe('edge.outbound')
     expect(arg.message.kind).toBe('ping')
   })
@@ -34,19 +43,18 @@ describe('Sidepanel App', () => {
   it('session_id is always empty in the outbound ping (audit P0-1)', async () => {
     const w = mount(App)
     await w.find('button[data-test=ping]').trigger('click')
-    const arg = (
-      (globalThis as Record<string, unknown>).chrome.runtime
-        .sendMessage as ReturnType<typeof vi.fn>
-    ).mock.calls[0]?.[0]
+    const arg = chromeShim().runtime.sendMessage.mock.calls[0]?.[0] as {
+      message: { session_id: string }
+    }
     expect(arg.message.session_id).toBe('')
   })
 
   it('logs inbound messages', async () => {
     const w = mount(App)
-    const handler = (
-      (globalThis as Record<string, unknown>).chrome.runtime.onMessage
-        .addListener as ReturnType<typeof vi.fn>
-    ).mock.calls[0]?.[0]
+    const handler = chromeShim().runtime.onMessage.addListener.mock.calls[0]?.[0] as
+      | ((msg: unknown) => void)
+      | undefined
+    if (!handler) throw new Error('no onMessage listener registered')
     handler({
       kind: 'edge.inbound',
       message: {

@@ -228,13 +228,13 @@ describe('SnapshotRequestHandler', () => {
 
   it('tree string is passed through verbatim from injection result', async () => {
     const { chrome } = fakeChrome()
-    vi.mocked(chrome.scripting.executeScript).mockResolvedValue([{
+    ;(chrome.scripting.executeScript as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([({
       result: {
         tree: 'Button[ref=ref_1]: Submit\n  Link[ref=ref_2]: Learn more',
         viewport: { w: 1280, h: 800 },
       },
       frameId: 0,
-    }])
+    }) as unknown as chrome.scripting.InjectionResult<unknown>])
     const { handler, sentUp } = makeHandler({ chrome })
 
     await handler.handle(snapshotRequest())
@@ -244,13 +244,13 @@ describe('SnapshotRequestHandler', () => {
 
   it('viewport {w,h} from injection result is included in response', async () => {
     const { chrome } = fakeChrome()
-    vi.mocked(chrome.scripting.executeScript).mockResolvedValue([{
+    ;(chrome.scripting.executeScript as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([({
       result: {
         tree: 'Button[ref=ref_1]: Submit',
         viewport: { w: 390, h: 844 },
       },
       frameId: 0,
-    }])
+    }) as unknown as chrome.scripting.InjectionResult<unknown>])
     const { handler, sentUp } = makeHandler({ chrome })
 
     await handler.handle(snapshotRequest())

@@ -10,6 +10,11 @@ function ok(payload: Record<string, unknown> = {}): ActionResult {
 }
 
 function navigateReq(overrides: Partial<ActionRequest> = {}): ActionRequest {
+  // Discriminated-union construction: assemble via `as unknown as` because
+  // the spread breaks TS's kind→params narrowing even though the literal is
+  // well-formed. Production code never builds requests this way — the wire
+  // shape is parsed straight into the union with a real discriminator at
+  // runtime; this is a test-only convenience.
   return {
     msg_id: 'm-nav',
     tab_ref: 'main',
@@ -17,7 +22,7 @@ function navigateReq(overrides: Partial<ActionRequest> = {}): ActionRequest {
     params: { url: 'https://example.com', wait_for: 'load' },
     deadline_ms: 5000,
     ...overrides,
-  }
+  } as unknown as ActionRequest
 }
 
 describe('ActionExecutor', () => {
@@ -28,7 +33,7 @@ describe('ActionExecutor', () => {
 
   it('routes navigate kind to navigate handler with tabId + params', async () => {
     const navigate = vi.fn(async () => ok({ final_url: 'https://example.com', load_state: 'load' }))
-    const exec = new ActionExecutor({ navigate } as ActionHandlers)
+    const exec = new ActionExecutor({ navigate } as unknown as ActionHandlers)
 
     const result = await exec.run(42, navigateReq())
 
@@ -75,11 +80,11 @@ describe('ActionExecutor', () => {
   // ---------------------------------------------------------------
 
   it('returns UNKNOWN_KIND failure when kind has no registered handler', async () => {
-    const exec = new ActionExecutor({} as ActionHandlers)
+    const exec = new ActionExecutor({} as unknown as ActionHandlers)
 
     const result = await exec.run(42, {
-      msg_id: 'm', tab_ref: 'main', kind: 'future-action' as 'navigate', params: {}, deadline_ms: 1000,
-    })
+      msg_id: 'm', tab_ref: 'main', kind: 'future-action', params: {}, deadline_ms: 1000,
+    } as unknown as ActionRequest)
 
     expect(result.ok).toBe(false)
     if (result.ok === false) {
@@ -91,7 +96,7 @@ describe('ActionExecutor', () => {
 
   it('returns Failure with handler error message when handler throws', async () => {
     const navigate = vi.fn(async () => { throw new Error('CDP Page.enable timeout') })
-    const exec = new ActionExecutor({ navigate } as ActionHandlers)
+    const exec = new ActionExecutor({ navigate } as unknown as ActionHandlers)
 
     const result = await exec.run(42, navigateReq())
 
@@ -111,7 +116,7 @@ describe('ActionExecutor', () => {
     const navigate = vi.fn(async () => {
       throw new ActionFailureError('TIMEOUT_PAGE_LOAD', 'navigation timed out at 5s', true)
     })
-    const exec = new ActionExecutor({ navigate } as ActionHandlers)
+    const exec = new ActionExecutor({ navigate } as unknown as ActionHandlers)
 
     const result = await exec.run(42, navigateReq())
 
@@ -131,7 +136,7 @@ describe('ActionExecutor', () => {
       await new Promise(r => setTimeout(r, 10))
       return ok({ final_url: 'x' })
     })
-    const exec = new ActionExecutor({ navigate } as ActionHandlers)
+    const exec = new ActionExecutor({ navigate } as unknown as ActionHandlers)
 
     const result = await exec.run(42, navigateReq())
 
@@ -149,7 +154,7 @@ describe('ActionExecutor', () => {
     // ActionExecutionService layer). But we still pass it down so
     // handlers like navigate can race against chrome.webNavigation.
     const navigate = vi.fn(async () => ok({}))
-    const exec = new ActionExecutor({ navigate } as ActionHandlers)
+    const exec = new ActionExecutor({ navigate } as unknown as ActionHandlers)
 
     await exec.run(42, navigateReq({ deadline_ms: 7777 }))
 

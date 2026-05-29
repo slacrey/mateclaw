@@ -121,7 +121,7 @@ describe('StopButton', () => {
     // And the transition is collapsed to ~30ms (functionally instant).
     const match = /transform\s+(\d+)ms/.exec(btn.style.transition)
     expect(match).not.toBeNull()
-    expect(parseInt(match![1], 10)).toBeLessThanOrEqual(30)
+    expect(parseInt(match![1]!, 10)).toBeLessThanOrEqual(30)
   })
 
   it('prefers-reduced-motion: CSS @media override stylesheet is injected (P1-8 belt-and-suspenders)', () => {

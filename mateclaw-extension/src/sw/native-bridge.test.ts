@@ -34,8 +34,10 @@ describe('NativeBridge', () => {
 
   it('connects to the named native host (com.mateclaw.browser_bridge)', () => {
     new NativeBridge('com.mateclaw.browser_bridge').connect()
-    expect((globalThis as Record<string, unknown>).chrome.runtime.connectNative)
-      .toHaveBeenCalledWith('com.mateclaw.browser_bridge')
+    const chromeShim = (globalThis as unknown as {
+      chrome: { runtime: { connectNative: ReturnType<typeof vi.fn> } }
+    }).chrome
+    expect(chromeShim.runtime.connectNative).toHaveBeenCalledWith('com.mateclaw.browser_bridge')
   })
 
   it('forwards messages via postMessage', () => {

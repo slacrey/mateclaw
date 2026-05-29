@@ -1,4 +1,4 @@
-import { EdgeMessage, EdgeMessageKind, makeEdgeMessage } from '../shared/edge-protocol'
+import { EdgeMessageKind, makeEdgeMessage, type EdgeMessage } from '../shared/edge-protocol'
 import type { TabRefResolver } from './action/tab-ref-resolver'
 import type { TabRef } from './action/types'
 
@@ -104,7 +104,14 @@ export class SnapshotRequestHandler {
     const results = await chrome.scripting.executeScript({
       target: { tabId, allFrames: false },
       func: (filter, depth, maxChars, refId) => {
-        const tree = window.__mateclaw_a11y_tree?.(filter, depth, maxChars, refId)
+        // The arg types come back loose (string|number|undefined) — the
+        // call-site contract guarantees correct concrete types; assert.
+        const tree = window.__mateclaw_a11y_tree?.(
+          filter as 'interactive' | 'all' | 'default',
+          depth as number,
+          maxChars as number,
+          refId as string | undefined,
+        )
         if (typeof tree !== 'string') {
           throw new Error('window.__mateclaw_a11y_tree is not available')
         }
