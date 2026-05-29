@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.SubProtocolCapable;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
@@ -20,6 +21,7 @@ import vip.mate.browser.orchestrator.screenshot.ScreenshotEdgeClient;
 import vip.mate.browser.orchestrator.snapshot.SnapshotEdgeClient;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -34,13 +36,27 @@ import java.util.concurrent.ConcurrentHashMap;
  * (forward-compat). The only conditions that close the connection are
  * protocol-version mismatch (4400) and an unknown session_id on a
  * post-hello message (inline error, no close).
+ *
+ * <p>Implements {@link SubProtocolCapable} so the Phase 3.1 direct-WSS browser
+ * client gets its offered {@code mateclaw.edge.v1} subprotocol echoed in the
+ * 101 response. The browser opens
+ * {@code new WebSocket(url, ['mateclaw.edge.v1', 'bearer.<pat>'])}; Spring's
+ * {@code AbstractHandshakeHandler#determineSelectedProtocol} walks the offered
+ * list in order and returns the first one the server supports — i.e.
+ * {@code mateclaw.edge.v1}, NEVER the {@code bearer.*} token. If the browser
+ * doesn't get that header back it closes the socket immediately. The
+ * Native-Messaging bridge offers no subprotocol, so {@code determineSelectedProtocol}
+ * returns null and no header is added — its handshake is unchanged.
  */
 @Slf4j
 @Component
-public class EdgeWebSocketHandler extends TextWebSocketHandler {
+public class EdgeWebSocketHandler extends TextWebSocketHandler implements SubProtocolCapable {
 
     private static final int SUPPORTED_PROTOCOL_VERSION = 1;
     private static final long HEARTBEAT_INTERVAL_MS = 10_000L;
+
+    /** The single subprotocol the edge endpoint advertises (Phase 3.1). */
+    public static final String EDGE_SUBPROTOCOL = "mateclaw.edge.v1";
 
     private final BrowserSessionRegistry registry;
     private final ObjectMapper mapper;
@@ -62,6 +78,19 @@ public class EdgeWebSocketHandler extends TextWebSocketHandler {
         this.snapshotEdgeClient = snapshotEdgeClient;
         this.screenshotEdgeClient = screenshotEdgeClient;
         this.serverVersion = serverVersion;
+    }
+
+    /**
+     * Advertise the {@code mateclaw.edge.v1} subprotocol so the handshake handler
+     * echoes it back to a browser client that offered it. The {@code bearer.*}
+     * auth entry the browser also offers is intentionally NOT listed here, so it
+     * can never be selected/echoed. Returning a non-empty list does not force a
+     * subprotocol on clients that offer none (the NH bridge) — Spring only echoes
+     * a protocol when the client requests one the server supports.
+     */
+    @Override
+    public List<String> getSubProtocols() {
+        return List.of(EDGE_SUBPROTOCOL);
     }
 
     @Override

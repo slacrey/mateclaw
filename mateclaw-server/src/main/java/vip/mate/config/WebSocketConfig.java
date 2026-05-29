@@ -49,11 +49,15 @@ public class WebSocketConfig implements WebSocketConfigurer {
 
         registry.addHandler(edgeHandler, "/api/v1/browser/edge")
                 .addInterceptors(edgeAuthInterceptor)
-                // Edge connections come from Native Host (server-to-server), not
-                // browsers — allowed origins is irrelevant; we authenticate via JWT/PAT
-                // on the handshake. Leaving the whitelist tight prevents the
-                // endpoint being abused as a browser WS surface.
-                .setAllowedOrigins("");
+                // Phase 3.1 (direct-WSS): the Chrome extension service worker now
+                // connects to this endpoint straight from the browser, so its
+                // handshake carries an `Origin: chrome-extension://<id>` header.
+                // Admit those origins; the Native-Messaging bridge (server-to-server,
+                // no Origin header) keeps working too. Auth is still the real gate —
+                // EdgeAuthInterceptor validates a JWT/PAT from either the
+                // `Authorization` header (NH bridge) or the `Sec-WebSocket-Protocol`
+                // `bearer.<token>` entry (browser, which can't set Authorization).
+                .setAllowedOriginPatterns("chrome-extension://*");
     }
 
     /**
