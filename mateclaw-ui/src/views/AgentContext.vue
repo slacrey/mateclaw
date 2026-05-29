@@ -780,11 +780,11 @@ function formatTime(time?: string): string {
 .file-editor-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .editor-card { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
 
-.editor-header { display: flex; align-items: flex-start; justify-content: space-between; padding: 14px 16px; gap: 12px; flex-shrink: 0; }
-.editor-file-info { min-width: 0; }
-.editor-filename { font-size: 15px; font-weight: 600; color: var(--mc-text-primary); }
-.editor-meta { font-size: 12px; color: var(--mc-text-tertiary); margin-top: 2px; }
-.editor-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.editor-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; gap: 12px; flex-shrink: 0; flex-wrap: wrap; }
+.editor-file-info { min-width: 0; flex: 1 1 180px; }
+.editor-filename { font-size: 15px; font-weight: 600; color: var(--mc-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.editor-meta { font-size: 12px; color: var(--mc-text-tertiary); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.editor-actions { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
 .btn-sm { display: flex; align-items: center; gap: 4px; padding: 5px 10px; border: 1px solid var(--mc-border); background: var(--mc-bg-elevated); border-radius: 6px; font-size: 12px; color: var(--mc-text-primary); cursor: pointer; transition: all 0.15s; }
 .btn-sm:hover { background: var(--mc-bg-sunken); }
 .btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -799,16 +799,16 @@ function formatTime(time?: string): string {
 .preview-mode-btn.active { background: var(--mc-bg-elevated); color: var(--mc-primary); box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
 .change-badge { font-size: 11px; background: rgba(245, 158, 11, 0.15); color: #f59e0b; padding: 2px 8px; border-radius: 10px; margin-left: auto; }
 
-.editor-content { flex: 1; overflow: hidden; display: flex; flex-direction: row; gap: 0; padding: 0 16px 16px; }
+.editor-content { flex: 1; overflow: hidden; display: flex; flex-direction: row; gap: 0; padding: 0 16px 16px; min-height: 360px; }
 .editor-content.mode-off .editor-textarea { flex: 1; }
 .editor-content.mode-preview .markdown-preview { flex: 1; }
 .editor-content.mode-split { gap: 8px; }
 .editor-content.mode-split .editor-textarea { flex: 1; min-width: 0; }
 .editor-content.mode-split .markdown-preview { flex: 1; min-width: 0; }
 
-.editor-textarea { flex: 1; width: 100%; resize: none; border: 1px solid var(--mc-border); border-radius: 14px; padding: 14px; font-family: 'SF Mono', Monaco, Consolas, 'Courier New', monospace; font-size: 13px; line-height: 1.6; color: var(--mc-text-primary); background: var(--mc-bg-sunken); outline: none; tab-size: 2; }
+.editor-textarea { flex: 1; width: 100%; min-height: 340px; resize: none; border: 1px solid var(--mc-border); border-radius: 14px; padding: 14px; font-family: 'SF Mono', Monaco, Consolas, 'Courier New', monospace; font-size: 13px; line-height: 1.6; color: var(--mc-text-primary); background: var(--mc-bg-sunken); outline: none; tab-size: 2; }
 .editor-textarea:focus { border-color: var(--mc-primary); box-shadow: 0 0 0 2px rgba(217, 119, 87, 0.1); }
-.markdown-preview { flex: 1; overflow-y: auto; padding: 16px; border: 1px solid var(--mc-border); border-radius: 14px; background: var(--mc-bg-sunken); font-size: 14px; line-height: 1.7; color: var(--mc-text-primary); }
+.markdown-preview { flex: 1; min-height: 340px; overflow-y: auto; padding: 16px; border: 1px solid var(--mc-border); border-radius: 14px; background: var(--mc-bg-sunken); font-size: 14px; line-height: 1.7; color: var(--mc-text-primary); }
 .markdown-preview::-webkit-scrollbar { width: 4px; }
 .markdown-preview::-webkit-scrollbar-thumb { background: var(--mc-border); border-radius: 2px; }
 
@@ -1018,7 +1018,7 @@ function formatTime(time?: string): string {
 .btn-secondary { padding: 8px 16px; background: var(--mc-bg-elevated); color: var(--mc-text-primary); border: 1px solid var(--mc-border); border-radius: 8px; font-size: 14px; cursor: pointer; }
 .btn-secondary:hover { background: var(--mc-bg-sunken); }
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   .agent-context-frame {
     height: auto;
     min-height: calc(100vh - 28px);
@@ -1040,6 +1040,18 @@ function formatTime(time?: string): string {
   .header-actions :deep(.mc-agent-picker__trigger) {
     width: 100%;
     min-width: 0;
+  }
+
+  /* Stacked layout: the frame is now height:auto, so the flex:1 chain no
+     longer has a fixed height to divide — bound the file list and give the
+     editor a comfortable explicit height so the preview is large and readable
+     instead of collapsing to min-content. */
+  .file-list-panel .panel-card {
+    flex: none;
+    max-height: 320px;
+  }
+  .file-editor-panel {
+    min-height: 66vh;
   }
 }
 </style>
