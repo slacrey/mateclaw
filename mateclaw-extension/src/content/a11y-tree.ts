@@ -8,11 +8,11 @@
  *
  * Output format (one element per line, two-space indent per depth level):
  *
- *   Button[ref=ref_1] @{120,340 80x32}: Submit
- *   Link[ref=ref_2] @{200,400 120x18}: Learn more — href=/docs
- *   Heading[ref=ref_3] @{50,100 700x40}: Welcome
- *     Group[ref=ref_4]
- *       Button[ref=ref_5] @{280,184 30x24}: x
+ *   Button[ref=ref_1, frame=0]: Submit @{120,340 80x32}
+ *   Link[ref=ref_2, frame=0]: Learn more — href=/docs @{200,400 120x18}
+ *   Heading[ref=ref_3, frame=0]: Welcome @{50,100 700x40}
+ *     Group[ref=ref_4, frame=0]
+ *       Button[ref=ref_5, frame=0]: x @{280,184 30x24}
  *
  * The bbox segment is omitted when getBoundingClientRect() returns a zero rect
  * (offscreen, display:none, not yet laid out). ref_N restarts at 1 each call —
@@ -27,7 +27,8 @@
  * maxChars: hard cap on output length (default 200000); appends "...TRUNCATED at N bytes"
  * refId: if provided, emit ONLY the subtree rooted at the matching ref-tagged element.
  *
- * Top-frame only. Iframes are Phase 3. The manifest declares all_frames: false.
+ * Runs in all frames. Child-frame bboxes are translated by the embedding
+ * iframe chain so emitted coordinates are in the top-page coordinate space.
  */
 
 declare global {
@@ -38,6 +39,8 @@ declare global {
       maxChars?: number,
       refId?: string,
     ) => string
+    __mateclaw_a11y_frame_id?: number
+    __mateclaw_a11y_generated_frame_id?: number
   }
 }
 
@@ -270,16 +273,80 @@ declare global {
     return ''
   }
 
-  function bbox(el: Element): { x: number; y: number; w: number; h: number } | null {
+  function getFrameOffsetToPage(): { x: number; y: number } {
+    let x = 0
+    let y = 0
+    let win: Window | null = window
+
+    while (win && !isTopWindow(win)) {
+      let frameEl: Element | null = null
+      try {
+        frameEl = win.frameElement
+      } catch {
+        break
+      }
+      if (!frameEl || typeof frameEl.getBoundingClientRect !== 'function') break
+
+      const rect = frameEl.getBoundingClientRect()
+      x += rect.left
+      y += rect.top
+
+      try {
+        win = win.parent
+      } catch {
+        break
+      }
+    }
+
+    return { x, y }
+  }
+
+  function isTopWindow(win: Window): boolean {
+    try {
+      return win === win.top
+    } catch {
+      return false
+    }
+  }
+
+  function currentFrameId(): number {
+    const injected = window.__mateclaw_a11y_frame_id
+    if (Number.isInteger(injected) && injected >= 0) return injected
+    if (isTopWindow(window)) return 0
+
+    const generated = window.__mateclaw_a11y_generated_frame_id
+    if (Number.isInteger(generated) && generated > 0) return generated
+
+    const fallback = generateFallbackFrameId()
+    window.__mateclaw_a11y_generated_frame_id = fallback
+    return fallback
+  }
+
+  function generateFallbackFrameId(): number {
+    const runtimeId =
+      typeof chrome !== 'undefined' && chrome.runtime?.id ? chrome.runtime.id : ''
+    let hash = 0
+    for (let i = 0; i < runtimeId.length; i += 1) {
+      hash = (hash * 31 + runtimeId.charCodeAt(i)) % 999_999
+    }
+    return 1 + ((hash + Math.floor(Math.random() * 999_999)) % 999_999)
+  }
+
+  function bbox(
+    el: Element,
+    frameOffset: { x: number; y: number },
+  ): { x: number; y: number; w: number; h: number } | null {
     if (typeof (el as { getBoundingClientRect?: () => DOMRect }).getBoundingClientRect !== 'function') {
       return null
     }
     const r = (el as Element & { getBoundingClientRect(): DOMRect }).getBoundingClientRect()
-    const x = Math.round(r.left)
-    const y = Math.round(r.top)
+    const localX = Math.round(r.left)
+    const localY = Math.round(r.top)
     const w = Math.round(r.width)
     const h = Math.round(r.height)
-    if (w === 0 && h === 0 && x === 0 && y === 0) return null
+    if (w === 0 && h === 0 && localX === 0 && localY === 0) return null
+    const x = Math.round(r.left + frameOffset.x)
+    const y = Math.round(r.top + frameOffset.y)
     return { x, y, w, h }
   }
 
@@ -311,6 +378,7 @@ declare global {
     name: string
     depth: number
     ref: string
+    frameId: number
     rect: { x: number; y: number; w: number; h: number } | null
   }
 
@@ -332,13 +400,15 @@ declare global {
         if (ph) suffix = `: placeholder="${ph}"`
       }
     }
-    return `${indent}${label}[ref=${n.ref}]${bb}${suffix}`
+    return `${indent}${label}[ref=${n.ref}, frame=${n.frameId}]${suffix}${bb}`
   }
 
   function walk(
     root: Element,
     filter: 'interactive' | 'all' | 'default',
     maxDepth: number,
+    frameOffset: { x: number; y: number },
+    frameId: number,
   ): Node[] {
     const out: Node[] = []
     let refCounter = 0
@@ -365,7 +435,8 @@ declare global {
           name,
           depth: outDepth,
           ref: `ref_${refCounter}`,
-          rect: bbox(el),
+          frameId,
+          rect: bbox(el, frameOffset),
         })
         childOutDepth = outDepth + 1
       }
@@ -411,7 +482,9 @@ declare global {
     const root = document.body ?? document.documentElement
     if (!root) return ''
 
-    const all = walk(root, filter, depth)
+    const frameOffset = getFrameOffsetToPage()
+    const frameId = currentFrameId()
+    const all = walk(root, filter, depth, frameOffset, frameId)
 
     let toEmit: Node[]
     if (refId) {

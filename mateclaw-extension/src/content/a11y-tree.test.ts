@@ -27,6 +27,8 @@ function stubBBox(el: Element, x: number, y: number, w: number, h: number): void
 describe('a11y-tree content script', () => {
   beforeEach(async () => {
     document.body.innerHTML = ''
+    delete (window as unknown as { __mateclaw_a11y_frame_id?: unknown }).__mateclaw_a11y_frame_id
+    delete (window as unknown as { __mateclaw_a11y_generated_frame_id?: unknown }).__mateclaw_a11y_generated_frame_id
     await freshImport()
   })
 
@@ -39,9 +41,47 @@ describe('a11y-tree content script', () => {
     const btn = document.getElementById('b')!
     stubBBox(btn, 120, 340, 80, 32)
     const tree = window.__mateclaw_a11y_tree!('interactive')
-    expect(tree).toContain('Button[ref=ref_1]')
+    expect(tree).toContain('Button[ref=ref_1, frame=0]')
     expect(tree).toContain('@{120,340 80x32}')
     expect(tree).toContain('Submit')
+  })
+
+  it('translates child-frame bboxes into page-absolute coordinates', () => {
+    document.body.innerHTML = '<button id="b">Login</button>'
+    const btn = document.getElementById('b')!
+    stubBBox(btn, 10, 10, 60, 24)
+
+    const originalTop = Object.getOwnPropertyDescriptor(window, 'top')
+    const originalParent = Object.getOwnPropertyDescriptor(window, 'parent')
+    const originalFrameElement = Object.getOwnPropertyDescriptor(window, 'frameElement')
+    const topWindow = {}
+    const iframe = {
+      getBoundingClientRect: () => ({
+        x: 200,
+        y: 300,
+        left: 200,
+        top: 300,
+        right: 500,
+        bottom: 500,
+        width: 300,
+        height: 200,
+        toJSON() { return this },
+      }) as DOMRect,
+    }
+
+    Object.defineProperty(window, 'top', { configurable: true, value: topWindow })
+    Object.defineProperty(window, 'parent', { configurable: true, value: topWindow })
+    Object.defineProperty(window, 'frameElement', { configurable: true, value: iframe })
+    window.__mateclaw_a11y_frame_id = 1
+
+    try {
+      const tree = window.__mateclaw_a11y_tree!('interactive')
+      expect(tree).toContain('Button[ref=ref_1, frame=1]: Login @{210,310 60x24}')
+    } finally {
+      restoreWindowProperty('top', originalTop)
+      restoreWindowProperty('parent', originalParent)
+      restoreWindowProperty('frameElement', originalFrameElement)
+    }
   })
 
   it('serializes nested interactive elements with indentation', () => {
@@ -95,7 +135,7 @@ describe('a11y-tree content script', () => {
       <div>Also just a wrapper</div>
       <button>Real action</button>`
     const tree = window.__mateclaw_a11y_tree!('interactive')
-    expect(tree).toContain('Button[ref=ref_1]')
+    expect(tree).toContain('Button[ref=ref_1, frame=0]')
     expect(tree).toContain('Real action')
     expect(tree).not.toContain('Just text')
     expect(tree).not.toContain('Also just a wrapper')
@@ -187,7 +227,7 @@ describe('a11y-tree content script', () => {
   it('Link role emits with href appended', () => {
     document.body.innerHTML = '<a href="/docs">Learn more</a>'
     const tree = window.__mateclaw_a11y_tree!('interactive')
-    expect(tree).toContain('Link[ref=ref_1]')
+    expect(tree).toContain('Link[ref=ref_1, frame=0]')
     expect(tree).toContain('Learn more')
     expect(tree).toMatch(/href=\/docs/)
   })
@@ -209,3 +249,14 @@ describe('a11y-tree content script', () => {
     expect(tree).toContain('Email address')
   })
 })
+
+function restoreWindowProperty(
+  key: 'top' | 'parent' | 'frameElement',
+  descriptor: PropertyDescriptor | undefined,
+): void {
+  if (descriptor) {
+    Object.defineProperty(window, key, descriptor)
+  } else {
+    delete (window as unknown as Record<string, unknown>)[key]
+  }
+}

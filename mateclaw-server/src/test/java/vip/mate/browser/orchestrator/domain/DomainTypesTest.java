@@ -134,8 +134,8 @@ class DomainTypesTest {
     @Test
     void pageSnapshot_fromA11yText_parsesCanonicalLineFormat() {
         var snap = PageSnapshot.fromA11yText(
-                "Button[ref=ref_1]: Submit @{100,200 80x32}\n"
-                        + "Link[ref=ref_2]: Read more @{200,400 120x18}\n",
+                "Button[ref=ref_1, frame=0]: Submit @{100,200 80x32}\n"
+                        + "Link[ref=ref_2, frame=3]: Read more @{200,400 120x18}\n",
                 new Viewport(1280, 800));
 
         var lines = snap.lines();
@@ -144,8 +144,24 @@ class DomainTypesTest {
         assertThat(lines.get(0).refId()).isEqualTo("ref_1");
         assertThat(lines.get(0).name()).isEqualTo("Submit");
         assertThat(lines.get(0).bbox()).isEqualTo(new BBox(100, 200, 80, 32));
+        assertThat(lines.get(0).frameId()).isZero();
         assertThat(lines.get(1).role()).isEqualTo("Link");
         assertThat(lines.get(1).bbox()).isEqualTo(new BBox(200, 400, 120, 18));
+        assertThat(lines.get(1).frameId()).isEqualTo(3);
+    }
+
+    @Test
+    void pageSnapshot_fromA11yText_parsesFrameTaggedRowsAndDefaultsLegacyRowsToTopFrame() {
+        var snap = PageSnapshot.fromA11yText(
+                "Button[ref=ref_1, frame=1]: Login @{210,310 60x24}\n"
+                        + "Button[ref=ref_2]: Submit @{100,200 80x32}\n",
+                new Viewport(1280, 800));
+
+        var lines = snap.lines();
+        assertThat(lines).hasSize(2);
+        assertThat(lines.get(0).frameId()).isEqualTo(1);
+        assertThat(lines.get(0).bbox()).isEqualTo(new BBox(210, 310, 60, 24));
+        assertThat(lines.get(1).frameId()).isZero();
     }
 
     @Test

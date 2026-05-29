@@ -22,6 +22,7 @@ interface SnapshotRequestPayload {
   depth: number
   max_chars: number
   ref_id?: string
+  frame_id?: number
 }
 
 interface SnapshotResult {
@@ -102,10 +103,15 @@ export class SnapshotRequestHandler {
   private async captureSnapshot(tabId: number, req: SnapshotRequestPayload): Promise<SnapshotResult> {
     const chrome = this.deps.chrome ?? globalThis.chrome
     const results = await chrome.scripting.executeScript({
-      target: { tabId, allFrames: false },
-      func: (filter, depth, maxChars, refId) => {
+      target: req.frame_id === undefined
+        ? { tabId, allFrames: false }
+        : { tabId, frameIds: [req.frame_id] },
+      func: (filter, depth, maxChars, refId, frameId) => {
         // The arg types come back loose (string|number|undefined) — the
         // call-site contract guarantees correct concrete types; assert.
+        if (typeof frameId === 'number') {
+          ;(window as Window & { __mateclaw_a11y_frame_id?: number }).__mateclaw_a11y_frame_id = frameId
+        }
         const tree = window.__mateclaw_a11y_tree?.(
           filter as 'interactive' | 'all' | 'default',
           depth as number,
@@ -120,7 +126,7 @@ export class SnapshotRequestHandler {
           viewport: { w: window.innerWidth, h: window.innerHeight },
         }
       },
-      args: [req.filter, req.depth, req.max_chars, req.ref_id ?? undefined],
+      args: [req.filter, req.depth, req.max_chars, req.ref_id ?? undefined, req.frame_id],
     })
     const first = results[0]?.result
     if (!isSnapshotResult(first)) {
@@ -179,6 +185,10 @@ function parseSnapshotRequest(payload: unknown): SnapshotRequestPayload | null {
   if (typeof p.depth !== 'number') return null
   if (typeof p.max_chars !== 'number') return null
   if (p.ref_id !== undefined && typeof p.ref_id !== 'string') return null
+  if (p.frame_id !== undefined || 'frame_id' in p) {
+    if (typeof p.frame_id !== 'number') return null
+    if (!Number.isInteger(p.frame_id) || p.frame_id < 0) return null
+  }
 
   return p as unknown as SnapshotRequestPayload
 }

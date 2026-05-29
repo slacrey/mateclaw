@@ -76,7 +76,7 @@ describe('SnapshotRequestHandler', () => {
     expect(chrome.scripting.executeScript).toHaveBeenCalledOnce()
     expect(chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
       target: { tabId: 42, allFrames: false },
-      args: ['interactive', 15, 200000, undefined],
+      args: ['interactive', 15, 200000, undefined, undefined],
     }))
     expect(sentUp).toHaveLength(1)
     expect(sentUp[0]!.kind).toBe(EdgeMessageKind.A11ySnapshotResponse)
@@ -208,7 +208,7 @@ describe('SnapshotRequestHandler', () => {
     }))
 
     expect(chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
-      args: ['interactive', 10, 50000, 'ref_3'],
+      args: ['interactive', 10, 50000, 'ref_3', undefined],
     }))
   })
 
@@ -222,8 +222,46 @@ describe('SnapshotRequestHandler', () => {
     }))
 
     expect(chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
-      args: ['interactive', 10, 50000, undefined],
+      args: ['interactive', 10, 50000, undefined, undefined],
     }))
+  })
+
+  it('uses target.frameIds when frame_id is explicitly provided', async () => {
+    const { handler, chrome } = makeHandler()
+
+    await handler.handle(snapshotRequest({ frame_id: 7 }))
+
+    expect(chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
+      target: { tabId: 42, frameIds: [7] },
+      args: ['interactive', 15, 200000, undefined, 7],
+    }))
+  })
+
+  it('treats frame_id=0 as an explicit top-frame frameIds request', async () => {
+    const { handler, chrome } = makeHandler()
+
+    await handler.handle(snapshotRequest({ frame_id: 0 }))
+
+    expect(chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
+      target: { tabId: 42, frameIds: [0] },
+      args: ['interactive', 15, 200000, undefined, 0],
+    }))
+  })
+
+  it('malformed frame_id -> response with SNAPSHOT_FAILED and no executeScript call', async () => {
+    const { handler, chrome, sentUp } = makeHandler()
+
+    await handler.handle(snapshotRequest({ frame_id: '7' }))
+
+    expect(chrome.scripting.executeScript).not.toHaveBeenCalled()
+    expect(sentUp[0]!.payload).toMatchObject({
+      tree: '',
+      viewport: { w: 0, h: 0 },
+      error: {
+        code: 'SNAPSHOT_FAILED',
+        retryable: false,
+      },
+    })
   })
 
   it('tree string is passed through verbatim from injection result', async () => {

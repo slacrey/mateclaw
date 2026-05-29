@@ -15,7 +15,7 @@ import java.util.regex.Pattern;
  *   "snapshot_id": "snap-uuid",
  *   "captured_at_ms": 1730000000123,
  *   "tab_ref": 42,
- *   "tree": "Button[ref=ref_1]: Submit @{100,200 80x32}\n...",
+ *   "tree": "Button[ref=ref_1, frame=0]: Submit @{100,200 80x32}\n...",
  *   "viewport": { "w": 1280, "h": 800 }
  * }
  * </pre>
@@ -48,9 +48,9 @@ public record PageSnapshot(
      *
      * <p>Recognized text format (matches the C1 content script's output):
      * <pre>
-     *   Button[ref=ref_1]: Submit @{100,200 80x32}
-     *   Link[ref=ref_2]: Read more — href=/docs @{200,400 120x18}
-     *   Heading[ref=ref_3]: Welcome @{50,100 700x40}
+     *   Button[ref=ref_1, frame=0]: Submit @{100,200 80x32}
+     *   Link[ref=ref_2, frame=1]: Read more — href=/docs @{200,400 120x18}
+     *   Heading[ref=ref_3, frame=0]: Welcome @{50,100 700x40}
      * </pre>
      *
      * <p>Lines that don't match are skipped (forward-compat for new
@@ -66,13 +66,14 @@ public record PageSnapshot(
             if (m.matches()) {
                 String role = m.group(1).trim();
                 String refId = m.group(2);
-                String name = m.group(3);
-                int x = Integer.parseInt(m.group(4));
-                int y = Integer.parseInt(m.group(5));
-                int w = Integer.parseInt(m.group(6));
-                int h = Integer.parseInt(m.group(7));
+                String frameId = m.group(3);
+                String name = m.group(4);
+                int x = Integer.parseInt(m.group(5));
+                int y = Integer.parseInt(m.group(6));
+                int w = Integer.parseInt(m.group(7));
+                int h = Integer.parseInt(m.group(8));
                 out.add(new Line(role, refId, name == null ? "" : name.trim(),
-                        new BBox(x, y, w, h)));
+                        new BBox(x, y, w, h), frameId == null ? 0 : Integer.parseInt(frameId)));
             }
         }
         return out;
@@ -92,19 +93,19 @@ public record PageSnapshot(
     }
 
     /** One parsed accessibility-tree row. */
-    public record Line(String role, String refId, String name, BBox bbox) {}
+    public record Line(String role, String refId, String name, BBox bbox, int frameId) {}
 
     /**
      * Matches the canonical line format. Tolerant on whitespace; the
-     * accessible name (capture 3) is greedy up to the {@code @{} marker.
+     * accessible name (capture 4) is greedy up to the {@code @{} marker.
      * <p>Format anatomy (all groups required except name):
      * <pre>
-     *   Role  [ref=ref_N] : optional accessible name  @{x,y wxh}
-     *   ^^^^  ^^^^^^^^^^   ^^^^^^^^^^^^^^^^^^^^^^^^^   ^^^^^^^^^
-     *    1        2                    3                4,5,6,7
+     *   Role  [ref=ref_N, frame=N] : optional accessible name  @{x,y wxh}
+     *   ^^^^  ^^^^^^^^^^^^^^^^^^^   ^^^^^^^^^^^^^^^^^^^^^^^^^   ^^^^^^^^^
+     *    1         2        3                    4              5,6,7,8
      * </pre>
      */
     private static final Pattern LINE_PATTERN = Pattern.compile(
-            "^([A-Za-z][\\w-]*)\\s*\\[ref=([\\w-]+)\\]\\s*(?::\\s*(.+?))?\\s*"
+            "^([A-Za-z][\\w-]*)\\s*\\[ref=([\\w-]+)(?:\\s*,\\s*frame=(\\d+))?\\]\\s*(?::\\s*(.+?))?\\s*"
                     + "@\\{(\\d+),(\\d+)\\s+(\\d+)x(\\d+)\\}\\s*$");
 }
