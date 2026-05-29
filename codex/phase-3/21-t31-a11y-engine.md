@@ -104,14 +104,15 @@ Phase 2 已经测了 DOM→A11y stub→Vision stub。现在 A11y 是真的了，
 
 ## TDD 步骤
 
-1. 加 GroundingHint.A11yMatch 的 nearLabel 字段 + 更新 DomainTypesTest case
-2. 跑 `mvn test -Dtest=DomainTypesTest` 确认 forward-compat（旧 ctor 仍然工作）
-3. 写 A11yEngineTest.java（新文件，~9 cases）
-4. 跑 → fail
-5. 实现 A11yEngine.java 真逻辑
-6. 跑 → 全绿
-7. 加 GroundingDispatcherTest.cascade case
-8. 整体 `mvn test -Dtest='vip.mate.browser.orchestrator.**'` 不回归
+1. 加 GroundingHint.A11yMatch 的 nearLabel 字段（4-arg ctor + 保留旧 2-arg / 3-arg ctor 不变）
+2. 写 **新文件** `mateclaw-server/src/test/java/vip/mate/browser/orchestrator/domain/GroundingHintTest.java`（5 个 nearLabel-forward-compat cases）—— **不要碰 DomainTypesTest.java**（Codex 19 正在并行改它加 `frame=N` 解析）
+3. 跑 `mvn test -Dtest=GroundingHintTest` 确认 forward-compat（旧 ctor 仍然工作）
+4. 写 A11yEngineTest.java（新文件，~9 cases）
+5. 跑 → fail
+6. 实现 A11yEngine.java 真逻辑
+7. 跑 → 全绿
+8. 加 GroundingDispatcherTest.cascade case（这个文件 Codex 19 不动，安全）
+9. 整体 `mvn test -Dtest='vip.mate.browser.orchestrator.**'` 不回归
 
 ## Commit message template
 
@@ -137,7 +138,7 @@ GroundingHint.A11yMatch gains the optional nearLabel field. Existing
 ctor signatures preserved.
 
 Tests: 9 A11yEngineTest cases + 1 new GroundingDispatcherTest cascade
-case + 2 new DomainTypesTest cases for the nearLabel field.
+case + 5 new GroundingHintTest cases for the nearLabel field (separate file to avoid concurrent merge conflict with Codex 19's DomainTypesTest changes).
 
 Phase 3 Wave 3-A2 — task T3.1.
 
