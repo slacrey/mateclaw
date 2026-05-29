@@ -74,7 +74,12 @@ export class ActionRouter {
     // Step 1: resolve tab_ref → tabId
     let tabId: number | null
     try {
-      tabId = await this.deps.resolver.resolve(req.tab_ref)
+      // Only navigate may provision the agent's tab. click/type/scroll/wait
+      // need an already-loaded page; if "main" was closed they get
+      // NO_TARGET_TAB (caller re-navigates) rather than acting on a blank tab.
+      tabId = await this.deps.resolver.resolve(req.tab_ref, {
+        createIfMissing: req.kind === 'navigate',
+      })
     } catch (err) {
       this.sendResult(msg, {
         ok: false,

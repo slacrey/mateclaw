@@ -60,7 +60,8 @@ describe('TabRefResolver', () => {
     const chrome = fakeChrome(99, 500)  // active tab exists but must NOT be used
     const resolver = new TabRefResolver({ tabGroupManager: tgm, chrome, subject: 'alice' })
 
-    const tabId = await resolver.resolve('main')
+    // createIfMissing=true is the navigate path — it provisions the tab.
+    const tabId = await resolver.resolve('main', { createIfMissing: true })
 
     expect(tabId).toBe(500)
     expect(chrome.tabs.create).toHaveBeenCalledExactlyOnceWith({ url: 'about:blank', active: true })
@@ -68,6 +69,22 @@ describe('TabRefResolver', () => {
     // The freshly provisioned tab joins the labeled agent group (visual only).
     expect(tgm.joinChromeGroup).toHaveBeenCalledExactlyOnceWith('alice', 500)
     expect(chrome.tabs.query).not.toHaveBeenCalled()  // never falls back to active
+  })
+
+  it('"main" with no bound tab + no createIfMissing returns null (never a blank tab)', async () => {
+    // observe / click / type must NOT provision a tab — scripting a fresh
+    // about:blank yields an empty a11y tree. A missing main resolves to null →
+    // NO_TARGET_TAB so the orchestrator re-navigates.
+    const tgm = fakeTabGroupManager(null)
+    const chrome = fakeChrome(99, 500)
+    const resolver = new TabRefResolver({ tabGroupManager: tgm, chrome, subject: 'alice' })
+
+    const tabId = await resolver.resolve('main')
+
+    expect(tabId).toBeNull()
+    expect(chrome.tabs.create).not.toHaveBeenCalled()
+    expect(tgm.setMainTabId).not.toHaveBeenCalled()
+    expect(tgm.joinChromeGroup).not.toHaveBeenCalled()
   })
 
   // -----------------------------------------------------------------

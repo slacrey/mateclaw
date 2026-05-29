@@ -22,7 +22,10 @@ export interface TabRefResolverDeps {
 export class TabRefResolver {
   constructor(private readonly deps: TabRefResolverDeps) {}
 
-  async resolve(tabRef: TabRef): Promise<number | null> {
+  async resolve(
+    tabRef: TabRef,
+    opts: { createIfMissing?: boolean } = {},
+  ): Promise<number | null> {
     if (typeof tabRef === 'number') {
       return tabRef
     }
@@ -30,6 +33,12 @@ export class TabRefResolver {
     if (tabRef === 'main') {
       const bound = await this.deps.tabGroupManager.getMainTabId(this.deps.subject)
       if (bound !== null) return bound
+      // Only navigate provisions a tab; observe/click/type must reuse the
+      // existing one. Scripting a fresh about:blank yields an empty a11y tree
+      // (the intermittent "tree is empty" the user hit when the agent's tab had
+      // been closed). Missing main + !createIfMissing → null → NO_TARGET_TAB so
+      // the orchestrator re-navigates instead of reading a blank page.
+      if (!opts.createIfMissing) return null
       // No main tab bound yet. Provision a dedicated agent tab rather than
       // failing (NO_TARGET_TAB) or hijacking whatever the user is looking at.
       // This is what makes "open a page in my browser" work on first use: the
