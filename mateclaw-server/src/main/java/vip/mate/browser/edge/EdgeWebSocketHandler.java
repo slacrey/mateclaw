@@ -16,7 +16,7 @@ import vip.mate.browser.edge.protocol.EdgeMessageKind;
 import vip.mate.browser.edge.session.BrowserSession;
 import vip.mate.browser.edge.session.BrowserSessionRegistry;
 import vip.mate.browser.orchestrator.ActionExecutionService;
-import vip.mate.browser.orchestrator.snapshot.DefaultSnapshotEdgeClient;
+import vip.mate.browser.orchestrator.snapshot.SnapshotEdgeClient;
 
 import java.time.Instant;
 import java.util.Map;
@@ -44,14 +44,14 @@ public class EdgeWebSocketHandler extends TextWebSocketHandler {
     private final BrowserSessionRegistry registry;
     private final ObjectMapper mapper;
     private final ActionExecutionService actionExecutionService;
-    private final DefaultSnapshotEdgeClient snapshotEdgeClient;
+    private final SnapshotEdgeClient snapshotEdgeClient;
     private final String serverVersion;
     private final ConcurrentHashMap<String, String> sessionIdByWsId = new ConcurrentHashMap<>();
 
     public EdgeWebSocketHandler(BrowserSessionRegistry registry,
                                 ObjectMapper mapper,
                                 ActionExecutionService actionExecutionService,
-                                DefaultSnapshotEdgeClient snapshotEdgeClient,
+                                SnapshotEdgeClient snapshotEdgeClient,
                                 @Value("${revision:dev}") String serverVersion) {
         this.registry = registry;
         this.mapper = mapper;
