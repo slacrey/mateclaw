@@ -133,9 +133,15 @@ export class SnapshotRequestHandler {
         if (typeof tree !== 'string') {
           throw new Error('window.__mateclaw_a11y_tree is not available')
         }
+        // innerWidth/Height can be 0 on a freshly-created tab whose renderer
+        // hasn't laid out yet (observe right after navigate). Fall back to the
+        // document client size, then a sane default, so the server's positive-
+        // viewport validation doesn't reject an otherwise-valid tree.
+        const vw = window.innerWidth || document.documentElement?.clientWidth || 1280
+        const vh = window.innerHeight || document.documentElement?.clientHeight || 800
         return {
           tree,
-          viewport: { w: window.innerWidth, h: window.innerHeight },
+          viewport: { w: vw, h: vh },
         }
       },
       args: [req.filter, req.depth, req.max_chars, req.ref_id ?? undefined, req.frame_id],
