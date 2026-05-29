@@ -5,10 +5,12 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import vip.mate.auth.model.AccountStatusResponse;
 import vip.mate.auth.model.LoginRequest;
 import vip.mate.auth.model.LoginResponse;
 import vip.mate.auth.model.RegisterRequest;
 import vip.mate.auth.model.UserEntity;
+import vip.mate.auth.service.AccountEntitlementService;
 import vip.mate.auth.service.AuthService;
 import vip.mate.common.result.R;
 import vip.mate.exception.MateClawException;
@@ -28,6 +30,7 @@ import java.util.List;
 public class AuthController {
 
     private final AuthService authService;
+    private final AccountEntitlementService accountEntitlementService;
 
     @Operation(summary = "用户登录")
     @PostMapping("/login")
@@ -39,6 +42,16 @@ public class AuthController {
     @PostMapping("/register")
     public R<LoginResponse> register(@RequestBody RegisterRequest request) {
         return R.ok(authService.register(request));
+    }
+
+    @Operation(summary = "获取当前账号状态")
+    @GetMapping("/me")
+    public R<AccountStatusResponse> me(Authentication auth) {
+        UserEntity user = authService.findByUsername(auth.getName());
+        if (user == null) {
+            throw new MateClawException("err.auth.user_not_found", 404, "用户不存在");
+        }
+        return R.ok(AccountStatusResponse.from(user, accountEntitlementService.isExpired(user)));
     }
 
     @Operation(summary = "获取用户列表")

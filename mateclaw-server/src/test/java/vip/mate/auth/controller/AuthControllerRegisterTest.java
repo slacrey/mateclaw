@@ -3,6 +3,7 @@ package vip.mate.auth.controller;
 import org.junit.jupiter.api.Test;
 import vip.mate.auth.model.LoginResponse;
 import vip.mate.auth.model.RegisterRequest;
+import vip.mate.auth.service.AccountEntitlementService;
 import vip.mate.auth.service.AuthService;
 
 import java.time.LocalDateTime;
@@ -17,7 +18,8 @@ class AuthControllerRegisterTest {
     @Test
     void registerDelegatesToAuthService() {
         AuthService authService = mock(AuthService.class);
-        AuthController controller = new AuthController(authService);
+        AccountEntitlementService entitlementService = mock(AccountEntitlementService.class);
+        AuthController controller = new AuthController(authService, entitlementService);
         RegisterRequest request = new RegisterRequest();
         LoginResponse response = new LoginResponse(
                 7L, "token", "13800138000", "13800138000", "user",
