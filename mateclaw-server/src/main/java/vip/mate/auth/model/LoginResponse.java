@@ -3,6 +3,8 @@ package vip.mate.auth.model;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 
+import java.time.LocalDateTime;
+
 /**
  * 登录响应
  *
@@ -16,4 +18,7 @@ public class LoginResponse {
     private String username;
     private String nickname;
     private String role;
+    private LocalDateTime expiresAt;
+    private boolean expired;
+    private Long currentWorkspaceId;
 }

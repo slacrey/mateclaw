@@ -17,10 +17,12 @@ import vip.mate.auth.model.RegisterRequest;
 import vip.mate.auth.model.UserEntity;
 import vip.mate.auth.repository.UserMapper;
 import vip.mate.exception.MateClawException;
+import vip.mate.workspace.core.model.WorkspaceEntity;
 import vip.mate.workspace.core.service.WorkspaceService;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.Date;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -35,13 +37,13 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class AuthService {
 
-    private static final long DEFAULT_WORKSPACE_ID = 1L;
     private static final String FIXED_REGISTER_CODE = "888888";
     private static final Pattern PHONE_PATTERN = Pattern.compile("^\\+?\\d{6,20}$");
 
     private final UserMapper userMapper;
     private final BCryptPasswordEncoder passwordEncoder;
     private final WorkspaceService workspaceService;
+    private final AccountEntitlementService accountEntitlementService;
 
     @Value("${mateclaw.jwt.secret:MateClaw-Secret-Key-2024-Very-Long-String}")
     private String jwtSecret;
@@ -65,7 +67,7 @@ public class AuthService {
         }
 
         String token = generateToken(user);
-        return new LoginResponse(user.getId(), token, user.getUsername(), user.getNickname(), user.getRole());
+        return loginResponse(user, token, null);
     }
 
     /**
@@ -98,18 +100,31 @@ public class AuthService {
                 : request.getNickname().trim());
         user.setRole("user");
         user.setEnabled(true);
+        user.setExpiresAt(LocalDateTime.now().plusDays(30));
         try {
             userMapper.insert(user);
         } catch (DuplicateKeyException e) {
             throw new MateClawException("err.auth.username_exists", 409, "手机号已注册: " + phone);
         }
 
-        if (workspaceService.getMembership(DEFAULT_WORKSPACE_ID, user.getId()) == null) {
-            workspaceService.addMember(DEFAULT_WORKSPACE_ID, user.getId(), "member");
-        }
+        WorkspaceEntity workspace = new WorkspaceEntity();
+        workspace.setName(user.getNickname() + " Workspace");
+        WorkspaceEntity createdWorkspace = workspaceService.create(workspace, user.getId());
 
         String token = generateToken(user);
-        return new LoginResponse(user.getId(), token, user.getUsername(), user.getNickname(), user.getRole());
+        return loginResponse(user, token, createdWorkspace != null ? createdWorkspace.getId() : null);
+    }
+
+    private LoginResponse loginResponse(UserEntity user, String token, Long currentWorkspaceId) {
+        return new LoginResponse(
+                user.getId(),
+                token,
+                user.getUsername(),
+                user.getNickname(),
+                user.getRole(),
+                user.getExpiresAt(),
+                accountEntitlementService.isExpired(user),
+                currentWorkspaceId);
     }
 
     /**

@@ -44,6 +44,9 @@ public class UserEntity {
     /** 是否启用 */
     private Boolean enabled;
 
+    /** 账号过期时间，空表示永久有效 */
+    private LocalDateTime expiresAt;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 
