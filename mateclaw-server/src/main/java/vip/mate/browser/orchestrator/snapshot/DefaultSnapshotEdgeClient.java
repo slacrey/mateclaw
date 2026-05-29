@@ -168,6 +168,12 @@ public class DefaultSnapshotEdgeClient implements SnapshotEdgeClient {
             Map<String, Object> v = (Map<String, Object>) m;
             int w = (int) readLong(v, "w", 1280);
             int h = (int) readLong(v, "h", 800);
+            // A freshly-created tab can momentarily report 0×0 before layout.
+            // Clamp to a sane default rather than rejecting an otherwise-valid
+            // snapshot (Viewport's ctor requires positive dims; viewport only
+            // matters for vision scaling, not for the a11y tree / grounding).
+            if (w <= 0) w = 1280;
+            if (h <= 0) h = 800;
             return new Viewport(w, h);
         }
         return new Viewport(1280, 800);
