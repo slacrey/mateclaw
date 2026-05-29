@@ -106,7 +106,9 @@ public class BrowserPairingController {
         String url = (req == null || req.url() == null || req.url().isBlank())
                 ? "https://example.com" : req.url().trim();
         String navigate = browserTool.extension_browser_navigate(url, "load", null);
-        String observe = browserTool.extension_browser_observe("interactive", null);
+        // "all" so the probe captures headings/text (e.g. the page title), not
+        // just interactive elements — confirms the agent can actually read content.
+        String observe = browserTool.extension_browser_observe("all", null);
         return R.ok(Map.of("navigate", navigate, "observe", observe));
     }
 
