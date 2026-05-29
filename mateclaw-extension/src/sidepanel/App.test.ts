@@ -28,14 +28,22 @@ describe('Sidepanel App', () => {
     expect(w.find('button[data-test=ping]').exists()).toBe(true)
   })
 
+  // onMounted now also fires a bridge.status poll, so locate the ping call by
+  // predicate rather than assuming it is calls[0].
+  function pingCall(): { kind: string; message: { kind: string; session_id: string } } {
+    const calls = chromeShim().runtime.sendMessage.mock.calls as Array<
+      [{ kind?: string; message?: { kind?: string } }]
+    >
+    const found = calls.find(c => c[0]?.kind === 'edge.outbound')
+    if (!found) throw new Error('no edge.outbound sendMessage')
+    return found[0] as { kind: string; message: { kind: string; session_id: string } }
+  }
+
   it('sends an edge.outbound on click', async () => {
     const w = mount(App)
     await w.find('button[data-test=ping]').trigger('click')
     expect(chromeShim().runtime.sendMessage).toHaveBeenCalled()
-    const arg = chromeShim().runtime.sendMessage.mock.calls[0]?.[0] as {
-      kind: string
-      message: { kind: string }
-    }
+    const arg = pingCall()
     expect(arg.kind).toBe('edge.outbound')
     expect(arg.message.kind).toBe('ping')
   })
@@ -43,10 +51,7 @@ describe('Sidepanel App', () => {
   it('session_id is always empty in the outbound ping (audit P0-1)', async () => {
     const w = mount(App)
     await w.find('button[data-test=ping]').trigger('click')
-    const arg = chromeShim().runtime.sendMessage.mock.calls[0]?.[0] as {
-      message: { session_id: string }
-    }
-    expect(arg.message.session_id).toBe('')
+    expect(pingCall().message.session_id).toBe('')
   })
 
   it('logs inbound messages', async () => {

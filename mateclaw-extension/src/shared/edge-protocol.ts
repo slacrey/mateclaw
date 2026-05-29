@@ -1,9 +1,17 @@
 // Canonical Edge protocol mirror for the Extension.
-// See docs/specs/edge-protocol.md.
+// See docs/specs/edge-protocol.md and docs/specs/phase-3.1-contract.md §1.
 //
-// AUDIT P0-1: The Extension MUST always emit session_id="" on outbound messages.
-// Native Host is the sole owner of the server-issued session_id and will
-// override any non-empty value it receives from stdin.
+// AUDIT P0-1: The Extension always emits session_id="" on the HELLO frame; the
+// server replies HELLO_ACK carrying the real session_id. Who stamps that id on
+// subsequent OUTBOUND frames depends on the transport:
+//   - NH (Native Messaging) mode: the Native Host owns the session_id and
+//     overrides any value it receives from stdin.
+//   - Direct WSS mode (Phase 3.1): there is no Native Host, so the service
+//     worker (DirectBridgeClient) captures session_id from HELLO_ACK and stamps
+//     it on every outbound frame whose session_id is still "" — i.e. the SW
+//     takes over the role the Native Host played in NH mode.
+// makeEdgeMessage therefore still mints session_id="" unconditionally; the
+// active transport stamps the real id on the way out.
 
 export const EdgeMessageKind = {
   // v1.0 — handshake + liveness
@@ -55,7 +63,10 @@ export interface EdgeMessage {
 
 export function makeEdgeMessage(p: {
   kind: EdgeMessageKind
-  /** Must be "" or omitted — Extension never sets a real session_id. */
+  /**
+   * Must be "" or omitted — makeEdgeMessage never sets a real session_id. The
+   * active transport (NH host, or the SW in direct mode) stamps it post-ACK.
+   */
   sessionId?: string
   traceId?: string
   inReplyTo?: string

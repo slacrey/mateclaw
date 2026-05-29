@@ -1,10 +1,21 @@
 // Service Worker entry point — Chrome MV3 background service worker.
-// Owns the NativeBridge connection to the Go native host, wires the
-// TabGroupManager + DebuggerManager + ActionExecutor + ActionRouter,
-// and forwards inbound Edge messages to the sidepanel.
+//
+// Phase 3.1: owns the transport to the backend. Two transports share one
+// public surface (send/onMessage/onDisconnect/disconnect):
+//   - DirectBridgeClient — direct WSS to /api/v1/browser/edge (the default
+//     once paired). Connected on startup iff config-store holds {serverUrl,pat}.
+//   - NativeBridge — Chrome Native Messaging to the Go host. Now OPT-IN; no
+//     longer auto-connected on SW start (the Claude-Code path).
+//
+// Wires the TabGroupManager + DebuggerManager + ActionExecutor + ActionRouter
+// + snapshot/screenshot/visual handlers to whichever transport is active, and
+// forwards inbound Edge messages to the sidepanel. Also exposes the
+// externally_connectable ping/pair/unpair protocol for the admin UI (§2).
 
 import { EdgeMessageKind, type EdgeMessage } from '../shared/edge-protocol'
 import { NativeBridge } from './native-bridge'
+import { DirectBridgeClient } from './direct-bridge'
+import { ConfigStore } from './config-store'
 import { TabGroupManager } from './tab-group-manager'
 import { DebuggerManager } from './debugger-manager'
 import { ActionExecutor, type ActionHandlers } from './action/ActionExecutor'
@@ -32,21 +43,89 @@ const HOST = 'com.mateclaw.browser_bridge'
  */
 const SUBJECT = 'default'
 
-const bridge = new NativeBridge(HOST)
+/**
+ * Origins allowed to talk to us via chrome.runtime.sendMessage (externally
+ * connectable). MUST mirror manifest `externally_connectable.matches`. The
+ * sender.origin Chrome reports has no trailing path, so compare bare origins.
+ */
+const ALLOWED_EXTERNAL_ORIGINS = new Set<string>([
+  'http://localhost:18088',
+  'http://localhost:5173',
+])
 
-try {
-  bridge.connect()
-} catch (e) {
-  console.error('[mateclaw][sw] connectNative failed', e)
-}
+// -----------------------------------------------------------------
+// Transport: a single active bridge, swappable at runtime (pair/unpair).
+// sendUp + dispatchInbound indirect through whatever is active so the
+// handler wiring below never needs to know which transport is live.
+// -----------------------------------------------------------------
+
+type Bridge = DirectBridgeClient | NativeBridge
+
+const configStore = new ConfigStore()
+let activeBridge: Bridge | null = null
+let bridgeUnsub: (() => void) | null = null
 
 const sendUp = (msg: EdgeMessage): void => {
   try {
-    bridge.send(msg)
+    activeBridge?.send(msg)
   } catch (e) {
-    // Best-effort — NH may be disconnected during reconnect window.
+    // Best-effort — bridge may be disconnected during a reconnect window.
     console.error('[mateclaw][sw] sendUp failed', e)
   }
+}
+
+/** Resolve the extension version for the HELLO payload. */
+function agentVersion(): string {
+  try {
+    return chrome.runtime.getManifest().version
+  } catch {
+    return '0.0.0'
+  }
+}
+
+/**
+ * (Re)connect the direct WSS transport. Tears down any previous bridge's
+ * inbound subscription, builds a fresh DirectBridgeClient, re-subscribes the
+ * inbound dispatcher, and connects.
+ */
+async function connectDirect(serverUrl: string, pat: string): Promise<void> {
+  const cfg = await configStore.getConfig()
+  // Drop the previous bridge subscription + connection.
+  bridgeUnsub?.()
+  bridgeUnsub = null
+  if (activeBridge && 'disconnect' in activeBridge) {
+    try {
+      activeBridge.disconnect()
+    } catch {
+      // ignore
+    }
+  }
+
+  const client = new DirectBridgeClient({
+    deviceId: cfg.deviceId,
+    deviceName: cfg.deviceName,
+    agentVersion: agentVersion(),
+  })
+  bridgeUnsub = client.onMessage(dispatchInbound)
+  activeBridge = client
+  client.connect(serverUrl, pat)
+}
+
+/** Tear down the active transport (used by unpair). */
+function disconnectActive(): void {
+  bridgeUnsub?.()
+  bridgeUnsub = null
+  try {
+    activeBridge?.disconnect()
+  } catch {
+    // ignore
+  }
+  activeBridge = null
+}
+
+/** True iff the active transport is a connected DirectBridgeClient. */
+function isConnected(): boolean {
+  return activeBridge instanceof DirectBridgeClient && activeBridge.connected
 }
 
 const tabGroupManager = new TabGroupManager(chrome, sendUp)
@@ -127,10 +206,10 @@ const visualCoordinator = new VisualCoordinator({
 })
 
 // -----------------------------------------------------------------
-// Inbound Edge messages
+// Inbound Edge messages — single dispatcher re-subscribed on each transport.
 // -----------------------------------------------------------------
 
-bridge.onMessage(m => {
+function dispatchInbound(m: EdgeMessage): void {
   // Route action.* / indicator.stop_clicked through the ActionRouter.
   if (
     m.kind === EdgeMessageKind.ActionExecute ||
@@ -167,22 +246,171 @@ bridge.onMessage(m => {
     .catch(() => {
       // Ignore — no listeners open is normal when sidepanel is closed.
     })
-})
+}
 
 // -----------------------------------------------------------------
-// Outbound (from sidepanel) — pass-through unchanged from Phase 1
+// Startup: connect the direct transport iff we have stored credentials.
+// Native Messaging is no longer auto-connected (opt-in path only).
+// -----------------------------------------------------------------
+
+configStore
+  .getConfig()
+  .then(cfg => {
+    if (cfg.serverUrl && cfg.pat) {
+      return connectDirect(cfg.serverUrl, cfg.pat)
+    }
+    console.info('[mateclaw][sw] no pairing stored — idle until paired')
+    return undefined
+  })
+  .catch(e => {
+    console.error('[mateclaw][sw] startup connect failed', e)
+  })
+
+// -----------------------------------------------------------------
+// externally_connectable protocol (§2) — admin UI ↔ extension.
+// Every handler validates sender.origin against the whitelist and returns
+// true to keep the async sendResponse channel open.
+// -----------------------------------------------------------------
+
+type ExternalMsg =
+  | { type: 'ping' }
+  | { type: 'pair'; pat: string; serverUrl: string; deviceName?: string }
+  | { type: 'unpair' }
+
+chrome.runtime.onMessageExternal.addListener(
+  (
+    req: unknown,
+    sender: chrome.runtime.MessageSender,
+    sendResponse: (r: unknown) => void,
+  ): boolean => {
+    const origin = sender.origin ?? (sender.url ? safeOrigin(sender.url) : undefined)
+    if (!origin || !ALLOWED_EXTERNAL_ORIGINS.has(origin)) {
+      console.warn('[mateclaw][sw] rejected external message from origin', origin)
+      sendResponse({ ok: false, error: 'origin not allowed' })
+      return true
+    }
+
+    const msg = req as ExternalMsg
+    switch (msg?.type) {
+      case 'ping': {
+        configStore
+          .getConfig()
+          .then(cfg => {
+            sendResponse({
+              alive: true,
+              deviceName: cfg.deviceName ?? null,
+              connected: isConnected(),
+              deviceId: cfg.deviceId,
+            })
+          })
+          .catch(e => sendResponse({ alive: true, error: String(e) }))
+        return true
+      }
+      case 'pair': {
+        if (typeof msg.pat !== 'string' || typeof msg.serverUrl !== 'string') {
+          sendResponse({ ok: false, error: 'pair requires pat + serverUrl' })
+          return true
+        }
+        configStore
+          .setPairing({
+            serverUrl: msg.serverUrl,
+            pat: msg.pat,
+            deviceName: msg.deviceName,
+          })
+          .then(() => connectDirect(msg.serverUrl, msg.pat))
+          .then(() => sendResponse({ ok: true }))
+          .catch(e => sendResponse({ ok: false, error: String(e) }))
+        return true
+      }
+      case 'unpair': {
+        disconnectActive()
+        configStore
+          .clearPairing()
+          .then(() => sendResponse({ ok: true }))
+          .catch(e => sendResponse({ ok: false, error: String(e) }))
+        return true
+      }
+      default:
+        sendResponse({ ok: false, error: 'unknown message type' })
+        return true
+    }
+  },
+)
+
+function safeOrigin(url: string): string | undefined {
+  try {
+    return new URL(url).origin
+  } catch {
+    return undefined
+  }
+}
+
+// -----------------------------------------------------------------
+// Internal (sidepanel) runtime messages.
+//   edge.outbound  — pass a raw EdgeMessage to the active transport (Phase 1).
+//   bridge.pair    — sidepanel manual pairing (Save & Connect).
+//   bridge.unpair  — sidepanel Disconnect.
+//   bridge.status  — sidepanel status poll for the pill.
 // -----------------------------------------------------------------
 
 chrome.runtime.onMessage.addListener(
   (req: unknown, _sender, sendResponse: (r: unknown) => void) => {
-    const r = req as { kind?: string; message?: unknown }
-    if (r?.kind !== 'edge.outbound') return
-    try {
-      bridge.send(r.message as Parameters<typeof bridge.send>[0])
-      sendResponse({ ok: true })
-    } catch (e) {
-      sendResponse({ ok: false, error: String(e) })
+    const r = req as { kind?: string; message?: unknown; serverUrl?: string; pat?: string; deviceName?: string }
+    switch (r?.kind) {
+      case 'edge.outbound':
+        try {
+          sendUp(r.message as EdgeMessage)
+          sendResponse({ ok: true })
+        } catch (e) {
+          sendResponse({ ok: false, error: String(e) })
+        }
+        return true
+      case 'bridge.pair':
+        if (typeof r.serverUrl !== 'string' || typeof r.pat !== 'string') {
+          sendResponse({ ok: false, error: 'bridge.pair requires serverUrl + pat' })
+          return true
+        }
+        configStore
+          .setPairing({ serverUrl: r.serverUrl, pat: r.pat, deviceName: r.deviceName })
+          .then(() => connectDirect(r.serverUrl as string, r.pat as string))
+          .then(() => sendResponse({ ok: true }))
+          .catch(e => sendResponse({ ok: false, error: String(e) }))
+        return true
+      case 'bridge.unpair':
+        disconnectActive()
+        configStore
+          .clearPairing()
+          .then(() => sendResponse({ ok: true }))
+          .catch(e => sendResponse({ ok: false, error: String(e) }))
+        return true
+      case 'bridge.status':
+        configStore
+          .getConfig()
+          .then(cfg =>
+            sendResponse({
+              connected: isConnected(),
+              serverUrl: cfg.serverUrl ?? null,
+              deviceName: cfg.deviceName ?? null,
+              deviceId: cfg.deviceId,
+            }),
+          )
+          .catch(e => sendResponse({ connected: false, error: String(e) }))
+        return true
+      default:
+        return undefined
     }
-    return true // keep sendResponse channel open asynchronously
   },
 )
+
+// -----------------------------------------------------------------
+// Native Messaging — OPT-IN. Exposed for the Claude-Code path; never auto-run.
+// -----------------------------------------------------------------
+
+export function connectNative(): void {
+  bridgeUnsub?.()
+  bridgeUnsub = null
+  const nb = new NativeBridge(HOST)
+  bridgeUnsub = nb.onMessage(dispatchInbound)
+  activeBridge = nb
+  nb.connect()
+}
