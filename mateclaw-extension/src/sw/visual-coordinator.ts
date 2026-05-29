@@ -12,6 +12,14 @@ type VisualInternalMessage =
   | { type: 'INDICATOR_CURSOR'; x: number; y: number }
   | { type: 'TOOL_USE_HIDE' }
   | { type: 'TOOL_USE_SHOW' }
+  | { type: 'INDICATOR_HEARTBEAT' }
+
+/** Default heartbeat cadence — fast enough that 3 missed heartbeats (15s)
+ *  is still within typical user attention span; slow enough not to flood
+ *  the message bus. */
+export const DEFAULT_HEARTBEAT_INTERVAL_MS = 5_000
+
+type IntervalHandle = ReturnType<typeof setInterval>
 
 export interface VisualCoordinatorDeps {
   resolver: TabRefResolver
@@ -19,6 +27,12 @@ export interface VisualCoordinatorDeps {
   sendUp?: (msg: EdgeMessage) => void
   /** Chrome API; injectable for tests. */
   chrome?: typeof globalThis.chrome
+  /** Heartbeat publisher cadence in ms. Defaults to 5000. */
+  heartbeatIntervalMs?: number
+  /** Injectable scheduler (defaults to globalThis.setInterval). */
+  scheduleInterval?: (cb: () => void, ms: number) => IntervalHandle
+  /** Injectable cancel (defaults to globalThis.clearInterval). */
+  cancelInterval?: (handle: IntervalHandle) => void
 }
 
 /**
@@ -31,6 +45,17 @@ export interface VisualCoordinatorDeps {
  * on visual DOM work only.
  */
 export class VisualCoordinator {
+  /**
+   * Per-tab heartbeat interval handle (Phase 2.1 D3).
+   *
+   * <p>While indicators are SHOWN on a tab, the SW pings INDICATOR_HEARTBEAT
+   * every {@link DEFAULT_HEARTBEAT_INTERVAL_MS}. The content-script-side
+   * watchdog auto-unmounts overlays after ~3 missed beats, so if the SW
+   * is killed (MV3 idle eviction, crash) the user is not left staring at
+   * a zombie cursor + glow border.
+   */
+  readonly #heartbeats = new Map<number, IntervalHandle>()
+
   constructor(private readonly deps: VisualCoordinatorDeps) {}
 
   async handle(msg: EdgeMessage): Promise<void> {
@@ -72,8 +97,57 @@ export class VisualCoordinator {
       if (msg.kind === EdgeMessageKind.IndicatorCursor) {
         this.sendCursorResult(msg, response, Date.now() - startedAt)
       }
+      // Phase 2.1 D3: maintain the per-tab heartbeat publisher.
+      if (msg.kind === EdgeMessageKind.IndicatorShow) {
+        this.#startHeartbeat(tabId)
+      } else if (msg.kind === EdgeMessageKind.IndicatorHide) {
+        this.#stopHeartbeat(tabId)
+      }
     } catch (err) {
       console.error('[mateclaw][sw] VisualCoordinator chrome.tabs.sendMessage failed', err)
+    }
+  }
+
+  /**
+   * Drop every running heartbeat. Called at SW shutdown — and useful in
+   * tests so beforeEach starts from a clean slate.
+   */
+  stopAllHeartbeats(): void {
+    const cancel = this.deps.cancelInterval ?? clearInterval
+    for (const handle of this.#heartbeats.values()) {
+      cancel(handle as IntervalHandle)
+    }
+    this.#heartbeats.clear()
+  }
+
+  #startHeartbeat(tabId: number): void {
+    // Idempotent — repeated SHOW envelopes are common (per-render rebroadcast
+    // safety), and we don't want to leak multiple intervals on the same tab.
+    if (this.#heartbeats.has(tabId)) return
+    const schedule = this.deps.scheduleInterval ?? setInterval
+    const intervalMs = this.deps.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS
+    const handle = schedule(() => {
+      void this.#emitHeartbeat(tabId)
+    }, intervalMs)
+    this.#heartbeats.set(tabId, handle as IntervalHandle)
+  }
+
+  #stopHeartbeat(tabId: number): void {
+    const handle = this.#heartbeats.get(tabId)
+    if (handle === undefined) return
+    const cancel = this.deps.cancelInterval ?? clearInterval
+    cancel(handle)
+    this.#heartbeats.delete(tabId)
+  }
+
+  async #emitHeartbeat(tabId: number): Promise<void> {
+    try {
+      await this.chrome().tabs.sendMessage(tabId, { type: 'INDICATOR_HEARTBEAT' })
+    } catch (err) {
+      // Tab gone (closed / navigated away to a CSP-disallowed page) — stop
+      // pinging it. The next SHOW envelope (if any) starts a fresh interval.
+      console.warn('[mateclaw][sw] VisualCoordinator heartbeat failed, stopping tab', { tabId, err })
+      this.#stopHeartbeat(tabId)
     }
   }
 

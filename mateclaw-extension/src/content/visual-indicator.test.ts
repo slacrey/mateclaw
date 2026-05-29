@@ -203,4 +203,105 @@ describe('visual-indicator content script', () => {
       expect(document.querySelectorAll(`#${id}`).length).toBe(1)
     }
   })
+
+  // -----------------------------------------------------------------
+  // Phase 2.1 D3 — watchdog timer that auto-unmounts overlays if the
+  // SW stops pinging INDICATOR_HEARTBEAT for ~15 s.
+  // -----------------------------------------------------------------
+
+  describe('D3 watchdog (auto-unmount on SW silence)', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('SHOW arms the watchdog; 15s of silence auto-unmounts overlays', () => {
+      shim.fire({ type: 'SHOW_AGENT_INDICATORS' })
+      expect(document.getElementById('mateclaw-phantom-cursor')).not.toBeNull()
+      expect(document.getElementById('mateclaw-glow-border')).not.toBeNull()
+
+      // 15s with no heartbeat → watchdog fires → hideAll runs.
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        vi.advanceTimersByTime(15_000)
+      } finally {
+        warnSpy.mockRestore()
+      }
+
+      // Cursor + stop button are gone immediately; the glow border has its
+      // own ~300ms fade-out timer that drops the DOM node, so flush a
+      // bit more.
+      vi.advanceTimersByTime(500)
+      expect(document.getElementById('mateclaw-phantom-cursor')).toBeNull()
+      expect(document.getElementById('mateclaw-glow-border')).toBeNull()
+      expect(document.getElementById('mateclaw-stop-button')).toBeNull()
+    })
+
+    it('INDICATOR_HEARTBEAT resets the watchdog — overlays stay mounted past 15s', () => {
+      shim.fire({ type: 'SHOW_AGENT_INDICATORS' })
+
+      // Drip a heartbeat every 5s for 30s; overlays must still be mounted.
+      for (let i = 0; i < 6; i++) {
+        vi.advanceTimersByTime(5_000)
+        shim.fire({ type: 'INDICATOR_HEARTBEAT' })
+      }
+
+      expect(document.getElementById('mateclaw-phantom-cursor')).not.toBeNull()
+      expect(document.getElementById('mateclaw-glow-border')).not.toBeNull()
+      expect(document.getElementById('mateclaw-stop-button')).not.toBeNull()
+    })
+
+    it('after one final heartbeat, dropping heartbeats trips the watchdog 15s later', () => {
+      shim.fire({ type: 'SHOW_AGENT_INDICATORS' })
+      vi.advanceTimersByTime(5_000)
+      shim.fire({ type: 'INDICATOR_HEARTBEAT' })
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        // 14s after the last beat — not yet.
+        vi.advanceTimersByTime(14_000)
+        expect(document.getElementById('mateclaw-phantom-cursor')).not.toBeNull()
+        // Cross the threshold + flush the glow fade-out.
+        vi.advanceTimersByTime(1_500)
+      } finally {
+        warnSpy.mockRestore()
+      }
+
+      expect(document.getElementById('mateclaw-phantom-cursor')).toBeNull()
+    })
+
+    it('HIDE_AGENT_INDICATORS clears the watchdog (no false fire after teardown)', () => {
+      shim.fire({ type: 'SHOW_AGENT_INDICATORS' })
+      shim.fire({ type: 'HIDE_AGENT_INDICATORS' })
+
+      // No further timers should fire; advance well past the watchdog window
+      // and confirm the DOM stays empty (no zombie re-tear-down).
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        vi.advanceTimersByTime(30_000)
+      } finally {
+        warnSpy.mockRestore()
+      }
+
+      expect(document.getElementById('mateclaw-phantom-cursor')).toBeNull()
+      // Specifically: the watchdog must NOT have logged its "SW silent" warning.
+      expect(warnSpy).not.toHaveBeenCalled()
+    })
+
+    it('INDICATOR_HEARTBEAT before any SHOW is harmless (no overlays to mount)', () => {
+      // The listener accepts the heartbeat envelope and resets the watchdog;
+      // since nothing is mounted, the eventual auto-unmount is also a no-op.
+      shim.fire({ type: 'INDICATOR_HEARTBEAT' })
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        vi.advanceTimersByTime(20_000)
+      } finally {
+        warnSpy.mockRestore()
+      }
+      // No exceptions, no DOM created.
+      expect(document.getElementById('mateclaw-phantom-cursor')).toBeNull()
+    })
+  })
 })

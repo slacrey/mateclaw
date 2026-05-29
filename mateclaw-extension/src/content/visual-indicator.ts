@@ -130,6 +130,35 @@ declare global {
   // sticky across the hide/show round-trip per research §4.3.
   let priorSet: { cursor: boolean; glow: boolean; stop: boolean } | null = null
 
+  // -----------------------------------------------------------------
+  // Phase 2.1 D3 — Watchdog timer that auto-unmounts overlays if the SW
+  // stops pinging INDICATOR_HEARTBEAT. The SW's VisualCoordinator pings
+  // every 5 s while indicators are SHOWN; we allow 3 misses (= 15 s)
+  // before assuming the SW died and tearing things down so the user is
+  // not left staring at a zombie cursor.
+  // -----------------------------------------------------------------
+  const WATCHDOG_TIMEOUT_MS = 15_000
+  let watchdog: ReturnType<typeof setTimeout> | null = null
+
+  function resetWatchdog(): void {
+    if (watchdog !== null) clearTimeout(watchdog)
+    watchdog = setTimeout(() => {
+      watchdog = null
+      // SW silently went away. Tear the overlays down so the page is usable.
+      console.warn('[mateclaw][cs] visual-indicator watchdog fired — SW silent for ' +
+        `${WATCHDOG_TIMEOUT_MS}ms; auto-unmounting overlays`)
+      hideAll()
+      suppressStop = false
+    }, WATCHDOG_TIMEOUT_MS)
+  }
+
+  function stopWatchdog(): void {
+    if (watchdog !== null) {
+      clearTimeout(watchdog)
+      watchdog = null
+    }
+  }
+
   function toolUseHide(): void {
     priorSet = { cursor: cursorVisible, glow: glowVisible, stop: stopVisible }
     hideAll()
@@ -172,12 +201,20 @@ declare global {
         case 'SHOW_AGENT_INDICATORS': {
           const isMcp = Boolean((msg as { isMcp?: unknown }).isMcp)
           showAll(isMcp)
+          // D3: arm the watchdog so SW silence auto-unmounts after ~15s.
+          resetWatchdog()
           return undefined
         }
         case 'HIDE_AGENT_INDICATORS': {
           hideAll()
+          stopWatchdog()
           // Allow a fresh SHOW to restart from a clean default-not-MCP state.
           suppressStop = false
+          return undefined
+        }
+        case 'INDICATOR_HEARTBEAT': {
+          // D3: SW is still alive. Slide the watchdog deadline forward.
+          resetWatchdog()
           return undefined
         }
         case 'INDICATOR_CURSOR': {

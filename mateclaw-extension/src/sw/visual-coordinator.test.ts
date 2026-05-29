@@ -235,4 +235,133 @@ describe('VisualCoordinator', () => {
     expect(sentUp).toHaveLength(1)
     expect(sentUp[0]!.session_id).toBe('')
   })
+
+  // -----------------------------------------------------------------
+  // Phase 2.1 D3 — heartbeat publisher tests
+  // -----------------------------------------------------------------
+
+  describe('D3 heartbeat publisher', () => {
+    type IntervalRecord = { cb: () => void; ms: number; handle: number }
+
+    function makeCoordinatorWithFakeScheduler() {
+      const intervals: IntervalRecord[] = []
+      let nextHandle = 1
+      const sendMessage = vi.fn(async () => undefined)
+      const chrome = {
+        tabs: { sendMessage },
+      } as unknown as typeof globalThis.chrome
+      const resolver = fakeResolver(42)
+      const coordinator = new VisualCoordinator({
+        resolver,
+        chrome,
+        heartbeatIntervalMs: 5000,
+        scheduleInterval: (cb, ms) => {
+          const handle = nextHandle++ as unknown as number
+          intervals.push({ cb, ms, handle })
+          return handle as unknown as ReturnType<typeof setInterval>
+        },
+        cancelInterval: handle => {
+          const idx = intervals.findIndex(r => r.handle === (handle as unknown as number))
+          if (idx >= 0) intervals.splice(idx, 1)
+        },
+      })
+      return { coordinator, sendMessage, intervals }
+    }
+
+    it('indicator.show starts a per-tab heartbeat interval at the configured cadence', async () => {
+      const { coordinator, intervals } = makeCoordinatorWithFakeScheduler()
+
+      await coordinator.handle(indicatorEnvelope(EdgeMessageKind.IndicatorShow))
+
+      expect(intervals).toHaveLength(1)
+      expect(intervals[0]!.ms).toBe(5000)
+    })
+
+    it('indicator.show is idempotent — repeated SHOW does not stack intervals', async () => {
+      const { coordinator, intervals } = makeCoordinatorWithFakeScheduler()
+
+      await coordinator.handle(indicatorEnvelope(EdgeMessageKind.IndicatorShow))
+      await coordinator.handle(indicatorEnvelope(EdgeMessageKind.IndicatorShow))
+
+      expect(intervals).toHaveLength(1)
+    })
+
+    it('indicator.hide stops the heartbeat interval', async () => {
+      const { coordinator, intervals } = makeCoordinatorWithFakeScheduler()
+      await coordinator.handle(indicatorEnvelope(EdgeMessageKind.IndicatorShow))
+      await coordinator.handle(indicatorEnvelope(EdgeMessageKind.IndicatorHide))
+
+      expect(intervals).toHaveLength(0)
+    })
+
+    it('firing the interval callback emits INDICATOR_HEARTBEAT to the tab', async () => {
+      const { coordinator, sendMessage, intervals } = makeCoordinatorWithFakeScheduler()
+      await coordinator.handle(indicatorEnvelope(EdgeMessageKind.IndicatorShow))
+
+      // Clear the SHOW_AGENT_INDICATORS send and trigger one heartbeat tick.
+      sendMessage.mockClear()
+      await intervals[0]!.cb()
+      // await any microtasks queued by the async heartbeat emit.
+      await new Promise(resolve => setTimeout(resolve, 0))
+
+      expect(sendMessage).toHaveBeenCalledExactlyOnceWith(42, { type: 'INDICATOR_HEARTBEAT' })
+    })
+
+    it('heartbeat send failure (tab gone) stops the interval for that tab', async () => {
+      const { coordinator, sendMessage, intervals } = makeCoordinatorWithFakeScheduler()
+      await coordinator.handle(indicatorEnvelope(EdgeMessageKind.IndicatorShow))
+      expect(intervals).toHaveLength(1)
+
+      // Next heartbeat throws — tab was closed.
+      sendMessage.mockRejectedValueOnce(new Error('No tab with id 42'))
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        await intervals[0]!.cb()
+        await new Promise(resolve => setTimeout(resolve, 0))
+      } finally {
+        warnSpy.mockRestore()
+      }
+
+      expect(intervals).toHaveLength(0)
+    })
+
+    it('multi-tab: distinct tabs each get their own heartbeat interval', async () => {
+      const intervals: IntervalRecord[] = []
+      let nextHandle = 1
+      const sendMessage = vi.fn(async () => undefined)
+      const chrome = { tabs: { sendMessage } } as unknown as typeof globalThis.chrome
+      const resolver = {
+        // Echo the int tab_ref verbatim so we can pass explicit 42 + 43.
+        resolve: vi.fn(async tabRef => (typeof tabRef === 'number' ? tabRef : null)),
+      } as unknown as TabRefResolver
+      const coordinator = new VisualCoordinator({
+        resolver,
+        chrome,
+        heartbeatIntervalMs: 5000,
+        scheduleInterval: (cb, ms) => {
+          const handle = nextHandle++ as unknown as number
+          intervals.push({ cb, ms, handle })
+          return handle as unknown as ReturnType<typeof setInterval>
+        },
+        cancelInterval: handle => {
+          const idx = intervals.findIndex(r => r.handle === (handle as unknown as number))
+          if (idx >= 0) intervals.splice(idx, 1)
+        },
+      })
+
+      await coordinator.handle(indicatorEnvelope(EdgeMessageKind.IndicatorShow, { tab_ref: 42 }, 'm1'))
+      await coordinator.handle(indicatorEnvelope(EdgeMessageKind.IndicatorShow, { tab_ref: 43 }, 'm2'))
+
+      expect(intervals).toHaveLength(2)
+    })
+
+    it('stopAllHeartbeats clears every running interval', async () => {
+      const { coordinator, intervals } = makeCoordinatorWithFakeScheduler()
+      await coordinator.handle(indicatorEnvelope(EdgeMessageKind.IndicatorShow))
+      expect(intervals).toHaveLength(1)
+
+      coordinator.stopAllHeartbeats()
+      expect(intervals).toHaveLength(0)
+    })
+  })
 })
