@@ -1,0 +1,301 @@
+package vip.mate.browser.orchestrator.screenshot;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.web.socket.TextMessage;
+import org.springframework.web.socket.WebSocketSession;
+import vip.mate.browser.edge.action.TabRef;
+import vip.mate.browser.edge.protocol.EdgeMessage;
+import vip.mate.browser.edge.protocol.EdgeMessageKind;
+import vip.mate.browser.edge.session.BrowserSession;
+
+import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.util.Base64;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+
+/**
+ * Coverage for the Wave 3-A2 concrete {@link DefaultScreenshotEdgeClient}.
+ *
+ * <p>The pending-future + msgId-correlation pattern is borrowed verbatim
+ * from Wave 2.1-A's {@code DefaultSnapshotEdgeClient} — these tests pin
+ * the happy/timeout/detach contract so a future refactor doesn't regress.
+ */
+class DefaultScreenshotEdgeClientTest {
+
+    private static final Clock FIXED_CLOCK =
+            Clock.fixed(Instant.parse("2026-05-29T00:00:00Z"), ZoneId.of("UTC"));
+
+    /** Tiny "PNG" payload — content is arbitrary; we just verify byte round-trip. */
+    private static final byte[] FAKE_PNG = "fake-png-bytes".getBytes(StandardCharsets.UTF_8);
+    private static final String FAKE_PNG_B64 = Base64.getEncoder().encodeToString(FAKE_PNG);
+
+    private ObjectMapper mapper;
+    private ManualScheduler scheduler;
+    private DefaultScreenshotEdgeClient client;
+    private BrowserSession session;
+    private WebSocketSession ws;
+
+    @BeforeEach
+    void setUp() {
+        mapper = new ObjectMapper();
+        scheduler = new ManualScheduler();
+        client = new DefaultScreenshotEdgeClient(mapper, FIXED_CLOCK, scheduler);
+        ws = mock(WebSocketSession.class);
+        session = BrowserSession.builder()
+                .id("sess-1")
+                .subject("alice")
+                .agentVersion("0.2.0")
+                .ws(ws)
+                .lastHeartbeatAt(FIXED_CLOCK.instant())
+                .build();
+    }
+
+    // -----------------------------------------------------------------
+    // Happy path
+    // -----------------------------------------------------------------
+
+    @Test
+    void request_sendsScreenshotCaptureRequestEnvelopeOnTheSessionWs() throws Exception {
+        var future = client.request(session, new TabRef.Main(), 1).toFuture();
+
+        var captor = org.mockito.ArgumentCaptor.forClass(TextMessage.class);
+        verify(ws).sendMessage(captor.capture());
+        EdgeMessage envelope = mapper.readValue(captor.getValue().getPayload(), EdgeMessage.class);
+
+        assertThat(envelope.getKind()).isEqualTo(EdgeMessageKind.SCREENSHOT_CAPTURE_REQUEST);
+        assertThat(envelope.getSessionId()).isEqualTo("sess-1");
+        assertThat(envelope.getPayload()).containsKeys("tab_ref", "format", "scale_factor");
+        assertThat(envelope.getPayload().get("format")).isEqualTo("png");
+        assertThat(envelope.getPayload().get("scale_factor")).isEqualTo(1);
+
+        // future not yet completed
+        assertThat(future.isDone()).isFalse();
+    }
+
+    @Test
+    void deliverScreenshot_resolvesFutureWithParsedPageScreenshot() throws Exception {
+        var future = client.request(session, new TabRef.Main(), 1).toFuture();
+        String outboundMsgId = capturedEnvelopeMsgId();
+
+        client.deliverScreenshot(outboundMsgId, Map.of(
+                "snapshot_id", "shot-xyz",
+                "captured_at_ms", 1_730_000_000_123L,
+                "tab_ref", 42L,
+                "format", "png",
+                "data_base64", FAKE_PNG_B64,
+                "viewport", Map.of("w", 1280, "h", 800),
+                "actual_dimensions", Map.of("w", 1280, "h", 800)));
+
+        PageScreenshot shot = future.get(500, TimeUnit.MILLISECONDS);
+        assertThat(shot.snapshotId()).isEqualTo("shot-xyz");
+        assertThat(shot.capturedAtMs()).isEqualTo(1_730_000_000_123L);
+        assertThat(shot.resolvedTabId()).isEqualTo(42L);
+        assertThat(shot.viewport().w()).isEqualTo(1280);
+        assertThat(shot.actualDimensions().h()).isEqualTo(800);
+        // P0-3 byte-safety: bytes are decoded once, not stored as base64 string.
+        assertThat(shot.pngBytes()).isEqualTo(FAKE_PNG);
+    }
+
+    @Test
+    void deliverScreenshot_blankSnapshotId_generatesUuidFallback() throws Exception {
+        var future = client.request(session, new TabRef.Main(), 1).toFuture();
+        client.deliverScreenshot(capturedEnvelopeMsgId(), Map.of(
+                "snapshot_id", "",
+                "captured_at_ms", 1L,
+                "tab_ref", 1L,
+                "data_base64", FAKE_PNG_B64,
+                "viewport", Map.of("w", 800, "h", 600),
+                "actual_dimensions", Map.of("w", 800, "h", 600)));
+        PageScreenshot shot = future.get(500, TimeUnit.MILLISECONDS);
+        assertThat(shot.snapshotId()).isNotBlank();
+    }
+
+    @Test
+    void deliverScreenshot_missingActualDimensions_defaultsToViewport() throws Exception {
+        var future = client.request(session, new TabRef.Main(), 1).toFuture();
+        client.deliverScreenshot(capturedEnvelopeMsgId(), Map.of(
+                "snapshot_id", "shot-1",
+                "captured_at_ms", 1L,
+                "tab_ref", 1L,
+                "data_base64", FAKE_PNG_B64,
+                "viewport", Map.of("w", 800, "h", 600)));
+        PageScreenshot shot = future.get(500, TimeUnit.MILLISECONDS);
+        assertThat(shot.actualDimensions().w()).isEqualTo(800);
+        assertThat(shot.actualDimensions().h()).isEqualTo(600);
+    }
+
+    @Test
+    void deliverScreenshot_unknownMsgId_isNoOp() {
+        var future = client.request(session, new TabRef.Main(), 1).toFuture();
+        client.deliverScreenshot("not-our-msg-id", Map.of(
+                "snapshot_id", "x", "captured_at_ms", 1L, "tab_ref", 1L,
+                "data_base64", FAKE_PNG_B64,
+                "viewport", Map.of("w", 800, "h", 600),
+                "actual_dimensions", Map.of("w", 800, "h", 600)));
+        assertThat(future.isDone()).isFalse();
+    }
+
+    @Test
+    void deliverScreenshot_nullInReplyTo_isNoOp() {
+        client.deliverScreenshot(null, Map.of()); // must not throw
+    }
+
+    @Test
+    void deliverScreenshot_missingDataBase64_failsFuture() {
+        var future = client.request(session, new TabRef.Main(), 1).toFuture();
+        String msgId;
+        try {
+            msgId = capturedEnvelopeMsgId();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        client.deliverScreenshot(msgId, Map.of(
+                "snapshot_id", "shot-1",
+                "captured_at_ms", 1L,
+                "tab_ref", 1L,
+                "viewport", Map.of("w", 800, "h", 600),
+                "actual_dimensions", Map.of("w", 800, "h", 600)));
+        assertThatThrownBy(() -> future.get(500, TimeUnit.MILLISECONDS))
+                .isInstanceOf(ExecutionException.class)
+                .hasMessageContaining("data_base64");
+    }
+
+    // -----------------------------------------------------------------
+    // Timeout
+    // -----------------------------------------------------------------
+
+    @Test
+    void timeout_fires_completesFutureExceptionally() {
+        var future = client.request(session, new TabRef.Main(), 1).toFuture();
+        scheduler.advanceAndRunPending();
+
+        assertThatThrownBy(() -> future.get(500, TimeUnit.MILLISECONDS))
+                .isInstanceOf(ExecutionException.class)
+                .hasCauseInstanceOf(DefaultScreenshotEdgeClient.ScreenshotTimeoutException.class);
+    }
+
+    @Test
+    void deliverAfterTimeout_isNoOp() throws Exception {
+        var future = client.request(session, new TabRef.Main(), 1).toFuture();
+        String msgId = capturedEnvelopeMsgId();
+        scheduler.advanceAndRunPending();
+
+        client.deliverScreenshot(msgId, Map.of(
+                "snapshot_id", "late", "captured_at_ms", 1L, "tab_ref", 1L,
+                "data_base64", FAKE_PNG_B64,
+                "viewport", Map.of("w", 800, "h", 600),
+                "actual_dimensions", Map.of("w", 800, "h", 600)));
+
+        assertThatThrownBy(() -> future.get(50, TimeUnit.MILLISECONDS))
+                .isInstanceOf(ExecutionException.class)
+                .hasCauseInstanceOf(DefaultScreenshotEdgeClient.ScreenshotTimeoutException.class);
+    }
+
+    // -----------------------------------------------------------------
+    // Session detach
+    // -----------------------------------------------------------------
+
+    @Test
+    void sessionClosed_failsInflightWithSessionDetached() {
+        var future = client.request(session, new TabRef.Main(), 1).toFuture();
+        client.sessionClosed(session.getId());
+
+        assertThatThrownBy(() -> future.get(500, TimeUnit.MILLISECONDS))
+                .isInstanceOf(ExecutionException.class)
+                .hasCauseInstanceOf(DefaultScreenshotEdgeClient.SessionDetachedException.class);
+    }
+
+    @Test
+    void sessionClosed_otherSession_doesNotAffectInflightOnOurs() throws Exception {
+        var future = client.request(session, new TabRef.Main(), 1).toFuture();
+        client.sessionClosed("some-other-session-id");
+
+        assertThat(future.isDone()).isFalse();
+        client.deliverScreenshot(capturedEnvelopeMsgId(), Map.of(
+                "snapshot_id", "ok", "captured_at_ms", 1L, "tab_ref", 1L,
+                "data_base64", FAKE_PNG_B64,
+                "viewport", Map.of("w", 800, "h", 600),
+                "actual_dimensions", Map.of("w", 800, "h", 600)));
+        assertThat(future.get(200, TimeUnit.MILLISECONDS).snapshotId()).isEqualTo("ok");
+    }
+
+    // -----------------------------------------------------------------
+    // Send failure
+    // -----------------------------------------------------------------
+
+    @Test
+    void sendMessageThrows_failsFutureImmediately() throws Exception {
+        doAnswer(inv -> { throw new java.io.IOException("WS dead"); })
+                .when(ws).sendMessage(any());
+
+        var future = client.request(session, new TabRef.Main(), 1).toFuture();
+
+        assertThatThrownBy(() -> future.get(500, TimeUnit.MILLISECONDS))
+                .isInstanceOf(ExecutionException.class)
+                .hasMessageContaining("WS dead");
+    }
+
+    // -----------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------
+
+    private String capturedEnvelopeMsgId() throws Exception {
+        var captor = org.mockito.ArgumentCaptor.forClass(TextMessage.class);
+        verify(ws).sendMessage(captor.capture());
+        return mapper.readValue(captor.getValue().getPayload(), EdgeMessage.class).getMsgId();
+    }
+
+    /**
+     * Manual scheduler — captures the most recent scheduled task; advance()
+     * runs it synchronously, so timeout tests are instantaneous.
+     */
+    private static final class ManualScheduler
+            extends java.util.concurrent.ScheduledThreadPoolExecutor
+            implements ScheduledExecutorService {
+        private Runnable pending;
+
+        ManualScheduler() { super(1); }
+
+        @Override
+        public ScheduledFuture<?> schedule(Runnable command, long delay, TimeUnit unit) {
+            this.pending = command;
+            CompletableFuture<Void> noop = new CompletableFuture<>();
+            return new ScheduledFuture<>() {
+                @Override public long getDelay(TimeUnit u) { return 0; }
+                @Override public int compareTo(java.util.concurrent.Delayed o) { return 0; }
+                @Override public boolean cancel(boolean mi) {
+                    pending = null;
+                    return noop.cancel(mi);
+                }
+                @Override public boolean isCancelled() { return noop.isCancelled(); }
+                @Override public boolean isDone() { return noop.isDone(); }
+                @Override public Void get() { return null; }
+                @Override public Void get(long t, TimeUnit u) { return null; }
+            };
+        }
+
+        void advanceAndRunPending() {
+            if (pending != null) {
+                Runnable r = pending;
+                pending = null;
+                r.run();
+            }
+        }
+    }
+}

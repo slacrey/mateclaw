@@ -29,7 +29,7 @@ public class GroundingDispatcher {
         GroundingResult.Ambiguous firstAmbiguous = null;
 
         for (GroundingEngine engine : List.of(dom, a11y, vision)) {
-            GroundingResult result = engine.ground(snapshot, hint);
+            GroundingResult result = engine.ground(session, tabRef, snapshot, hint);
             switch (result) {
                 case GroundingResult.Hit hit -> {
                     return hit;
