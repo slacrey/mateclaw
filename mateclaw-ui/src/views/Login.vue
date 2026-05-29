@@ -122,10 +122,13 @@ import { computed, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { authApi } from '@/api/index'
+import { useAccountStore } from '@/stores/useAccountStore'
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
+import type { LoginResponse } from '@/types'
 
 const router = useRouter()
 const { t } = useI18n()
+const accountStore = useAccountStore()
 const workspaceStore = useWorkspaceStore()
 const loading = ref(false)
 const showPassword = ref(false)
@@ -150,11 +153,16 @@ function switchMode(nextMode: 'login' | 'register') {
   errorMsg.value = ''
 }
 
-async function finishAuth(data: any, fallbackUsername: string) {
+async function finishAuth(data: LoginResponse, fallbackUsername: string) {
   localStorage.setItem('token', data.token)
   localStorage.setItem('userId', String(data.id || '1'))
   localStorage.setItem('username', data.username || fallbackUsername)
   localStorage.setItem('role', data.role || 'user')
+  accountStore.applyStatus(data)
+  if (data.currentWorkspaceId != null) {
+    localStorage.setItem('mc-workspace-id', String(data.currentWorkspaceId))
+    workspaceStore.currentWorkspaceId = String(data.currentWorkspaceId)
+  }
   // Resolve capabilities before deciding the landing route so a viewer
   // lands on /chat (their only capability) and member+ on /dashboard.
   try {
@@ -179,8 +187,8 @@ async function handleLogin() {
   loading.value = true
   errorMsg.value = ''
   try {
-    const res: any = await authApi.login(form)
-    const data = res.data || res
+    const res = await authApi.login(form)
+    const data = (res.data || res) as LoginResponse
     await finishAuth(data, form.username)
   } catch (e: any) {
     errorMsg.value = e?.message || t('login.failed')
@@ -200,8 +208,8 @@ async function handleRegister() {
       password: registerForm.password,
       nickname: registerForm.nickname || undefined,
     }
-    const res: any = await authApi.register(payload)
-    const data = res.data || res
+    const res = await authApi.register(payload)
+    const data = (res.data || res) as LoginResponse
     await finishAuth(data, registerForm.phone)
   } catch (e: any) {
     errorMsg.value = e?.message || t('login.registerFailed')
