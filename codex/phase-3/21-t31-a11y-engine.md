@@ -48,7 +48,12 @@ record A11yMatch(String role, Pattern namePattern, String filter, String nearLab
 }
 ```
 
-更新 `DomainTypesTest.java` 加 nearLabel 测试 case（forward-compat：旧 ctor 仍然工作）。
+**测试放在新文件** `mateclaw-server/src/test/java/vip/mate/browser/orchestrator/domain/GroundingHintTest.java` **不要碰 DomainTypesTest.java** —— Codex 19 (T3.A iframe) 在并行修改它（加 `frame=N` 解析），双方落地会冲突。新文件覆盖：
+- `nearLabel_isOptional_existing2argCtorStillWorks`
+- `nearLabel_isOptional_existing3argCtorStillWorks`
+- `nearLabel_can_be_null` (4-arg with null)
+- `nearLabel_can_be_set` (4-arg with value)
+- `a11yMatch_with_nearLabel_preservesAllFields`
 
 ### 2. `A11yEngine.java` 真实现
 
@@ -145,3 +150,5 @@ Co-Authored-By: Codex GPT-5 (parallel) <noreply@openai.com>
 - 不要碰 `GroundingDispatcher` policy 代码 —— dispatcher cascade 已经正确，只加 1 个 test
 - 不要把 A11yEngine 写成"也能从零 grounding"的引擎 —— 它的角色 *仅是* disambiguator；空 hint / 无 nearLabel = Miss
 - 不要让 VisionEngine 退化为 stub —— 那是 Sub-agent H 在并行做的真实现，本 task 不碰
+- **不要碰 `DomainTypesTest.java`** —— Codex 19 (T3.A iframe) 在并行改它加 `frame=N` 解析 case，双方都改会冲突。nearLabel 测试放新文件 `GroundingHintTest.java`
+- **不要碰 `PageSnapshot.java`** —— Codex 19 在加 `Line.frameId` 字段；A11yEngine 不需要 frameId，照常用 `lines().get(i).role()/name()/bbox()` 即可
