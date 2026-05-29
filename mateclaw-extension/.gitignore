@@ -2,3 +2,7 @@ node_modules/
 dist/
 *.log
 .vscode/
+# Dev-only RSA private key backing the deterministic unpacked-extension ID.
+# The PUBLIC key is committed as manifest "key"; the private key is only
+# needed to PACK a .crx with the same id and must never be committed.
+.dev-extension-key.pem
