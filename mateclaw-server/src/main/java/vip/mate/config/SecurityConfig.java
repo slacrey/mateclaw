@@ -27,6 +27,7 @@ import jakarta.servlet.http.HttpServletResponse;
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
+    private final AccountExpiryFilter accountExpiryFilter;
 
     /**
      * 密码编码器独立配置（打破 SecurityConfig → JwtAuthFilter → AuthService → BCryptPasswordEncoder 循环）
@@ -78,7 +79,8 @@ public class SecurityConfig {
                     response.getWriter().write("{\"code\":401,\"msg\":\"Token expired or invalid\",\"data\":null}");
                 })
             )
-            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+            .addFilterAfter(accountExpiryFilter, JwtAuthFilter.class);
 
         return http.build();
     }
