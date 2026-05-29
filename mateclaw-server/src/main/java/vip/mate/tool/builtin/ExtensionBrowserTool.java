@@ -143,9 +143,10 @@ public class ExtensionBrowserTool {
     @Tool(description = """
             Click an element on the page identified by its accessible role + visible text.
             The hint_text is matched against the element's accessible name (button label, link
-            text, etc.). When two elements share the same hint_text, this tool returns
-            GROUNDING_AMBIGUOUS — Phase 3 T3.1 will add a near_label disambiguator field;
-            until then, the LLM should refine its prompt.
+            text, etc.). near_label is an optional containing-section hint that disambiguates
+            when the same hint_text appears multiple times (for example, two "Like" buttons
+            in different sections — pass near_label="Comments" to pick the one inside the
+            Comments section). Powered by Phase 3 T3.1 A11yEngine.
 
             Returns a JSON object:
               { "ok": true, "elapsed_ms": 123 }
@@ -157,25 +158,26 @@ public class ExtensionBrowserTool {
             String hintText,
             @ToolParam(description = "Optional accessible role hint: 'button' (default) | 'link' | 'menuitem' | 'tab' | 'checkbox'",
                        required = false) String role,
+            @ToolParam(description = "Optional containing-section heading text — used by the A11y engine to disambiguate when hint_text matches multiple elements. Provide the visible text of the nearest enclosing heading/section/landmark/article/region (e.g. 'Comments', 'Search results').",
+                       required = false) String nearLabel,
             @Nullable ToolContext ctx) {
         BrowserSession session = resolveSession();
         if (session == null) return noSession();
 
         String resolvedRole = defaulted(role, "button");
-        // Phase 3 T3.1 (Codex 21, parallel) will add A11yMatch.nearLabel as a 4th
-        // ctor arg for nearest-ancestor disambiguation. Until that ships, this
-        // tool only exposes the role+name pattern.
         GroundingHint hint = new GroundingHint.A11yMatch(
                 resolvedRole,
                 Pattern.compile(Pattern.quote(hintText), Pattern.CASE_INSENSITIVE),
-                "interactive");
+                "interactive",
+                emptyToNull(nearLabel));
 
         GroundingResult ground = dispatcher.ground(session, new TabRef.Main(), hint);
         return switch (ground) {
             case GroundingResult.Hit hit -> executePlan(session,
                     planner.plan(new Step.ClickStep(new TabRef.Main(), ground)));
             case GroundingResult.Ambiguous a -> error("GROUNDING_AMBIGUOUS",
-                    "found " + a.candidates().size() + " candidates: " + a.evidence());
+                    "found " + a.candidates().size() + " candidates: " + a.evidence()
+                            + " — try refining with a near_label");
             case GroundingResult.Miss m -> error("GROUNDING_MISS", m.reason());
         };
     }
@@ -383,5 +385,10 @@ public class ExtensionBrowserTool {
 
     private static String defaulted(String value, String fallback) {
         return (value == null || value.isBlank()) ? fallback : value;
+    }
+
+    /** Empty / blank strings from LLM tool-call args mean "not set"; normalise to null. */
+    private static String emptyToNull(String value) {
+        return (value == null || value.isBlank()) ? null : value;
     }
 }
