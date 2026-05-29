@@ -10,10 +10,14 @@
 //     PAT rides in Sec-WebSocket-Protocol, the server echoes `mateclaw.edge.v1`.
 //   - on open → sends HELLO (session_id:"") with {agent_version, device_id,
 //     device_name}.
-//   - on HELLO_ACK → captures payload.session_id and STAMPS it on every
-//     subsequent outbound frame (the job the Native Host did in NH mode).
-//   - Ping every 20s while OPEN; exponential backoff reconnect on unexpected
-//     close (1s→2s→…→30s cap) using the last serverUrl/pat, suppressed after an
+//   - on HELLO_ACK → captures payload.session_id (STAMPS it on every subsequent
+//     outbound frame, the job the Native Host did in NH mode) AND
+//     payload.heartbeat_interval_ms, then starts the heartbeat.
+//   - HEARTBEAT every heartbeat_interval_ms (server default 10s) while OPEN —
+//     this is what keeps the session alive; the server reaps a session after
+//     ~30s without one. (NOT app-level ping: the server does not treat ping as
+//     liveness.) Exponential backoff reconnect on unexpected close
+//     (1s→2s→…→30s cap) using the last serverUrl/pat, suppressed after an
 //     intentional disconnect().
 
 import type { EdgeMessage } from '../shared/edge-protocol'
@@ -28,7 +32,9 @@ export type BridgeState = 'connecting' | 'open' | 'closed'
 /** Subprotocol the server must echo on the 101 response. */
 export const EDGE_SUBPROTOCOL = 'mateclaw.edge.v1'
 
-const PING_INTERVAL_MS = 20_000
+/** Fallback when HELLO_ACK doesn't carry heartbeat_interval_ms. Must be well
+ *  under the server's ~30s stale-session reaper window. */
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000
 const BACKOFF_BASE_MS = 1_000
 const BACKOFF_CAP_MS = 30_000
 
@@ -51,7 +57,8 @@ export class DirectBridgeClient {
   /** Server-issued session id captured from HELLO_ACK; "" until then. */
   private sessionId = ''
 
-  private pingTimer: ReturnType<typeof setInterval> | null = null
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null
+  private heartbeatIntervalMs = DEFAULT_HEARTBEAT_INTERVAL_MS
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectAttempt = 0
   /** Set by disconnect(); suppresses the auto-reconnect on the next close. */
@@ -116,7 +123,7 @@ export class DirectBridgeClient {
     ws.onopen = () => {
       this.reconnectAttempt = 0
       this.emitState('open')
-      this.startPing()
+      // Heartbeat starts on HELLO_ACK (needs the session_id + advertised interval).
       // HELLO: session_id stays "" per protocol; server replies HELLO_ACK.
       this.rawSend(
         makeEdgeMessage({
@@ -139,6 +146,13 @@ export class DirectBridgeClient {
         if (typeof sid === 'string' && sid.length > 0) {
           this.sessionId = sid
         }
+        const hb = m.payload?.['heartbeat_interval_ms']
+        if (typeof hb === 'number' && hb > 0) {
+          this.heartbeatIntervalMs = hb
+        }
+        // Now that we have a session_id to stamp, start protocol heartbeats so
+        // the server's reaper doesn't drop us after the stale-session window.
+        this.startHeartbeat()
       }
       this.messageCbs.forEach(cb => cb(m))
     }
@@ -153,7 +167,7 @@ export class DirectBridgeClient {
   }
 
   private handleClose(): void {
-    this.stopPing()
+    this.stopHeartbeat()
     this.ws = null
     this.sessionId = ''
     this.emitState('closed')
@@ -176,24 +190,26 @@ export class DirectBridgeClient {
     }, delay)
   }
 
-  private startPing(): void {
-    this.stopPing()
-    this.pingTimer = setInterval(() => {
-      if (this.ws?.readyState === this.WebSocketImpl.OPEN) {
-        this.rawSend(makeEdgeMessage({ kind: EdgeMessageKind.Ping }))
+  private startHeartbeat(): void {
+    this.stopHeartbeat()
+    this.heartbeatTimer = setInterval(() => {
+      // Only meaningful once we have a session_id (rawSend stamps it); the
+      // server's onHeartbeat validates the session before refreshing liveness.
+      if (this.ws?.readyState === this.WebSocketImpl.OPEN && this.sessionId !== '') {
+        this.rawSend(makeEdgeMessage({ kind: EdgeMessageKind.Heartbeat }))
       }
-    }, PING_INTERVAL_MS)
+    }, this.heartbeatIntervalMs)
   }
 
-  private stopPing(): void {
-    if (this.pingTimer !== null) {
-      clearInterval(this.pingTimer)
-      this.pingTimer = null
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer)
+      this.heartbeatTimer = null
     }
   }
 
   private clearTimers(): void {
-    this.stopPing()
+    this.stopHeartbeat()
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null

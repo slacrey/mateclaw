@@ -176,18 +176,37 @@ describe('DirectBridgeClient', () => {
     )
   })
 
-  it('sends a Ping every 20s while OPEN', () => {
+  it('sends a HEARTBEAT every 10s after HELLO_ACK while OPEN', () => {
     vi.useFakeTimers()
     const c = newClient()
     c.connect(URL, PAT)
     const ws = MockWebSocket.last()
     ws.fireOpen()
+    // Heartbeat only starts once we have a session_id to stamp (HELLO_ACK).
+    ws.fireMessage(helloAck('SID-1'))
 
-    const before = ws.sentMessages().filter(m => m['kind'] === EdgeMessageKind.Ping).length
-    vi.advanceTimersByTime(20_000)
-    vi.advanceTimersByTime(20_000)
-    const after = ws.sentMessages().filter(m => m['kind'] === EdgeMessageKind.Ping).length
+    const before = ws.sentMessages().filter(m => m['kind'] === EdgeMessageKind.Heartbeat).length
+    vi.advanceTimersByTime(10_000)
+    vi.advanceTimersByTime(10_000)
+    const after = ws.sentMessages().filter(m => m['kind'] === EdgeMessageKind.Heartbeat).length
     expect(after - before).toBe(2)
+  })
+
+  it('honours heartbeat_interval_ms advertised in HELLO_ACK', () => {
+    vi.useFakeTimers()
+    const c = newClient()
+    c.connect(URL, PAT)
+    const ws = MockWebSocket.last()
+    ws.fireOpen()
+    ws.fireMessage({
+      v: 1, msg_id: 'srv-2', kind: EdgeMessageKind.HelloAck, ts: 0, trace_id: 't',
+      session_id: 'SID-2', payload: { session_id: 'SID-2', heartbeat_interval_ms: 5_000 },
+    })
+
+    const before = ws.sentMessages().filter(m => m['kind'] === EdgeMessageKind.Heartbeat).length
+    vi.advanceTimersByTime(5_000)
+    const after = ws.sentMessages().filter(m => m['kind'] === EdgeMessageKind.Heartbeat).length
+    expect(after - before).toBe(1)
   })
 
   it('reconnects with exponential backoff after an unexpected close', () => {
@@ -243,17 +262,18 @@ describe('DirectBridgeClient', () => {
     expect(c.connected).toBe(false)
   })
 
-  it('disconnect() stops the ping timer', () => {
+  it('disconnect() stops the heartbeat timer', () => {
     vi.useFakeTimers()
     const c = newClient()
     c.connect(URL, PAT)
     const ws = MockWebSocket.last()
     ws.fireOpen()
+    ws.fireMessage(helloAck('SID-3')) // start heartbeats
     c.disconnect()
-    const pingsBefore = ws.sentMessages().filter(m => m['kind'] === EdgeMessageKind.Ping).length
+    const hbBefore = ws.sentMessages().filter(m => m['kind'] === EdgeMessageKind.Heartbeat).length
     vi.advanceTimersByTime(60_000)
-    const pingsAfter = ws.sentMessages().filter(m => m['kind'] === EdgeMessageKind.Ping).length
-    expect(pingsAfter).toBe(pingsBefore)
+    const hbAfter = ws.sentMessages().filter(m => m['kind'] === EdgeMessageKind.Heartbeat).length
+    expect(hbAfter).toBe(hbBefore)
   })
 
   it('emits connecting → open state transitions', () => {
