@@ -111,12 +111,17 @@ public class ExtensionBrowserTool {
     // -----------------------------------------------------------------
 
     @Tool(description = """
-            Navigate the user's active browser tab to a URL. Returns a JSON object:
+            Navigate the USER'S OWN visible Chrome window (the browser they're watching) to a URL.
+            ★ This is the tool to use whenever the user says "my/this/the browser" (用我的浏览器 /
+            这个浏览器 / 打开浏览器) or wants to see the page open in front of them. Prefer this over
+            `browser_use` (which is a hidden server-side headless browser) for anything involving the
+            user's real browser. Then read the page with extension_browser_observe and act with
+            extension_browser_click / _type / _scroll.
+
+            Returns a JSON object:
               { "ok": true, "final_url": "...", "load_state": "load" }
             or on failure:
               { "ok": false, "code": "NO_SESSION|NO_TARGET_TAB|TIMEOUT_PAGE_LOAD|...", "message": "..." }
-            Use this tool when the user wants their own Chrome window to open a page.
-            For background headless navigation prefer the `browser_use` Playwright tool.
             """)
     public String extension_browser_navigate(
             @ToolParam(description = "URL to navigate to, including scheme (http:// or https://)") String url,
