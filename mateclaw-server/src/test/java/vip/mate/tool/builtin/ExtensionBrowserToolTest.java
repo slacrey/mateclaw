@@ -11,6 +11,7 @@ import vip.mate.browser.edge.action.ActionResult;
 import vip.mate.browser.edge.action.ClickSuccess;
 import vip.mate.browser.edge.action.NavigateSuccess;
 import vip.mate.browser.edge.action.TabRef;
+import vip.mate.browser.edge.action.TypeSuccess;
 import vip.mate.browser.edge.session.BrowserSession;
 import vip.mate.browser.edge.session.BrowserSessionRegistry;
 import vip.mate.browser.edge.session.BrowserSessionView;
@@ -145,6 +146,9 @@ class ExtensionBrowserToolTest {
         JsonNode j = mapper.readTree(out);
         assertThat(j.get("ok").asBoolean()).isTrue();
         assertThat(j.get("elapsed_ms").asLong()).isEqualTo(123);
+        assertThat(j.get("results").get(0).get("kind").asText()).isEqualTo("navigate");
+        assertThat(j.get("results").get(0).get("payload").get("final_url").asText())
+                .isEqualTo("https://example.com");
 
         var captor = org.mockito.ArgumentCaptor.forClass(List.class);
         verify(planExec).execute(any(), captor.capture());
@@ -227,9 +231,14 @@ class ExtensionBrowserToolTest {
     @Test
     void browserType_dispatchesTypeRequest() throws Exception {
         when(planExec.execute(any(), any())).thenReturn(Mono.just((PlanResult)
-                new PlanResult.Success(List.of())));
+                new PlanResult.Success(List.of(
+                        new ActionResult.Success(11L, new TypeSuccess(11))))));
 
-        tool.extension_browser_type("hello world", null);
+        String out = tool.extension_browser_type("hello world", null);
+
+        JsonNode j = mapper.readTree(out);
+        assertThat(j.get("results").get(0).get("payload").get("chars_typed").asInt())
+                .isEqualTo(11);
 
         var captor = org.mockito.ArgumentCaptor.forClass(List.class);
         verify(planExec).execute(any(), captor.capture());

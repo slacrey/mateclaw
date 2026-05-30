@@ -11,13 +11,20 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 import vip.mate.browser.edge.action.ActionKind;
 import vip.mate.browser.edge.action.ActionRequest;
+import vip.mate.browser.edge.action.ClickSuccess;
 import vip.mate.browser.edge.action.ClickPayload;
 import vip.mate.browser.edge.action.MoveMousePayload;
+import vip.mate.browser.edge.action.MoveMouseSuccess;
 import vip.mate.browser.edge.action.NavigatePayload;
+import vip.mate.browser.edge.action.NavigateSuccess;
 import vip.mate.browser.edge.action.ScrollPayload;
+import vip.mate.browser.edge.action.ScrollSuccess;
 import vip.mate.browser.edge.action.TabRef;
 import vip.mate.browser.edge.action.TypePayload;
+import vip.mate.browser.edge.action.TypeSuccess;
 import vip.mate.browser.edge.action.WaitPayload;
+import vip.mate.browser.edge.action.WaitSuccess;
+import vip.mate.browser.edge.action.ActionResult.Success;
 import vip.mate.browser.edge.session.BrowserSession;
 import vip.mate.browser.edge.session.BrowserSessionRegistry;
 import vip.mate.browser.orchestrator.ActionPlanner;
@@ -380,16 +387,38 @@ public class ExtensionBrowserTool {
                         "ok", true,
                         "elapsed_ms", ok.completed().stream()
                                 .mapToLong(s -> s.elapsedMs()).sum(),
-                        "steps", ok.completed().size()));
+                        "steps", ok.completed().size(),
+                        "results", actionPayloads(ok.completed())));
                 case PlanResult.Partial p -> json(Map.of(
                         "ok", false,
                         "code", p.failed().code(),
                         "message", p.failed().message(),
-                        "completed_before_failure", p.completed().size()));
+                        "completed_before_failure", p.completed().size(),
+                        "results", actionPayloads(p.completed())));
             };
         } catch (Exception e) {
             return error("EXECUTION_FAILED", e.getMessage());
         }
+    }
+
+    private List<Map<String, Object>> actionPayloads(List<Success> completed) {
+        return completed.stream()
+                .map(success -> Map.of(
+                        "kind", (Object) successKind(success),
+                        "elapsed_ms", (Object) success.elapsedMs(),
+                        "payload", mapper.convertValue(success.payload(), Map.class)))
+                .toList();
+    }
+
+    private String successKind(Success success) {
+        return switch (success.payload()) {
+            case NavigateSuccess ignored -> "navigate";
+            case ClickSuccess ignored -> "click";
+            case TypeSuccess ignored -> "type";
+            case ScrollSuccess ignored -> "scroll";
+            case MoveMouseSuccess ignored -> "move_mouse";
+            case WaitSuccess ignored -> "wait";
+        };
     }
 
     private String noSession() {

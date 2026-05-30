@@ -17,8 +17,10 @@ import vip.mate.browser.edge.protocol.EdgeMessageKind;
 import vip.mate.browser.edge.session.BrowserSession;
 import vip.mate.browser.edge.session.BrowserSessionRegistry;
 import vip.mate.browser.orchestrator.ActionExecutionService;
+import vip.mate.browser.orchestrator.domain.PageEvent;
 import vip.mate.browser.orchestrator.screenshot.ScreenshotEdgeClient;
 import vip.mate.browser.orchestrator.snapshot.SnapshotEdgeClient;
+import vip.mate.browser.orchestrator.snapshot.PageSnapshotService;
 
 import java.time.Instant;
 import java.util.List;
@@ -63,6 +65,7 @@ public class EdgeWebSocketHandler extends TextWebSocketHandler implements SubPro
     private final ActionExecutionService actionExecutionService;
     private final SnapshotEdgeClient snapshotEdgeClient;
     private final ScreenshotEdgeClient screenshotEdgeClient;
+    private final PageSnapshotService pageSnapshotService;
     private final String serverVersion;
     private final ConcurrentHashMap<String, String> sessionIdByWsId = new ConcurrentHashMap<>();
 
@@ -71,12 +74,14 @@ public class EdgeWebSocketHandler extends TextWebSocketHandler implements SubPro
                                 ActionExecutionService actionExecutionService,
                                 SnapshotEdgeClient snapshotEdgeClient,
                                 ScreenshotEdgeClient screenshotEdgeClient,
+                                PageSnapshotService pageSnapshotService,
                                 @Value("${revision:dev}") String serverVersion) {
         this.registry = registry;
         this.mapper = mapper;
         this.actionExecutionService = actionExecutionService;
         this.snapshotEdgeClient = snapshotEdgeClient;
         this.screenshotEdgeClient = screenshotEdgeClient;
+        this.pageSnapshotService = pageSnapshotService;
         this.serverVersion = serverVersion;
     }
 
@@ -118,6 +123,8 @@ public class EdgeWebSocketHandler extends TextWebSocketHandler implements SubPro
             case INDICATOR_STOP_CLICKED -> onIndicatorStopClicked(ws, msg);
             case A11Y_SNAPSHOT_RESPONSE -> onA11ySnapshotResponse(ws, msg);
             case SCREENSHOT_CAPTURE_RESPONSE -> onScreenshotCaptureResponse(ws, msg);
+            case EVENT_PAGE_NAVIGATED -> onPageNavigated(ws, msg);
+            case EVENT_TAB_CLOSED -> onTabClosed(ws, msg);
             case UNKNOWN -> log.warn("[edge] dropping unknown kind from ws={}", ws.getId());
             default -> log.warn("[edge] kind {} not handled in phase 1", msg.getKind());
         }
@@ -198,6 +205,43 @@ public class EdgeWebSocketHandler extends TextWebSocketHandler implements SubPro
     private void onScreenshotCaptureResponse(WebSocketSession ws, EdgeMessage msg) throws Exception {
         if (!validSession(ws, msg)) return;
         screenshotEdgeClient.deliverScreenshot(msg.getInReplyTo(), msg.getPayload());
+    }
+
+    private void onPageNavigated(WebSocketSession ws, EdgeMessage msg) throws Exception {
+        if (!validSession(ws, msg)) return;
+        Long tabId = readTabRef(msg);
+        if (tabId == null) {
+            log.warn("[edge] dropping event.page.navigated without numeric tab_ref sessionId={}",
+                    msg.getSessionId());
+            return;
+        }
+        pageSnapshotService.onPageEvent(msg.getSessionId(), tabId, PageEvent.NAVIGATED);
+    }
+
+    private void onTabClosed(WebSocketSession ws, EdgeMessage msg) throws Exception {
+        if (!validSession(ws, msg)) return;
+        Long tabId = readTabRef(msg);
+        if (tabId == null) {
+            log.warn("[edge] dropping event.tab.closed without numeric tab_ref sessionId={}",
+                    msg.getSessionId());
+            return;
+        }
+        pageSnapshotService.onPageEvent(msg.getSessionId(), tabId, PageEvent.TAB_CLOSED);
+    }
+
+    private Long readTabRef(EdgeMessage msg) {
+        Object raw = msg.getPayload() == null ? null : msg.getPayload().get("tab_ref");
+        if (raw instanceof Number n) {
+            return n.longValue();
+        }
+        if (raw instanceof String s) {
+            try {
+                return Long.parseLong(s);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     /**

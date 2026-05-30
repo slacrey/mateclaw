@@ -14,6 +14,8 @@ import vip.mate.browser.edge.protocol.EdgeMessage;
 import vip.mate.browser.edge.protocol.EdgeMessageKind;
 import vip.mate.browser.edge.session.BrowserSessionRegistry;
 import vip.mate.browser.orchestrator.ActionExecutionService;
+import vip.mate.browser.orchestrator.domain.PageEvent;
+import vip.mate.browser.orchestrator.snapshot.PageSnapshotService;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -31,6 +33,7 @@ class EdgeWebSocketHandlerTest {
     private ActionExecutionService actionExecutionService;
     private vip.mate.browser.orchestrator.snapshot.SnapshotEdgeClient snapshotEdgeClient;
     private vip.mate.browser.orchestrator.screenshot.ScreenshotEdgeClient screenshotEdgeClient;
+    private PageSnapshotService pageSnapshotService;
 
     @BeforeEach
     void setUp() {
@@ -39,8 +42,9 @@ class EdgeWebSocketHandlerTest {
         actionExecutionService = mock(ActionExecutionService.class);
         snapshotEdgeClient = mock(vip.mate.browser.orchestrator.snapshot.SnapshotEdgeClient.class);
         screenshotEdgeClient = mock(vip.mate.browser.orchestrator.screenshot.ScreenshotEdgeClient.class);
+        pageSnapshotService = mock(PageSnapshotService.class);
         handler = new EdgeWebSocketHandler(registry, mapper, actionExecutionService,
-                snapshotEdgeClient, screenshotEdgeClient, "1.4.0");
+                snapshotEdgeClient, screenshotEdgeClient, pageSnapshotService, "1.4.0");
     }
 
     @Test
@@ -152,6 +156,38 @@ class EdgeWebSocketHandlerTest {
         handler.handleTextMessage(ws, new TextMessage(mapper.writeValueAsString(resp)));
 
         verify(screenshotEdgeClient).deliverScreenshot(eq("shot-req-1"), any());
+    }
+
+    @Test
+    void pageNavigatedEvent_marksSnapshotStale() throws Exception {
+        WebSocketSession ws = mockWs("user-1");
+        var session = registry.register("user-1", ws, "0.1.0");
+
+        EdgeMessage event = EdgeMessage.builder()
+                .v(1).msgId("ev-nav").kind(EdgeMessageKind.EVENT_PAGE_NAVIGATED)
+                .ts(0).traceId("t-nav").sessionId(session.getId())
+                .payload(Map.of("tab_ref", 42, "url", "https://www.douyin.com/search/openclaw"))
+                .build();
+
+        handler.handleTextMessage(ws, new TextMessage(mapper.writeValueAsString(event)));
+
+        verify(pageSnapshotService).onPageEvent(session.getId(), 42L, PageEvent.NAVIGATED);
+    }
+
+    @Test
+    void tabClosedEvent_removesSnapshotCacheEntry() throws Exception {
+        WebSocketSession ws = mockWs("user-1");
+        var session = registry.register("user-1", ws, "0.1.0");
+
+        EdgeMessage event = EdgeMessage.builder()
+                .v(1).msgId("ev-close").kind(EdgeMessageKind.EVENT_TAB_CLOSED)
+                .ts(0).traceId("t-close").sessionId(session.getId())
+                .payload(Map.of("tab_ref", 42))
+                .build();
+
+        handler.handleTextMessage(ws, new TextMessage(mapper.writeValueAsString(event)));
+
+        verify(pageSnapshotService).onPageEvent(session.getId(), 42L, PageEvent.TAB_CLOSED);
     }
 
     @Test
