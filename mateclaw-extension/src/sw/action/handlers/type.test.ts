@@ -57,6 +57,29 @@ describe('type handler', () => {
     ])
   })
 
+  it('a TRAILING literal "\\n" (backslash+n, what LLMs send) becomes Enter, not typed chars', async () => {
+    const { debuggerStub, sent } = fakeDebugger()
+    const handler = typeHandler({ debugger: debuggerStub, keystrokeIntervalMs: () => 0 })
+
+    // The LLM emitted text="openclaw\\n" → JSON-decoded to the 10-char string
+    // openclaw + backslash + n. Must type "openclaw" then press ENTER — and must
+    // NOT type a literal backslash.
+    await handler(42, { text: 'openclaw\\n' }, 5000)
+
+    const keys = keyParams(sent).map(p => [p.type, p.text, p.key])
+    // No event should carry a backslash as its text/key.
+    expect(keys.every(([, text, key]) => text !== '\\' && key !== '\\')).toBe(true)
+    // Last meaningful events are the Enter keyDown/keyUp (no char for Enter).
+    const tail = keys.slice(-2)
+    expect(tail).toEqual([
+      ['keyDown', '', 'Enter'],
+      ['keyUp', '', 'Enter'],
+    ])
+    // The 8 letters each produced a char event (single insertion).
+    expect(keys.filter(([type]) => type === 'char').map(([, text]) => text).join(''))
+      .toBe('openclaw')
+  })
+
   it('clearFirst=true prepends Ctrl+A + Delete so a re-type REPLACES the field (no openclawopenclaw)', async () => {
     const { debuggerStub, sent } = fakeDebugger()
     const handler = typeHandler({ debugger: debuggerStub, clearFirst: true, keystrokeIntervalMs: () => 0 })

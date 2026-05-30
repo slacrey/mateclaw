@@ -1467,6 +1467,15 @@ public class AgentGraphBuilder {
                 step; if the same page/url keeps repeating, change tactics — do NOT keep
                 repeating the same action.
 
+                To SEARCH a site, open its HOME page (e.g. https://www.douyin.com/) and use the
+                on-page search box: click it → type the query → submit. Do NOT navigate
+                directly to a /search/<query> URL and do NOT hand-craft sort/filter query
+                params — those often hit login walls or different states; always drive the
+                real on-page controls. To SUBMIT a search after typing, append a real newline
+                to press Enter (extension_browser_type already maps a trailing newline to the
+                Enter key) OR click the visible 搜索 / Search button — do not type the literal
+                two characters backslash-n.
+
                 If a page shows a login / verification wall (登录 / 扫码登录 / 验证码 / captcha),
                 STOP and tell the user to log in (or solve it) in this same browser, then retry.
                 You cannot log in or solve verification for them.

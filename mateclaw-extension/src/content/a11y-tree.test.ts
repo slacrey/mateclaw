@@ -301,6 +301,35 @@ describe('a11y-tree content script', () => {
     expect(tree).toContain('Button[ref=ref_1, frame=0]: Play @{70,70 44x44}')
   })
 
+  it('(c3) cursor:pointer leaf with short text emits as Button (Douyin React-onClick sort option)', () => {
+    // The 最多点赞 sort item is a role-less <div> with a React onClick (no
+    // onclick attr / tabindex) — previously GROUNDING_MISS. cursor:pointer +
+    // short own-text is the signal. Stub getComputedStyle so the test is
+    // deterministic regardless of happy-dom's CSS engine.
+    document.body.innerHTML = '<div id="opt">最多点赞</div>'
+      + '<div id="card">this is a very long pointer container whose own text exceeds forty characters</div>'
+    const opt = document.querySelector('#opt')!
+    const card = document.querySelector('#card')!
+    stubBBox(opt, 100, 200, 80, 28)
+    stubBBox(card, 0, 300, 400, 400)
+    const realGCS = window.getComputedStyle.bind(window)
+    const spy = vi.spyOn(window, 'getComputedStyle').mockImplementation(((el: Element) => {
+      if (el === opt || el === card) {
+        return { cursor: 'pointer', display: 'block', visibility: 'visible', opacity: '1' } as CSSStyleDeclaration
+      }
+      return realGCS(el as Element)
+    }) as typeof window.getComputedStyle)
+    try {
+      const tree = window.__mateclaw_a11y_tree!('default')
+      // The short-text option is emitted as a Button…
+      expect(tree).toContain('Button[ref=ref_1, frame=0]: 最多点赞 @{100,200 80x28}')
+      // …but the long-text pointer CONTAINER is NOT (avoids tree bloat).
+      expect(tree).not.toContain('long pointer container')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('(c2) tabindex>=0 element with no role emits as Button under interactive filter', () => {
     document.body.innerHTML = '<div tabindex="0" aria-label="Toggle"></div>'
     const div = document.querySelector('div')!

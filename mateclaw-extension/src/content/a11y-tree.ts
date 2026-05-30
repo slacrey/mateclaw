@@ -220,7 +220,42 @@ declare global {
       if (Number.isFinite(n) && n >= 0) return 'button'
     }
     if (el.hasAttribute('onclick')) return 'button'
+    // cursor:pointer is the strongest generic "this is clickable" signal for
+    // React-onClick <div>/<span> menu options that carry no role / onclick attr
+    // / tabindex — e.g. Douyin's 综合排序 / 最多点赞 sort items, which were
+    // GROUNDING_MISS before this. To avoid emitting every pointer-styled
+    // CONTAINER (video cards, nav rows) and bloating the tree, gate on a cheap
+    // shape check FIRST: only a leaf-ish element with its OWN short visible text
+    // (1..40 chars) qualifies — that's the shape of a clickable option label.
+    // getComputedStyle is only paid for those few candidates, not every node.
+    const own = directOwnText(el)
+    if (own.length > 0 && own.length <= 40 && hasPointerCursor(el)) {
+      return 'button'
+    }
     return null
+  }
+
+  /** Text in the element's OWN text nodes (not descendants), whitespace-collapsed. */
+  function directOwnText(el: Element): string {
+    let t = ''
+    const kids = el.childNodes
+    for (let i = 0; i < kids.length; i += 1) {
+      const node = kids.item(i)
+      if (node && node.nodeType === 3 /* TEXT_NODE */) t += node.textContent ?? ''
+    }
+    return trim(t)
+  }
+
+  /** True if computed cursor is 'pointer'. Best-effort; guarded for contexts
+   *  where getComputedStyle is unavailable/throws (detached nodes, sandboxes). */
+  function hasPointerCursor(el: Element): boolean {
+    try {
+      const win = el.ownerDocument?.defaultView
+      if (!win || typeof win.getComputedStyle !== 'function') return false
+      return win.getComputedStyle(el).cursor === 'pointer'
+    } catch {
+      return false
+    }
   }
 
   // Capitalise role for output: 'textbox' → 'Textbox'. Special case 'img' → 'Image'.
