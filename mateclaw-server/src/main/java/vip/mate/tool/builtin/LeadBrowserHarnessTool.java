@@ -53,17 +53,22 @@ public class LeadBrowserHarnessTool {
         this.mapper = mapper;
     }
 
-    @Tool(returnDirect = true, description = """
-            Lead-acquisition browser harness: open Douyin in the USER'S OWN visible Chrome window
-            and search for a keyword using the real visible search box.
+    @Tool(description = """
+            Open Douyin in the USER'S OWN visible Chrome window and search a keyword via the
+            real visible search box, then return.
 
-            Use this for lead-generation agents when the user asks to open Douyin and search a
-            keyword, for example "打开抖音搜索 openclaw" or "用我的浏览器在抖音搜 openclaw".
-            Do not compose generic navigate/observe/click/type loops for this same task.
+            ⚠️ ONE-SHOT ONLY. Use this ONLY when the ENTIRE task is "open Douyin and search
+            <keyword>" with NO follow-up steps. If the task continues after the search —
+            filter, sort by likes, open a result, read comments, extract leads — do NOT use
+            this; drive the page yourself with the composable extension_browser_* primitives
+            (navigate → observe → click → type → observe → repeat) so you can keep going and
+            see each intermediate page. This harness runs the whole search internally; you
+            cannot observe or steer its intermediate steps, so it is a dead end for multi-step
+            work.
 
-            This harness starts from https://www.douyin.com/, clicks the visible search box,
-            types the keyword, submits it, verifies the search URL/page state, and then stops.
-            It never starts by navigating directly to https://www.douyin.com/search/<query>.
+            Starts from https://www.douyin.com/, clicks the visible search box, types the
+            keyword, submits, verifies the search page, then stops. Returns a LOGIN_REQUIRED
+            status when Douyin shows a login wall (the user must log in in this browser first).
             """)
     public String lead_browser_douyin_search(
             @ToolParam(description = "Search keyword, e.g. openclaw") String query,

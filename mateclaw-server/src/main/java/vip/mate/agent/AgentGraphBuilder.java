@@ -1455,15 +1455,32 @@ public class AgentGraphBuilder {
         }
         return """
 
-                ## Lead Browser Harness
-                This agent is specialized for lead-acquisition browser work. Prefer `lead_browser_*`
-                task-level harnesses for user-visible browser data collection workflows:
-                - `lead_browser_douyin_search(query)` for "open Douyin and search <query>".
-                - `lead_browser_douyin_search_for_leads(query, goal, maxLines)` when the user asks to search Douyin and extract/collect/summarize potential leads.
-                - `lead_browser_snapshot_for_leads(goal, maxLines)` to read the current visible page once as compact lead-candidate lines.
+                ## Browser work — drive the page with the composable primitives
+                For ALL interactive or multi-step browser tasks (open a site, search, then
+                filter / sort / open a result / read comments / fill a form / page through),
+                use the `extension_browser_*` primitives and let the page tell you what to do:
+                  navigate → observe (read the tree + the `url`) → click / type (by role + the
+                  visible text you saw in the tree) → observe again to confirm the url/state
+                  changed → repeat until the goal is met.
+                These compose into arbitrarily long flows and work on ANY site. After each
+                action, observe and compare the `url`/tree to confirm progress before the next
+                step; if the same page/url keeps repeating, change tactics — do NOT keep
+                repeating the same action.
 
-                Use `extension_browser_*` primitives only when no lead-specific harness covers the task.
-                Do not repeat observe/click/type/scroll loops after a lead harness reports DONE.
+                If a page shows a login / verification wall (登录 / 扫码登录 / 验证码 / captcha),
+                STOP and tell the user to log in (or solve it) in this same browser, then retry.
+                You cannot log in or solve verification for them.
+
+                The `lead_browser_*` tools are OPTIONAL one-shot READ helpers, not drivers — use
+                them only to extract candidates from a page you have ALREADY navigated to with
+                the primitives:
+                - `lead_browser_snapshot_for_leads(goal, maxLines)` — read the CURRENT page once
+                  into compact lead-candidate lines.
+                - `lead_browser_douyin_search_for_leads(query, goal, maxLines)` — ONLY when the
+                  WHOLE task is "search Douyin for <query> and return lead candidates" with no
+                  follow-up interaction.
+                Do NOT use a harness to drive a multi-step task; use the primitives and keep
+                going after each observe.
                 """;
     }
 

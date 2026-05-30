@@ -284,13 +284,19 @@ class LeadBrowserHarnessToolTest {
     }
 
     @Test
-    void douyinSearch_isReturnDirectForSimpleOpenAndSearchTasks() {
+    void douyinSearch_isNOTReturnDirect_soItCanChainIntoFollowUpSteps() {
+        // returnDirect was removed: a returnDirect tool short-circuits the ReAct
+        // loop straight to FinalAnswer (see ToolExecutionExecutor / ObservationDispatcher
+        // RETURN_DIRECT_TRIGGERED), which dead-ends multi-step tasks like
+        // search → filter → sort → open → comments. The result now flows back into
+        // the loop so the agent can keep going (and the guidance steers it to the
+        // composable extension_browser_* primitives anyway).
         var cb = List.of(ToolCallbacks.from(tool)).stream()
                 .filter(c -> c.getToolDefinition().name().equals("lead_browser_douyin_search"))
                 .findFirst()
                 .orElseThrow();
 
-        assertThat(cb.getToolMetadata().returnDirect()).isTrue();
+        assertThat(cb.getToolMetadata().returnDirect()).isFalse();
     }
 
     @Test
