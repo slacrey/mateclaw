@@ -423,6 +423,19 @@ describe('waitForSettle', () => {
     })
   }
 
+  // Real-timer sleep for the two tests that drive the real MutationObserver.
+  // happy-dom delivers MutationObserver callbacks on a microtask, which
+  // vi.advanceTimersByTimeAsync() does NOT deterministically order against a
+  // DOM mutation — so the observer's quiet-timer re-arm sometimes hadn't run
+  // when the test advanced time, intermittently letting waitForSettle resolve
+  // early. Those tests run on REAL timers instead: a real macrotask wait yields
+  // the event loop, so the observer callback (and its re-arm) is always
+  // delivered before the next assertion. setTimeout only ever fires late, never
+  // early, so we use generous windows + a "keep mutating → stays unsettled;
+  // stop → settles" shape that is robust to scheduler jitter while still
+  // catching an early-resolve or an arm-during-loading regression.
+  const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
   it('readyState=complete + quiet window elapses -> resolves after quietMs', async () => {
     setReadyState('complete')
     const settled = vi.fn()
@@ -439,27 +452,30 @@ describe('waitForSettle', () => {
   })
 
   it('a DOM mutation resets the quiet timer (does not resolve early)', async () => {
+    // Real timers + the real MutationObserver (see `sleep` note above): fake
+    // timers cannot deterministically interleave happy-dom's microtask MO
+    // delivery with a DOM mutation, which made this test flaky.
+    vi.useRealTimers()
     setReadyState('complete')
     const settled = vi.fn()
-    const p = waitForSettle(document, { quietMs: 200, capMs: 5000 }).then(settled)
+    const p = waitForSettle(document, { quietMs: 50, capMs: 5000 }).then(settled)
 
-    // 150ms into the first quiet window, mutate the DOM. happy-dom delivers
-    // MutationObserver records on a ~1ms timer, so step forward a touch to let
-    // the observer fire — it clears the in-flight quiet timer and re-arms a
-    // fresh 200ms window from "now" (~151ms).
-    await vi.advanceTimersByTimeAsync(150)
-    expect(settled).not.toHaveBeenCalled()
-    document.documentElement.appendChild(document.createElement('div'))
-    await vi.advanceTimersByTimeAsync(5) // flush observer delivery + re-arm
+    // Mutate the DOM repeatedly at an interval SHORTER than the 50ms quiet
+    // window, for a total span well past a single window (~140ms). Each
+    // mutation must re-arm a fresh quiet window, so the promise must NOT
+    // resolve while the churn continues. If a mutation failed to reset the
+    // timer, the very first 50ms gap would let it resolve and trip an
+    // assertion below — that is the regression this guards against. The 5000ms
+    // cap is far away and cannot be what (mis)resolves it here.
+    for (let i = 0; i < 7; i++) {
+      document.documentElement.appendChild(document.createElement('div'))
+      await sleep(20)
+      expect(settled).not.toHaveBeenCalled()
+    }
 
-    // 150ms more (total ~305ms) — but only ~150ms since the reset, so the
-    // fresh quiet window has NOT elapsed yet.
-    await vi.advanceTimersByTimeAsync(150)
-    expect(settled).not.toHaveBeenCalled()
-
-    // Complete the fresh quiet window (another ~55ms gets us past 200ms of
-    // quiet since the mutation). Give margin.
-    await vi.advanceTimersByTimeAsync(100)
+    // Now stop mutating and let a full quiet window elapse (with margin). With
+    // no more mutations the re-armed timer finally fires and it resolves.
+    await sleep(120)
     await p
     expect(settled).toHaveBeenCalledOnce()
   })
@@ -489,20 +505,30 @@ describe('waitForSettle', () => {
   })
 
   it('mutations during loading do NOT arm the quiet timer; resolution waits for load + quiet', async () => {
+    // Real timers + the real MutationObserver (see `sleep` note above).
+    vi.useRealTimers()
     setReadyState('loading')
     const settled = vi.fn()
-    const p = waitForSettle(document, { quietMs: 200, capMs: 10000 }).then(settled)
+    const p = waitForSettle(document, { quietMs: 50, capMs: 10000 }).then(settled)
 
-    // Churn the DOM while loading — quiet timer must stay disarmed.
-    document.documentElement.appendChild(document.createElement('span'))
-    await Promise.resolve()
-    await vi.advanceTimersByTimeAsync(1000)
+    // Churn the DOM while still loading — quiet must stay disarmed.
+    for (let i = 0; i < 5; i++) {
+      document.documentElement.appendChild(document.createElement('span'))
+      await sleep(20)
+    }
+    // Crucial: stop mutating and let a FULL quiet window elapse while STILL
+    // loading. If the impl wrongly armed quiet on those mutations, it now has
+    // an uninterrupted window to fire in and would resolve — this assertion is
+    // what catches that regression. The 10000ms cap is far away and cannot be
+    // what resolves it here, so a resolution now could only mean quiet armed
+    // during loading. It must stay unsettled.
+    await sleep(120)
     expect(settled).not.toHaveBeenCalled()
 
     // Transition to complete and fire window load -> quiet countdown begins.
     setReadyState('complete')
     window.dispatchEvent(new Event('load'))
-    await vi.advanceTimersByTimeAsync(200)
+    await sleep(120)
     await p
     expect(settled).toHaveBeenCalledOnce()
   })
