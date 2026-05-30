@@ -9,6 +9,14 @@ export interface TypeHandlerDeps {
   random?: () => number
   /** Per-keystroke delay (default: log-normal ~40-120ms - human typing) */
   keystrokeIntervalMs?: () => number
+  /**
+   * When true, SELECT-ALL + DELETE the focused field before typing, so a
+   * re-type REPLACES existing content instead of appending. Without this, an
+   * agent retry types "openclaw" into a box that already holds "openclaw" →
+   * "openclawopenclaw". Production (sw/index.ts) sets this true; defaults false
+   * so existing unit tests keep their exact event sequences.
+   */
+  clearFirst?: boolean
 }
 
 interface KeyDescriptor {
@@ -68,6 +76,12 @@ export const typeHandler = (deps: TypeHandlerDeps): ActionHandler<TypeParams> =>
         }, deadlineMs)
       }
 
+      // Replace existing field content (select-all + delete) so a re-type does
+      // not append. Only when there's something to type and the caller opted in.
+      if (deps.clearFirst && chars.length > 0) {
+        await clearFocusedField(deps.debugger, tabId)
+      }
+
       for (const char of chars) {
         const descriptor = describeKey(char)
         // keyDown/keyUp carry NO text (text on keyDown would double-insert).
@@ -122,6 +136,29 @@ async function dispatchKeyEvent(
  *  special-case in describeKey). Those drive behavior via their keyDown. */
 function isPrintable(char: string): boolean {
   return char !== '\n' && char !== '\t' && char !== '\b'
+}
+
+/**
+ * Select-all (Ctrl+A) then Delete the focused field, so a subsequent type
+ * REPLACES rather than appends. Uses debug.send directly (not dispatchKeyEvent)
+ * because Ctrl+A needs the Control modifier (CDP modifier bit 2). No `text` on
+ * any event — these are control chords, not text input.
+ */
+async function clearFocusedField(debug: DebuggerManager, tabId: number): Promise<void> {
+  const CTRL = 2 // CDP modifiers bitmask: Alt=1, Ctrl=2, Meta=4, Shift=8
+  const send = (type: 'keyDown' | 'keyUp', key: string, code: string, vk: number, modifiers: number) =>
+    debug.send(tabId, 'Input.dispatchKeyEvent', {
+      type, key, code,
+      windowsVirtualKeyCode: vk,
+      nativeVirtualKeyCode: vk,
+      modifiers,
+      text: '',
+      unmodifiedText: '',
+    })
+  await send('keyDown', 'a', 'KeyA', 65, CTRL)
+  await send('keyUp', 'a', 'KeyA', 65, CTRL)
+  await send('keyDown', 'Delete', 'Delete', 46, 0)
+  await send('keyUp', 'Delete', 'Delete', 46, 0)
 }
 
 function describeKey(char: string): KeyDescriptor {

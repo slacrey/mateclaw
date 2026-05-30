@@ -372,6 +372,15 @@ public class ExtensionBrowserTool {
             Always observe once after navigating and again after a click/type so you act
             on the page's real, current structure instead of guessing.
 
+            ★ LOGIN / VERIFICATION WALLS: if the tree shows a login or verification
+            modal — lines containing 登录 / 扫码登录 / 验证码登录 / 手机号登录 / 登录后 /
+            "Sign in" / "Log in" / a QR-code login panel — the site REQUIRES the user to
+            be logged in (e.g. Douyin gates search behind login). DO NOT keep retrying the
+            same action: that wastes steps and loops. STOP and tell the user, in plain
+            language, that the site needs them to log in (in this same browser) and then
+            re-run the task. You cannot log in for them. The same applies to CAPTCHA /
+            human-verification challenges — surface them, never attempt to solve them.
+
             Returns a JSON object:
               { "ok": true,
                 "snapshot_id": "...",

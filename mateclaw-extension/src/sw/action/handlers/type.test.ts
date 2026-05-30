@@ -57,6 +57,37 @@ describe('type handler', () => {
     ])
   })
 
+  it('clearFirst=true prepends Ctrl+A + Delete so a re-type REPLACES the field (no openclawopenclaw)', async () => {
+    const { debuggerStub, sent } = fakeDebugger()
+    const handler = typeHandler({ debugger: debuggerStub, clearFirst: true, keystrokeIntervalMs: () => 0 })
+
+    await handler(42, { text: 'hi' }, 5000)
+
+    // First four events are the clear prologue: Ctrl+A (modifiers=2) then Delete.
+    const k = keyParams(sent)
+    expect([k[0]!.type, k[0]!.key, k[0]!.modifiers]).toEqual(['keyDown', 'a', 2])
+    expect([k[1]!.type, k[1]!.key, k[1]!.modifiers]).toEqual(['keyUp', 'a', 2])
+    expect([k[2]!.type, k[2]!.key]).toEqual(['keyDown', 'Delete'])
+    expect([k[3]!.type, k[3]!.key]).toEqual(['keyUp', 'Delete'])
+    // Then the normal h,i typing (text only on char) follows.
+    expect(k.slice(4).map(p => [p.type, p.text, p.key])).toEqual([
+      ['keyDown', '', 'h'], ['char', 'h', 'h'], ['keyUp', '', 'h'],
+      ['keyDown', '', 'i'], ['char', 'i', 'i'], ['keyUp', '', 'i'],
+    ])
+  })
+
+  it('clearFirst defaults off — no clear prologue (existing callers/tests unaffected)', async () => {
+    const { debuggerStub, sent } = fakeDebugger()
+    const handler = typeHandler({ debugger: debuggerStub, keystrokeIntervalMs: () => 0 })
+
+    await handler(42, { text: 'x' }, 5000)
+
+    // No Ctrl+A/Delete — straight to the 3-event char cycle.
+    expect(keyParams(sent).map(p => [p.type, p.text, p.key])).toEqual([
+      ['keyDown', '', 'x'], ['char', 'x', 'x'], ['keyUp', '', 'x'],
+    ])
+  })
+
   it('Enter (\\n) sends keyDown + keyUp only (no char event — control keys do not insert text)', async () => {
     const { debuggerStub, sent } = fakeDebugger()
     const handler = typeHandler({ debugger: debuggerStub, keystrokeIntervalMs: () => 0 })

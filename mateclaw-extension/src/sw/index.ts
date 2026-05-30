@@ -166,7 +166,7 @@ const cursorState = new Map<number, Point>()
 const handlers: ActionHandlers = {
   navigate:   navigateHandler(chrome),
   click:      clickHandler({ debugger: debuggerManager }),
-  type:       typeHandler({ debugger: debuggerManager }),
+  type:       typeHandler({ debugger: debuggerManager, clearFirst: true }),
   scroll:     scrollHandler({ debugger: debuggerManager }),
   move_mouse: moveMouseHandler({
     debugger: debuggerManager,
