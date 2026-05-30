@@ -204,14 +204,24 @@ class DomainTypesTest {
 
     @Test
     void pageSnapshot_blankSnapshotId_throws() {
-        assertThatThrownBy(() -> new PageSnapshot("", 1L, 42L, "", new Viewport(800, 600)))
+        assertThatThrownBy(() -> new PageSnapshot("", 1L, 42L, "", new Viewport(800, 600), "", ""))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     void pageSnapshot_nonPositiveTimestamp_throws() {
-        assertThatThrownBy(() -> new PageSnapshot("x", 0L, 42L, "", new Viewport(800, 600)))
+        assertThatThrownBy(() -> new PageSnapshot("x", 0L, 42L, "", new Viewport(800, 600), "", ""))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void pageSnapshot_nullUrlTitle_normalisedToEmpty() {
+        // Wire payloads from older extensions (or future shape drift) may omit
+        // url/title; the canonical ctor must default them to "" so callers
+        // never see null, and Jackson serialisation stays stable.
+        var snap = new PageSnapshot("x", 1L, 42L, "", new Viewport(800, 600), null, null);
+        assertThat(snap.url()).isEqualTo("");
+        assertThat(snap.title()).isEqualTo("");
     }
 
     // -----------------------------------------------------------------

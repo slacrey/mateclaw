@@ -29,7 +29,19 @@ public record PageSnapshot(
         long capturedAtMs,
         long resolvedTabId,
         String tree,
-        Viewport viewport
+        Viewport viewport,
+        /**
+         * Live {@code location.href} at extraction time. Aligned with the
+         * official Claude-in-Chrome architecture, the extension emits the URL
+         * as a dedicated field next to the tree (not embedded in it) so the
+         * grounding engines see pure a11y text and the orchestrator can
+         * surface URL / Title to the LLM in a separate JSON slot. Empty
+         * string when the extractor couldn't read it (older content scripts,
+         * sandboxed pages).
+         */
+        String url,
+        /** Live {@code document.title} at extraction time; empty if unknown. */
+        String title
 ) {
 
     public PageSnapshot {
@@ -41,6 +53,10 @@ public record PageSnapshot(
             throw new IllegalArgumentException("tree is required (empty string OK)");
         if (viewport == null)
             throw new IllegalArgumentException("viewport is required");
+        // Normalise nullable url/title to empty string so callers never see
+        // a null and the JSON shape is stable.
+        if (url == null) url = "";
+        if (title == null) title = "";
     }
 
     /**
@@ -89,7 +105,9 @@ public record PageSnapshot(
                 1L,
                 -1L,
                 tree,
-                viewport);
+                viewport,
+                "",
+                "");
     }
 
     /** One parsed accessibility-tree row. */

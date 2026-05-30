@@ -76,13 +76,17 @@ class PageSnapshotServiceTest {
                 clock.instant().toEpochMilli(),
                 TAB_ID,
                 "Button[ref=ref_1]: Submit @{100,200 80x32}",
-                new Viewport(1280, 800));
+                new Viewport(1280, 800),
+                "https://example.com/first",
+                "First");
         secondSnap = new PageSnapshot(
                 "snap-2",
                 clock.instant().plusMillis(500).toEpochMilli(),
                 TAB_ID,
                 "Link[ref=ref_2]: Read more @{200,400 120x18}",
-                new Viewport(1280, 800));
+                new Viewport(1280, 800),
+                "https://example.com/second",
+                "Second");
 
         // Default stub: every request returns firstSnap. Individual tests reset()
         // and re-stub when they care about distinguishing first vs second fetch.
@@ -122,7 +126,9 @@ class PageSnapshotServiceTest {
                 clock.instant().toEpochMilli(),
                 TAB_ID,
                 "",
-                new Viewport(1280, 800));
+                new Viewport(1280, 800),
+                "about:blank",
+                "");
         reset(client);
         when(client.request(any(BrowserSession.class), any(TabRef.class), anyString()))
                 .thenReturn(Mono.just(emptySnap));

@@ -301,7 +301,11 @@ public class ExtensionBrowserTool {
               Role[ref=ref_N]: accessible name @{x,y wxh}
 
             Returns a JSON object:
-              { "ok": true, "snapshot_id": "...", "viewport": {"w": 1280, "h": 800},
+              { "ok": true,
+                "snapshot_id": "...",
+                "url": "https://...",         ← current page URL — compare this between observes to detect that your last click actually navigated
+                "title": "Page title",
+                "viewport": {"w": 1280, "h": 800},
                 "tree": "Button[ref=ref_1]: Submit @{100,200 80x32}\\n..." }
             """)
     public String extension_browser_observe(
@@ -322,6 +326,8 @@ public class ExtensionBrowserTool {
             return json(Map.of(
                     "ok", true,
                     "snapshot_id", snapshot.snapshotId(),
+                    "url", snapshot.url(),
+                    "title", snapshot.title(),
                     "viewport", Map.of("w", snapshot.viewport().w(), "h", snapshot.viewport().h()),
                     "tree", snapshot.tree()));
         } catch (Exception e) {

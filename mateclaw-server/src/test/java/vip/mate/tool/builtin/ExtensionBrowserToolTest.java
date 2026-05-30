@@ -274,7 +274,9 @@ class ExtensionBrowserToolTest {
     void browserObserve_returnsSnapshotTreeAsJson() throws Exception {
         var snap = new PageSnapshot("snap-1", 1L, 42L,
                 "Button[ref=ref_1]: Submit @{100,200 80x32}",
-                new Viewport(1280, 800));
+                new Viewport(1280, 800),
+                "https://example.com/page",
+                "Example page");
         when(snapshotService.request(any(), any(), any())).thenReturn(Mono.just(snap));
 
         String out = tool.extension_browser_observe("interactive", null);
@@ -284,6 +286,10 @@ class ExtensionBrowserToolTest {
         assertThat(j.get("snapshot_id").asText()).isEqualTo("snap-1");
         assertThat(j.get("tree").asText()).contains("Submit");
         assertThat(j.get("viewport").get("w").asInt()).isEqualTo(1280);
+        // The new shape surfaces the live URL + title as dedicated fields so
+        // the LLM can detect navigation between observes (the search-loop fix).
+        assertThat(j.get("url").asText()).isEqualTo("https://example.com/page");
+        assertThat(j.get("title").asText()).isEqualTo("Example page");
     }
 
     // -----------------------------------------------------------------

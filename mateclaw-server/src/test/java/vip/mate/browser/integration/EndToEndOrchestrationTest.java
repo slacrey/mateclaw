@@ -265,7 +265,9 @@ class EndToEndOrchestrationTest {
                 System.currentTimeMillis(),
                 resolvedTabId,
                 "Button[ref=ref_1]: Submit @{100,200 80x32}",
-                new Viewport(1280, 800));
+                new Viewport(1280, 800),
+                "",
+                "");
 
         // Snapshot v2: contains a "Next" Button at ref_5; "Submit" is gone
         // (the previous page was navigated away from).
@@ -274,7 +276,9 @@ class EndToEndOrchestrationTest {
                 System.currentTimeMillis() + 1000,
                 resolvedTabId,
                 "Button[ref=ref_5]: Next @{50,100 60x32}",
-                new Viewport(1280, 800));
+                new Viewport(1280, 800),
+                "",
+                "");
 
         when(snapshotClient.request(eq(session), any(), any()))
                 .thenReturn(Mono.just(snap1))   // first call

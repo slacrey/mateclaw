@@ -30,6 +30,10 @@ interface SnapshotRequestPayload {
 interface SnapshotResult {
   tree: string
   viewport: { w: number; h: number }
+  /** Live `location.href` at extraction time. Empty if unavailable. */
+  url: string
+  /** Live `document.title` at extraction time. Empty if unavailable. */
+  title: string
 }
 
 /**
@@ -99,6 +103,8 @@ export class SnapshotRequestHandler {
       tab_ref: tabId,
       tree: snapshot.tree,
       viewport: snapshot.viewport,
+      url: snapshot.url,
+      title: snapshot.title,
     })
   }
 
@@ -127,38 +133,26 @@ export class SnapshotRequestHandler {
           ;(window as Window & { __mateclaw_a11y_frame_id?: number }).__mateclaw_a11y_frame_id = frameId
         }
         const requestedRefId = typeof refId === 'string' ? refId : undefined
-        const rawTree = window.__mateclaw_a11y_tree?.(
+        const tree = window.__mateclaw_a11y_tree?.(
           filter as 'interactive' | 'all' | 'default',
           depth as number,
           maxChars as number,
           requestedRefId,
         )
-        if (typeof rawTree !== 'string') {
+        if (typeof tree !== 'string') {
           throw new Error('window.__mateclaw_a11y_tree is not available')
         }
-        // Prepend the current URL and document.title so the LLM can detect
-        // whether its last action actually navigated. Without this the agent
-        // can fall into a "I searched but you say I didn't — let me search
-        // again" loop: it has no way to see that the URL changed from
-        // /home to /search?q=X. The two header lines are deliberately
-        // formatted to be obvious to the LLM (and ignored by anything that
-        // parses the a11y line grammar — they don't match the Role[ref=…]
-        // pattern, so consumers like the orchestrator's grounding engines
-        // skip them as text noise).
+        // URL + Title are returned as SEPARATE fields beside the tree (not
+        // embedded in the tree text) so the tree stays pure a11y for the
+        // server-side grounding engines, and the orchestrator can surface
+        // URL / Title to the LLM in a dedicated JSON slot. This matches the
+        // official Claude-in-Chrome extension architecture.
         const url = (() => {
           try { return location.href } catch { return '' }
         })()
         const title = (() => {
           try { return document.title || '' } catch { return '' }
         })()
-        // CRUCIAL: when the a11y tree is empty (blank tab / not yet rendered)
-        // we MUST return an empty string, NOT a header-only string — the
-        // server caches blank-tree snapshots as STALE (so the next observe
-        // refetches instead of replaying empty for 30s). A header-only tree
-        // would defeat that fix.
-        const tree = rawTree.trim().length > 0
-          ? `URL: ${url}\nTitle: ${title}\n\n${rawTree}`
-          : ''
         // innerWidth/Height can be 0 on a freshly-created tab whose renderer
         // hasn't laid out yet (observe right after navigate). Fall back to the
         // document client size, then a sane default, so the server's positive-
@@ -168,6 +162,8 @@ export class SnapshotRequestHandler {
         return {
           tree,
           viewport: { w: vw, h: vh },
+          url,
+          title,
         }
       },
       args: [req.filter, req.depth, req.max_chars, req.ref_id ?? null, req.frame_id ?? null],
@@ -176,7 +172,15 @@ export class SnapshotRequestHandler {
     if (!isSnapshotResult(first)) {
       throw new Error('a11y snapshot injection returned an invalid result')
     }
-    return first
+    // Normalise missing url/title (e.g. an older cached extractor that doesn't
+    // emit them yet) to empty strings so downstream consumers see a stable
+    // shape and never see `undefined`.
+    return {
+      tree: first.tree,
+      viewport: first.viewport,
+      url: typeof first.url === 'string' ? first.url : '',
+      title: typeof first.title === 'string' ? first.title : '',
+    }
   }
 
   private sendResponse(inbound: EdgeMessage, payload: Record<string, unknown>): void {
@@ -207,6 +211,8 @@ export class SnapshotRequestHandler {
       tab_ref: tabId,
       tree: '',
       viewport: { w: 0, h: 0 },
+      url: '',
+      title: '',
       error: { code, message, retryable },
     })
   }
@@ -249,7 +255,11 @@ function isSnapshotResult(value: unknown): value is SnapshotResult {
   if (typeof v.tree !== 'string') return false
   if (!v.viewport || typeof v.viewport !== 'object') return false
   const viewport = v.viewport as Record<string, unknown>
-  return typeof viewport.w === 'number' && typeof viewport.h === 'number'
+  if (typeof viewport.w !== 'number' || typeof viewport.h !== 'number') return false
+  // url + title are required by the new shape but we tolerate missing values
+  // (older extractor results or future shape drift) — captureSnapshot normalises
+  // missing to "" before propagating, so the response always carries strings.
+  return true
 }
 
 function errorMessage(err: unknown): string {

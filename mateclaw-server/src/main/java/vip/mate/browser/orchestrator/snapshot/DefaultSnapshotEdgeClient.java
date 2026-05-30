@@ -158,12 +158,22 @@ public class DefaultSnapshotEdgeClient implements SnapshotEdgeClient {
         long tabRef = readLong(payload, "tab_ref", -1L);
         String tree = readString(payload, "tree", "");
         Viewport vp = readViewport(payload);
+        // New (post-2026-05-30) extensions emit url + title as dedicated
+        // fields next to the tree — the snapshot lifecycle code never reads
+        // them, but ExtensionBrowserTool.extension_browser_observe surfaces
+        // them in the JSON output so the LLM can detect navigation. Older
+        // extensions that don't emit them default to "" (PageSnapshot's
+        // canonical ctor normalises nulls).
+        String url = readString(payload, "url", "");
+        String title = readString(payload, "title", "");
         return new PageSnapshot(
                 snapshotId.isBlank() ? UUID.randomUUID().toString() : snapshotId,
                 capturedAt,
                 tabRef,
                 tree,
-                vp);
+                vp,
+                url,
+                title);
     }
 
     @SuppressWarnings("unchecked")
