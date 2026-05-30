@@ -25,13 +25,22 @@ interface KeyDescriptor {
  *   1. debugger.attach(tabId).
  *   2. If params.focus_target -> click that point first (single left click).
  *   3. For each char in params.text:
- *      a. send Input.dispatchKeyEvent { type: 'keyDown', text: char, key: char, ... }
- *      b. send Input.dispatchKeyEvent { type: 'char', text: char, key: char, ... }
- *         (Some characters require the 'char' event for IME - keep it simple
- *         and always send keyDown + char + keyUp.)
- *      c. send Input.dispatchKeyEvent { type: 'keyUp', text: char, key: char, ... }
+ *      a. send Input.dispatchKeyEvent { type: 'keyDown', key, code, vk, NO text }
+ *      b. send Input.dispatchKeyEvent { type: 'char', text: char }  ← the ONLY
+ *         event that carries `text`; this is what inserts the character.
+ *      c. send Input.dispatchKeyEvent { type: 'keyUp', key, code, vk, NO text }
  *      d. wait keystrokeIntervalMs() (default: log-normal ~70ms)
  *   4. return Success with { chars_typed: text.length }.
+ *
+ * CRITICAL — why text is on `char` only: in CDP, a `keyDown` whose `text` field
+ * is non-empty ALSO inserts the character (Chrome treats it as a text-producing
+ * key), and the `char` event inserts it again → every character is typed TWICE
+ * ("openclaw" → "ooppeennccllaaww"). Putting `text` exclusively on the `char`
+ * event yields exactly one insertion while keyDown/keyUp still fire so the
+ * page's keydown/keyup listeners and control keys (Enter submits, Tab moves
+ * focus, Backspace deletes) work. Control chars (\n,\t,\b) skip the `char`
+ * event entirely — they don't produce inserted text; their keyDown drives the
+ * behavior.
  */
 export const typeHandler = (deps: TypeHandlerDeps): ActionHandler<TypeParams> => {
   const clock = deps.clock ?? Date.now
@@ -61,8 +70,13 @@ export const typeHandler = (deps: TypeHandlerDeps): ActionHandler<TypeParams> =>
 
       for (const char of chars) {
         const descriptor = describeKey(char)
+        // keyDown/keyUp carry NO text (text on keyDown would double-insert).
         await dispatchKeyEvent(deps.debugger, tabId, 'keyDown', descriptor)
-        await dispatchKeyEvent(deps.debugger, tabId, 'char', descriptor)
+        // Only printable chars get a `char` event (the sole text insertion).
+        // Control keys (Enter/Tab/Backspace) act via their keyDown alone.
+        if (isPrintable(char)) {
+          await dispatchKeyEvent(deps.debugger, tabId, 'char', descriptor)
+        }
         await dispatchKeyEvent(deps.debugger, tabId, 'keyUp', descriptor)
         await sleep(keystrokeIntervalMs())
       }
@@ -87,16 +101,27 @@ async function dispatchKeyEvent(
   type: 'keyDown' | 'char' | 'keyUp',
   descriptor: KeyDescriptor,
 ): Promise<void> {
+  // `text` is sent ONLY on the 'char' event. A keyDown/keyUp carrying text
+  // would insert the character a second time (the doubling bug). keyDown/keyUp
+  // still carry key/code/virtual-key-code so site keydown/keyup handlers and
+  // control keys behave correctly.
+  const withText = type === 'char'
   await debug.send(tabId, 'Input.dispatchKeyEvent', {
     type,
-    text: descriptor.text,
+    text: withText ? descriptor.text : '',
+    unmodifiedText: withText ? descriptor.text : '',
     key: descriptor.key,
     code: descriptor.code,
     windowsVirtualKeyCode: descriptor.windowsVirtualKeyCode,
     nativeVirtualKeyCode: descriptor.windowsVirtualKeyCode,
-    unmodifiedText: descriptor.text,
     modifiers: 0,
   })
+}
+
+/** Printable = produces inserted text (everything except the control keys we
+ *  special-case in describeKey). Those drive behavior via their keyDown. */
+function isPrintable(char: string): boolean {
+  return char !== '\n' && char !== '\t' && char !== '\b'
 }
 
 function describeKey(char: string): KeyDescriptor {

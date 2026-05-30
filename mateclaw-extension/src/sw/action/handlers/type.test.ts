@@ -33,23 +33,39 @@ describe('type handler', () => {
     vi.useRealTimers()
   })
 
-  it('types "abc" sends 3x (keyDown + char + keyUp) cycles', async () => {
+  it('types "abc" — text ONLY on char events (keyDown/keyUp empty) so each char inserts once', async () => {
     const { debuggerStub, sent } = fakeDebugger()
     const handler = typeHandler({ debugger: debuggerStub, keystrokeIntervalMs: () => 0 })
 
     const result = await handler(42, { text: 'abc' }, 5000)
 
     expect(result.ok).toBe(true)
+    // Regression guard for the "openclaw"→"ooppeennccllaaww" doubling: a keyDown
+    // carrying `text` inserts the char, and so does the `char` event — only the
+    // `char` event may carry text. keyDown/keyUp still fire (with key set) for
+    // site listeners + control keys, but with empty text.
     expect(keyParams(sent).map(params => [params.type, params.text, params.key])).toEqual([
-      ['keyDown', 'a', 'a'],
+      ['keyDown', '', 'a'],
       ['char', 'a', 'a'],
-      ['keyUp', 'a', 'a'],
-      ['keyDown', 'b', 'b'],
+      ['keyUp', '', 'a'],
+      ['keyDown', '', 'b'],
       ['char', 'b', 'b'],
-      ['keyUp', 'b', 'b'],
-      ['keyDown', 'c', 'c'],
+      ['keyUp', '', 'b'],
+      ['keyDown', '', 'c'],
       ['char', 'c', 'c'],
-      ['keyUp', 'c', 'c'],
+      ['keyUp', '', 'c'],
+    ])
+  })
+
+  it('Enter (\\n) sends keyDown + keyUp only (no char event — control keys do not insert text)', async () => {
+    const { debuggerStub, sent } = fakeDebugger()
+    const handler = typeHandler({ debugger: debuggerStub, keystrokeIntervalMs: () => 0 })
+
+    await handler(42, { text: '\n' }, 5000)
+
+    expect(keyParams(sent).map(params => [params.type, params.key, params.windowsVirtualKeyCode])).toEqual([
+      ['keyDown', 'Enter', 13],
+      ['keyUp', 'Enter', 13],
     ])
   })
 
@@ -72,7 +88,7 @@ describe('type handler', () => {
     })
     expect(sent[2]).toMatchObject({
       method: 'Input.dispatchKeyEvent',
-      params: { type: 'keyDown', text: 'a', key: 'a' },
+      params: { type: 'keyDown', text: '', key: 'a' },
     })
   })
 
@@ -163,16 +179,16 @@ describe('type handler', () => {
 
     await handler(42, { text: '\n\t\b' }, 5000)
 
+    // Control keys emit keyDown + keyUp ONLY (no char event — they don't insert
+    // text; their keyDown drives submit/focus/delete). Text is empty on both
+    // (text would belong to a char event, which we don't send for these).
     expect(keyParams(sent).map(params => [params.type, params.text, params.key, params.code])).toEqual([
-      ['keyDown', '\n', 'Enter', 'Enter'],
-      ['char', '\n', 'Enter', 'Enter'],
-      ['keyUp', '\n', 'Enter', 'Enter'],
-      ['keyDown', '\t', 'Tab', 'Tab'],
-      ['char', '\t', 'Tab', 'Tab'],
-      ['keyUp', '\t', 'Tab', 'Tab'],
-      ['keyDown', '\b', 'Backspace', 'Backspace'],
-      ['char', '\b', 'Backspace', 'Backspace'],
-      ['keyUp', '\b', 'Backspace', 'Backspace'],
+      ['keyDown', '', 'Enter', 'Enter'],
+      ['keyUp', '', 'Enter', 'Enter'],
+      ['keyDown', '', 'Tab', 'Tab'],
+      ['keyUp', '', 'Tab', 'Tab'],
+      ['keyDown', '', 'Backspace', 'Backspace'],
+      ['keyUp', '', 'Backspace', 'Backspace'],
     ])
   })
 })

@@ -222,14 +222,20 @@ public class ExtensionBrowserTool {
             role="searchbox" for a site/page search input (e.g. Douyin's search box,
             hint_text "搜索" / "search"), role="textbox" for a generic field. The hint_text
             is matched case-insensitively as a substring of the element's accessible name,
-            which for an unlabeled input is its PLACEHOLDER text. After typing, call
-            extension_browser_observe again to confirm the page url/state changed.
+            which for an unlabeled input is its PLACEHOLDER text.
+
+            ★ TO SUBMIT A SEARCH / FORM: end your text with a newline, e.g.
+            text="openclaw\\n". The trailing \\n is sent as the ENTER key, which submits
+            the search in one step — you do NOT need to separately click the search button.
+            (You may still click the search button instead if Enter doesn't apply.)
+            After typing, call extension_browser_observe again and check that the `url`
+            changed (e.g. to a /search/... URL) to confirm the submit worked before retrying.
 
             Returns a JSON object on success:
               { "ok": true, "chars_typed": 5 }
             """)
     public String extension_browser_type(
-            @ToolParam(description = "Text to type. Unicode supported; per-char keyDown + char + keyUp.")
+            @ToolParam(description = "Text to type. Unicode supported. End with \\n to press Enter (submits a search/form).")
             String text,
             @Nullable ToolContext ctx) {
         return extension_browser_type_at(text, null, ctx);
