@@ -9,6 +9,7 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
+import vip.mate.browser.edge.action.TypePayload;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -17,6 +18,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Task-level browser harnesses for lead-acquisition agents.
@@ -32,6 +36,14 @@ public class LeadBrowserHarnessTool {
 
     private static final String DOUYIN_HOME = "https://www.douyin.com/";
     private static final int MAX_REPEAT_FINGERPRINTS = 2;
+    private static final int MAX_SESSION_DETACH_RETRIES = 2;
+    private static final long SESSION_DETACH_RETRY_DELAY_MS = 700L;
+    private static final long SEARCH_ENTRY_DELAY_MS = 650L;
+    private static final long PAGE_SETTLE_DELAY_MS = 1_200L;
+    private static final int MIN_SEARCH_CANDIDATE_SCORE = 70;
+    private static final Pattern TREE_LINE_PATTERN = Pattern.compile(
+            "^\\s*([A-Za-z][\\w-]*)\\s*\\[ref=[^\\]]+\\]\\s*(?::\\s*(.*?))?\\s*"
+                    + "(?:@\\{(-?\\d+),(-?\\d+)\\s+(\\d+)x(\\d+)\\})?\\s*$");
 
     private final ExtensionBrowserTool browser;
     private final ObjectMapper mapper;
@@ -158,8 +170,8 @@ public class LeadBrowserHarnessTool {
         List<Map<String, Object>> attempts = new ArrayList<>();
         FingerprintGuard guard = new FingerprintGuard();
 
-        JsonNode nav = call("navigate_douyin_home", attempts,
-                browser.extension_browser_navigate(DOUYIN_HOME, "load", ctx));
+        JsonNode nav = callBrowser("navigate_douyin_home", attempts,
+                () -> browser.extension_browser_navigate(DOUYIN_HOME, "load", ctx));
         if (!ok(nav)) {
             return failRun("navigate_douyin_home", nav, attempts);
         }
@@ -173,22 +185,36 @@ public class LeadBrowserHarnessTool {
         }
         guard.repeated(observed.snapshot());
 
-        JsonNode click = clickSearchBox(observed.snapshot(), attempts, ctx);
+        JsonNode click = clickSearchEntry(observed.snapshot(), attempts, ctx);
         if (!ok(click)) {
             return failRun("click_search_box", click, attempts);
         }
 
-        JsonNode type = call("type_query_and_enter", attempts,
-                browser.extension_browser_type(normalizedQuery + "\n", ctx));
+        localWait("wait_after_search_entry_click", attempts, SEARCH_ENTRY_DELAY_MS);
+
+        observed = observe("observe_after_search_entry_click", attempts, ctx);
+        if (!observed.ok()) {
+            return failRun("observe_after_search_entry_click", observed.raw(), attempts);
+        }
+        if (isDouyinSearchDone(normalizedQuery, observed.snapshot())) {
+            return doneRun(observed.snapshot(), "search_entry_click", attempts);
+        }
+
+        // Douyin often turns the header search affordance into a real input only
+        // after the first click. Prefer typing at that input's coordinates so
+        // the keystrokes land even if a panel steals focus during animation.
+        TypePayload.FocusTarget inputFocus = focusTargetForSearchInput(observed.snapshot());
+        if (inputFocus == null) {
+            clickSearchInput(observed.snapshot(), attempts, ctx);
+        }
+
+        JsonNode type = callBrowser("type_query_and_enter", attempts,
+                () -> typeQuery(normalizedQuery, inputFocus, ctx));
         if (!ok(type)) {
             return failRun("type_query_and_enter", type, attempts);
         }
 
-        JsonNode wait = call("wait_after_enter", attempts,
-                browser.extension_browser_wait("time", 1_200L, null, null, ctx));
-        if (!ok(wait)) {
-            return failRun("wait_after_enter", wait, attempts);
-        }
+        localWait("wait_after_enter", attempts, PAGE_SETTLE_DELAY_MS);
 
         observed = observe("verify_after_enter", attempts, ctx);
         if (!observed.ok()) {
@@ -197,21 +223,48 @@ public class LeadBrowserHarnessTool {
         if (isDouyinSearchDone(normalizedQuery, observed.snapshot())) {
             return doneRun(observed.snapshot(), "homepage_search_box", attempts);
         }
+
+        if (!snapshotContainsQuery(normalizedQuery, observed.snapshot())) {
+            TypePayload.FocusTarget retryInputFocus = focusTargetForSearchInput(observed.snapshot());
+            JsonNode retryFocus = retryInputFocus == null
+                    ? clickSearchInput(observed.snapshot(), attempts, ctx)
+                    : mapper.createObjectNode()
+                    .put("ok", true)
+                    .put("status", "FOCUS_TARGET_FROM_SNAPSHOT")
+                    .put("message", "using input center from snapshot");
+            if (retryInputFocus != null) {
+                attempts.add(attempt("retry_focus_search_input_from_snapshot", retryFocus));
+            }
+            if (ok(retryFocus)) {
+                JsonNode retryType = callBrowser("retry_type_query_and_enter_after_refocus", attempts,
+                        () -> typeQuery(normalizedQuery, retryInputFocus, ctx));
+                if (!ok(retryType)) {
+                    return failRun("retry_type_query_and_enter_after_refocus", retryType, attempts);
+                }
+
+                localWait("wait_after_retry_enter", attempts, PAGE_SETTLE_DELAY_MS);
+
+                observed = observe("verify_after_retry_enter", attempts, ctx);
+                if (!observed.ok()) {
+                    return failRun("verify_after_retry_enter", observed.raw(), attempts);
+                }
+                if (isDouyinSearchDone(normalizedQuery, observed.snapshot())) {
+                    return doneRun(observed.snapshot(), "refocused_search_input", attempts);
+                }
+            }
+        }
+
         if (guard.repeated(observed.snapshot())) {
             return blockedRun(observed.snapshot(), attempts);
         }
 
-        JsonNode submitClick = call("fallback_click_search_button", attempts,
-                browser.extension_browser_click("搜索", "button", null, ctx));
+        JsonNode submitClick = callBrowser("fallback_click_search_button", attempts,
+                () -> browser.extension_browser_click("搜索", "button", null, ctx));
         if (!ok(submitClick)) {
             return failRun("fallback_click_search_button", submitClick, attempts);
         }
 
-        JsonNode submitWait = call("wait_after_button_submit", attempts,
-                browser.extension_browser_wait("time", 1_200L, null, null, ctx));
-        if (!ok(submitWait)) {
-            return failRun("wait_after_button_submit", submitWait, attempts);
-        }
+        localWait("wait_after_button_submit", attempts, PAGE_SETTLE_DELAY_MS);
 
         observed = observe("verify_after_button_submit", attempts, ctx);
         if (!observed.ok()) {
@@ -224,32 +277,122 @@ public class LeadBrowserHarnessTool {
             return blockedRun(observed.snapshot(), attempts);
         }
 
+        if (!snapshotContainsQuery(normalizedQuery, observed.snapshot())) {
+            return new SearchRun(false, "FOCUS_NOT_TYPED",
+                    "已定位到抖音搜索入口，但没有观察到关键词进入真实输入框，已停止，避免继续空打字。",
+                    observed.snapshot(), "", attempts);
+        }
+
         return new SearchRun(false, "FAILED",
                 "已从抖音首页输入并提交关键词，但没有观察到对应搜索页，已停止继续重试。",
                 observed.snapshot(), "", attempts);
     }
 
-    private JsonNode clickSearchBox(Snapshot snap, List<Map<String, Object>> attempts, ToolContext ctx) {
-        String target = chooseSearchTarget(snap);
-        JsonNode click = call("click_search_textbox", attempts,
-                browser.extension_browser_click(target, "textbox", null, ctx));
-        if (ok(click)) {
-            return click;
+    private JsonNode clickSearchEntry(Snapshot snap, List<Map<String, Object>> attempts, ToolContext ctx) {
+        SearchCandidate best = bestSearchCandidate(snap.tree(), searchEntryRoles());
+        if (best != null) {
+            return clickAtLine("click_ranked_search_entry", best.line(), attempts, ctx);
         }
-        return call("click_search_input_by_button_label", attempts,
-                browser.extension_browser_click("搜索", "button", null, ctx));
+        if (!parseTreeLines(snap.tree()).isEmpty()) {
+            return lastFailedAttempt(attempts, "click_search_entry_not_found",
+                    "SEARCH_TARGET_NOT_FOUND", "没有找到可信的抖音顶部搜索框候选。");
+        }
+        return clickSearchTarget(snap, attempts, ctx, searchEntryRoles(), "click_search_entry",
+                "SEARCH_TARGET_NOT_FOUND", "没有定位到抖音搜索框或搜索按钮。");
+    }
+
+    private JsonNode clickSearchInput(Snapshot snap, List<Map<String, Object>> attempts, ToolContext ctx) {
+        SearchCandidate best = bestSearchCandidate(snap.tree(), searchInputRoles());
+        if (best != null) {
+            return clickAtLine("click_ranked_search_input", best.line(), attempts, ctx);
+        }
+        if (!parseTreeLines(snap.tree()).isEmpty()) {
+            return lastFailedAttempt(attempts, "click_search_input_not_found",
+                    "SEARCH_INPUT_NOT_FOUND", "没有找到可信的抖音真实搜索输入框候选。");
+        }
+        return clickSearchTarget(snap, attempts, ctx, searchInputRoles(), "click_search_input",
+                "SEARCH_INPUT_NOT_FOUND", "没有定位到抖音真实搜索输入框。");
+    }
+
+    private JsonNode clickAtLine(String step,
+                                 TreeLine line,
+                                 List<Map<String, Object>> attempts,
+                                 ToolContext ctx) {
+        double x = line.x() + line.w() / 2.0;
+        double y = line.y() + line.h() / 2.0;
+        return callBrowser(step, attempts, () -> browser.extension_browser_click_at(x, y, ctx));
+    }
+
+    private JsonNode clickSearchTarget(Snapshot snap,
+                                       List<Map<String, Object>> attempts,
+                                       ToolContext ctx,
+                                       List<String> roles,
+                                       String stepPrefix,
+                                       String failureCode,
+                                       String failureMessage) {
+        String target = chooseSearchTarget(snap, roles);
+        for (String role : roles) {
+            JsonNode click = callBrowser(stepPrefix + "_" + role, attempts,
+                    () -> browser.extension_browser_click(target, role, null, ctx));
+            if (ok(click)) {
+                return click;
+            }
+        }
+        return lastFailedAttempt(attempts, stepPrefix + "_not_found", failureCode, failureMessage);
+    }
+
+    private String typeQuery(String normalizedQuery,
+                             @Nullable TypePayload.FocusTarget focusTarget,
+                             ToolContext ctx) {
+        if (focusTarget == null) {
+            return browser.extension_browser_type(normalizedQuery + "\n", ctx);
+        }
+        return browser.extension_browser_type_at(normalizedQuery + "\n", focusTarget, ctx);
     }
 
     private ObserveResult observe(String step, List<Map<String, Object>> attempts, ToolContext ctx) {
-        JsonNode raw = call(step, attempts, browser.extension_browser_observe("all", ctx));
+        JsonNode raw = callBrowser(step, attempts, () -> browser.extension_browser_observe("all", ctx));
         if (!ok(raw)) {
             return new ObserveResult(false, raw, Snapshot.empty());
         }
         return new ObserveResult(true, raw, snapshot(raw));
     }
 
+    private JsonNode callBrowser(String step, List<Map<String, Object>> attempts, Supplier<String> invocation) {
+        JsonNode parsed = call(step, attempts, invocation.get());
+        int retries = 0;
+        while (isSessionDetached(parsed) && retries < MAX_SESSION_DETACH_RETRIES) {
+            retries += 1;
+            sleepBeforeRetry(retries);
+            parsed = call(step + "_retry_after_detach_" + retries, attempts, invocation.get());
+        }
+        return parsed;
+    }
+
     private JsonNode call(String step, List<Map<String, Object>> attempts, String raw) {
         JsonNode parsed = parse(raw);
+        attempts.add(attempt(step, parsed));
+        return parsed;
+    }
+
+    private JsonNode localWait(String step, List<Map<String, Object>> attempts, long delayMs) {
+        sleep(delayMs);
+        JsonNode parsed = mapper.createObjectNode()
+                .put("ok", true)
+                .put("status", "LOCAL_WAIT")
+                .put("message", "waited " + delayMs + "ms inside lead harness");
+        attempts.add(attempt(step, parsed));
+        return parsed;
+    }
+
+    private JsonNode lastFailedAttempt(List<Map<String, Object>> attempts,
+                                       String step,
+                                       String code,
+                                       String message) {
+        JsonNode parsed = mapper.createObjectNode()
+                .put("ok", false)
+                .put("code", code)
+                .put("message", message);
         attempts.add(attempt(step, parsed));
         return parsed;
     }
@@ -300,7 +443,20 @@ public class LeadBrowserHarnessTool {
         return urlMatches || pageMatches;
     }
 
-    private String chooseSearchTarget(Snapshot snap) {
+    private boolean snapshotContainsQuery(String query, Snapshot snap) {
+        String lowerQuery = query.toLowerCase(Locale.ROOT);
+        String lowerUrl = decodeUrl(snap.url()).toLowerCase(Locale.ROOT);
+        String lowerTree = snap.tree().toLowerCase(Locale.ROOT);
+        return lowerUrl.contains(lowerQuery)
+                || lowerUrl.contains(urlEncodeLower(query))
+                || lowerTree.contains(lowerQuery);
+    }
+
+    private String chooseSearchTarget(Snapshot snap, List<String> roles) {
+        String fromTree = searchTargetNameFromTree(snap.tree(), roles);
+        if (!fromTree.isBlank()) {
+            return fromTree;
+        }
         String lowerTree = snap.tree().toLowerCase(Locale.ROOT);
         if (lowerTree.contains("搜索")) {
             return "搜索";
@@ -309,6 +465,169 @@ public class LeadBrowserHarnessTool {
             return "search";
         }
         return "搜索";
+    }
+
+    private String searchTargetNameFromTree(String tree, List<String> roles) {
+        SearchCandidate best = bestSearchCandidate(tree, roles);
+        if (best != null && !best.line().name().isBlank()) {
+            return best.line().name();
+        }
+        for (TreeLine line : parseTreeLines(tree)) {
+            String role = line.role();
+            String name = line.name();
+            if (name.isBlank() || roles.stream().noneMatch(role::equalsIgnoreCase)) {
+                continue;
+            }
+            String lowerName = name.toLowerCase(Locale.ROOT);
+            if (lowerName.contains("搜索") || lowerName.contains("search")) {
+                return name;
+            }
+        }
+        return "";
+    }
+
+    @Nullable
+    private TypePayload.FocusTarget focusTargetForSearchInput(Snapshot snap) {
+        SearchCandidate best = bestSearchCandidate(snap.tree(), searchInputRoles());
+        TreeLine line = best == null ? searchInputLine(snap.tree()) : best.line();
+        if (line == null || line.w() <= 0 || line.h() <= 0) {
+            return null;
+        }
+        return new TypePayload.FocusTarget(line.x() + line.w() / 2.0, line.y() + line.h() / 2.0);
+    }
+
+    @Nullable
+    private SearchCandidate bestSearchCandidate(String tree, List<String> roles) {
+        SearchCandidate best = parseTreeLines(tree).stream()
+                .filter(line -> roles.stream().anyMatch(line.role()::equalsIgnoreCase))
+                .map(line -> new SearchCandidate(line, scoreSearchCandidate(line)))
+                .filter(candidate -> candidate.score() >= MIN_SEARCH_CANDIDATE_SCORE)
+                .max((a, b) -> Integer.compare(a.score(), b.score()))
+                .orElse(null);
+        if (best == null) {
+            return null;
+        }
+        return best;
+    }
+
+    private int scoreSearchCandidate(TreeLine line) {
+        String role = line.role().toLowerCase(Locale.ROOT);
+        String name = line.name().toLowerCase(Locale.ROOT);
+        boolean strictInput = strictInputRoles().stream().anyMatch(line.role()::equalsIgnoreCase);
+        boolean searchName = name.contains("搜索") || name.contains("search");
+
+        if (!searchName && !strictInput) {
+            return Integer.MIN_VALUE;
+        }
+
+        int score = 0;
+        if ("searchbox".equals(role)) {
+            score += 95;
+        } else if ("textbox".equals(role) || "input".equals(role)) {
+            score += 85;
+        } else if ("combobox".equals(role)) {
+            score += 75;
+        } else if ("search".equals(role)) {
+            score += 45;
+        } else if ("button".equals(role)) {
+            score += 30;
+        } else if ("generic".equals(role) || "text".equals(role) || "statictext".equals(role)) {
+            score += 15;
+        } else if ("link".equals(role)) {
+            score += 5;
+        }
+
+        if (name.contains("搜索你感兴趣") || name.contains("感兴趣的内容")) {
+            score += 80;
+        } else if (searchName) {
+            score += 35;
+        } else if (strictInput) {
+            score += 15;
+        }
+
+        if (line.x() >= 200) {
+            score += 30;
+        } else {
+            score -= 65;
+        }
+
+        if (line.y() <= 140) {
+            score += 45;
+        } else if (line.y() <= 220) {
+            score += 5;
+        } else {
+            score -= 35;
+        }
+
+        if (line.w() >= 500) {
+            score += 40;
+        } else if (line.w() >= 280) {
+            score += 28;
+        } else if (line.w() >= 120) {
+            score += 10;
+        } else {
+            score -= 10;
+        }
+
+        if (line.h() >= 18 && line.h() <= 100) {
+            score += 15;
+        } else if (line.h() > 0) {
+            score += 5;
+        }
+
+        if (strictInput && line.w() >= 120) {
+            score += 20;
+        }
+        if ("button".equals(role) && line.x() >= 200 && line.y() <= 140) {
+            score += 25;
+        }
+        if ("搜索".equals(name) && line.x() < 200) {
+            score -= 70;
+        }
+        if ("link".equals(role) && line.x() < 240) {
+            score -= 30;
+        }
+
+        return score;
+    }
+
+    @Nullable
+    private TreeLine searchInputLine(String tree) {
+        TreeLine firstInput = null;
+        for (TreeLine line : parseTreeLines(tree)) {
+            if (strictInputRoles().stream().noneMatch(line.role()::equalsIgnoreCase)) {
+                continue;
+            }
+            if (line.name().toLowerCase(Locale.ROOT).contains("搜索")
+                    || line.name().toLowerCase(Locale.ROOT).contains("search")) {
+                return line;
+            }
+            if (firstInput == null) {
+                firstInput = line;
+            }
+        }
+        return firstInput;
+    }
+
+    private List<TreeLine> parseTreeLines(String tree) {
+        if (tree == null || tree.isBlank()) {
+            return List.of();
+        }
+        List<TreeLine> lines = new ArrayList<>();
+        for (String raw : tree.split("\\R")) {
+            Matcher matcher = TREE_LINE_PATTERN.matcher(raw);
+            if (!matcher.matches() || matcher.group(3) == null) {
+                continue;
+            }
+            lines.add(new TreeLine(
+                    matcher.group(1) == null ? "" : matcher.group(1).trim(),
+                    matcher.group(2) == null ? "" : matcher.group(2).trim(),
+                    Integer.parseInt(matcher.group(3)),
+                    Integer.parseInt(matcher.group(4)),
+                    Integer.parseInt(matcher.group(5)),
+                    Integer.parseInt(matcher.group(6))));
+        }
+        return lines;
     }
 
     private String done(String query, Snapshot snap, String via, List<Map<String, Object>> attempts) {
@@ -364,6 +683,38 @@ public class LeadBrowserHarnessTool {
 
     private boolean ok(JsonNode node) {
         return node.path("ok").asBoolean(false);
+    }
+
+    private boolean isSessionDetached(JsonNode node) {
+        String code = node.path("code").asText(node.path("status").asText(""));
+        String message = node.path("message").asText("");
+        return "SESSION_DETACHED".equalsIgnoreCase(code)
+                || message.toLowerCase(Locale.ROOT).contains("detached while handling command");
+    }
+
+    private void sleepBeforeRetry(int attempt) {
+        sleep(SESSION_DETACH_RETRY_DELAY_MS * attempt);
+    }
+
+    private void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private List<String> searchEntryRoles() {
+        return List.of("textbox", "searchbox", "combobox", "input", "button", "link",
+                "search", "generic", "statictext", "text");
+    }
+
+    private List<String> searchInputRoles() {
+        return List.of("textbox", "searchbox", "combobox", "input", "generic", "text");
+    }
+
+    private List<String> strictInputRoles() {
+        return List.of("textbox", "searchbox", "combobox", "input");
     }
 
     private String normalizeQuery(String query) {
@@ -430,6 +781,10 @@ public class LeadBrowserHarnessTool {
             return new Snapshot("", "", "");
         }
     }
+
+    private record TreeLine(String role, String name, int x, int y, int w, int h) {}
+
+    private record SearchCandidate(TreeLine line, int score) {}
 
     private final class FingerprintGuard {
         private String previous;

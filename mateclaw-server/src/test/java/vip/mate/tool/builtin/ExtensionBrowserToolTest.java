@@ -8,9 +8,12 @@ import reactor.core.publisher.Mono;
 import vip.mate.browser.edge.action.ActionKind;
 import vip.mate.browser.edge.action.ActionRequest;
 import vip.mate.browser.edge.action.ActionResult;
+import vip.mate.browser.edge.action.ClickPayload;
 import vip.mate.browser.edge.action.ClickSuccess;
+import vip.mate.browser.edge.action.MoveMousePayload;
 import vip.mate.browser.edge.action.NavigateSuccess;
 import vip.mate.browser.edge.action.TabRef;
+import vip.mate.browser.edge.action.TypePayload;
 import vip.mate.browser.edge.action.TypeSuccess;
 import vip.mate.browser.edge.session.BrowserSession;
 import vip.mate.browser.edge.session.BrowserSessionRegistry;
@@ -245,6 +248,46 @@ class ExtensionBrowserToolTest {
         @SuppressWarnings("unchecked")
         List<ActionRequest> sent = (List<ActionRequest>) captor.getValue();
         assertThat(sent.get(0).kind()).isEqualTo(ActionKind.TYPE);
+    }
+
+    @Test
+    void browserTypeAt_dispatchesTypeRequestWithFocusTargetForHarnesses() throws Exception {
+        when(planExec.execute(any(), any())).thenReturn(Mono.just((PlanResult)
+                new PlanResult.Success(List.of(
+                        new ActionResult.Success(11L, new TypeSuccess(11))))));
+
+        tool.extension_browser_type_at("hello world", new TypePayload.FocusTarget(120.0, 45.0), null);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(planExec).execute(any(), captor.capture());
+        @SuppressWarnings("unchecked")
+        List<ActionRequest> sent = (List<ActionRequest>) captor.getValue();
+        assertThat(sent.get(0).kind()).isEqualTo(ActionKind.TYPE);
+        var payload = (TypePayload) sent.get(0).params();
+        assertThat(payload.focusTarget()).isEqualTo(new TypePayload.FocusTarget(120.0, 45.0));
+    }
+
+    @Test
+    void browserClickAt_dispatchesMoveAndClickRequestsForHarnesses() throws Exception {
+        when(planExec.execute(any(), any())).thenReturn(Mono.just((PlanResult)
+                new PlanResult.Success(List.of(
+                        new ActionResult.Success(11L, new ClickSuccess())))));
+
+        tool.extension_browser_click_at(1065.0, 41.0, null);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(planExec).execute(any(), captor.capture());
+        @SuppressWarnings("unchecked")
+        List<ActionRequest> sent = (List<ActionRequest>) captor.getValue();
+        assertThat(sent).hasSize(2);
+        assertThat(sent.get(0).kind()).isEqualTo(ActionKind.MOVE_MOUSE);
+        assertThat(sent.get(1).kind()).isEqualTo(ActionKind.CLICK);
+        var move = (MoveMousePayload) sent.get(0).params();
+        var click = (ClickPayload) sent.get(1).params();
+        assertThat(move.x()).isEqualTo(1065.0);
+        assertThat(move.y()).isEqualTo(41.0);
+        assertThat(click.x()).isEqualTo(1065.0);
+        assertThat(click.y()).isEqualTo(41.0);
     }
 
     @Test

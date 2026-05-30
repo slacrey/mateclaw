@@ -212,6 +212,12 @@ public class ExtensionBrowserTool {
             @ToolParam(description = "Text to type. Unicode supported; per-char keyDown + char + keyUp.")
             String text,
             @Nullable ToolContext ctx) {
+        return extension_browser_type_at(text, null, ctx);
+    }
+
+    String extension_browser_type_at(String text,
+                                     @Nullable TypePayload.FocusTarget focusTarget,
+                                     @Nullable ToolContext ctx) {
         BrowserSession session = resolveSession();
         if (session == null) return noSession();
 
@@ -219,10 +225,30 @@ public class ExtensionBrowserTool {
                 newMsgId(),
                 new TabRef.Main(),
                 ActionKind.TYPE,
-                new TypePayload(text, null),
+                new TypePayload(text, focusTarget),
                 DEFAULT_DEADLINE_MS);
 
         return executePlan(session, List.of(req));
+    }
+
+    String extension_browser_click_at(double x, double y, @Nullable ToolContext ctx) {
+        BrowserSession session = resolveSession();
+        if (session == null) return noSession();
+
+        ActionRequest move = new ActionRequest(
+                newMsgId(),
+                new TabRef.Main(),
+                ActionKind.MOVE_MOUSE,
+                new MoveMousePayload(x, y, "natural"),
+                DEFAULT_DEADLINE_MS);
+        ActionRequest click = new ActionRequest(
+                newMsgId(),
+                new TabRef.Main(),
+                ActionKind.CLICK,
+                new ClickPayload(x, y, "left", 1),
+                DEFAULT_DEADLINE_MS);
+
+        return executePlan(session, List.of(move, click));
     }
 
     // -----------------------------------------------------------------
