@@ -1,12 +1,15 @@
 /**
- * StopButton — bottom-center pill the user can click to abort an in-flight
+ * StopButton — TOP-center pill the user can click to abort an in-flight
  * agent task. Visual contract per research §4 + plan §C4:
  *
- *   - Bottom-center pill; container `pointer-events: none` so it never
+ *   - Top-center pill; container `pointer-events: none` so it never
  *     intercepts misclicks outside the pill body; button itself re-enables
  *     `pointer-events: auto`.
- *   - Slide-in: translateY(100px) → 0 + opacity 0 → 1, 300ms with the
+ *   - Slide-in: translateY(-100px) → 0 + opacity 0 → 1, 300ms with the
  *     Material easing curve cubic-bezier(0.4, 0, 0.2, 1).
+ *   - (Was bottom-center; moved to top to coexist with the bottom-edge real
+ *     estate Chrome itself sometimes claims — and so the user's primary
+ *     "stop" affordance lives next to Chrome's debug bar.)
  *   - z-index = 2147483647 (max int), HIGHER than the glow border so the
  *     button is always clickable.
  *   - Stop icon (square in circle) + label "Stop Agent".
@@ -73,8 +76,9 @@ export class StopButton {
     container.style.position = 'fixed'
     container.style.left = '0'
     container.style.right = '0'
-    // 16px from the bottom — matches the official indicator's resting offset.
-    container.style.bottom = '16px'
+    // 16px from the TOP — sits just below Chrome's debug bar so the user's
+    // primary "stop" affordance is always in their natural sight-line.
+    container.style.top = '16px'
     container.style.display = 'flex'
     container.style.justifyContent = 'center'
     // Container is pointer-transparent so clicks outside the pill body reach
@@ -120,8 +124,9 @@ export class StopButton {
       btn.style.transform = 'translateY(0)'
       btn.style.opacity = '1'
     } else {
-      // Initial state for the slide-in fade.
-      btn.style.transform = 'translateY(100px)'
+      // Initial state for the slide-in fade (from ABOVE the viewport since
+      // the pill is top-anchored now).
+      btn.style.transform = 'translateY(-100px)'
       btn.style.opacity = '0'
     }
 
@@ -179,8 +184,9 @@ export class StopButton {
 
   hide(): void {
     if (!this.container || !this.button) return
-    // Run the reverse animation, then remove.
-    this.button.style.transform = 'translateY(100px)'
+    // Run the reverse animation, then remove (slide back UP out of the
+    // viewport since the pill is top-anchored).
+    this.button.style.transform = 'translateY(-100px)'
     this.button.style.opacity = '0'
 
     if (this.hideTimer !== null) clearTimeout(this.hideTimer)

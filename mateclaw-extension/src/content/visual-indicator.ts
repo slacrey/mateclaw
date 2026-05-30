@@ -207,16 +207,17 @@ declare global {
   const STATIC_HEARTBEAT_INTERVAL_MS = 5_000
   let staticHeartbeat: ReturnType<typeof setInterval> | null = null
 
-  function showStaticIndicator(dismissed: boolean): void {
-    if (dismissed) {
-      hideStaticIndicator()
-      return
-    }
-    staticVisible = true
-    if (!cursorVisible && !glowVisible && !stopVisible) {
-      staticIndicator.show()
-    }
-    startStaticHeartbeat()
+  function showStaticIndicator(_dismissed: boolean): void {
+    // Disabled by product decision: the passive "MateClaw is active in this
+    // tab group" pill was duplicating signal already carried by the active
+    // glow + cursor + top Stop Agent affordance, and crowded the bottom edge
+    // where users expect site UI to sit. We keep the SHOW_STATIC_INDICATOR /
+    // HIDE_STATIC_INDICATOR / heartbeat handlers wired (so the SW-side state
+    // machine in tab-group-manager stays unsurprising — STATIC_INDICATOR_HEARTBEAT
+    // and DISMISS_STATIC_INDICATOR_FOR_GROUP still bookkeep correctly) and
+    // simply never mount the DOM. To restore the pill, revert this function
+    // to its prior body.
+    hideStaticIndicator()
   }
 
   function hideStaticIndicator(): void {

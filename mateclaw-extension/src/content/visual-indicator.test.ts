@@ -209,46 +209,37 @@ describe('visual-indicator content script', () => {
     }
   })
 
-  it('SHOW_STATIC_INDICATOR mounts the passive controlled-group pill', () => {
+  // The passive "MateClaw is active in this tab group" pill was removed
+  // (product decision: duplicated signal already carried by the active
+  // overlays). showStaticIndicator() is now a no-op that just hides; the
+  // tests below pin that invariant so a future regression that re-mounts
+  // the pill is caught immediately.
+
+  it('SHOW_STATIC_INDICATOR does NOT mount the passive pill (feature disabled)', () => {
     shim.fire({ type: 'SHOW_STATIC_INDICATOR' })
 
-    const pill = document.getElementById('mateclaw-static-indicator-container')
-    expect(pill).not.toBeNull()
-    expect(pill!.textContent).toContain('MateClaw is active in this tab group')
-    expect(document.querySelectorAll('#mateclaw-static-indicator-container')).toHaveLength(1)
+    expect(document.getElementById('mateclaw-static-indicator-container')).toBeNull()
   })
 
-  it('SHOW_STATIC_INDICATOR is idempotent and HIDE_STATIC_INDICATOR removes it', () => {
+  it('repeated SHOW_STATIC_INDICATOR followed by HIDE never mounts the pill', () => {
     shim.fire({ type: 'SHOW_STATIC_INDICATOR' })
     shim.fire({ type: 'SHOW_STATIC_INDICATOR' })
-    expect(document.querySelectorAll('#mateclaw-static-indicator-container')).toHaveLength(1)
+    expect(document.getElementById('mateclaw-static-indicator-container')).toBeNull()
 
     shim.fire({ type: 'HIDE_STATIC_INDICATOR' })
     expect(document.getElementById('mateclaw-static-indicator-container')).toBeNull()
   })
 
-  it('static focus and dismiss buttons send the expected runtime messages', () => {
-    shim.fire({ type: 'SHOW_STATIC_INDICATOR' })
+  // The focus/dismiss-button-message tests no longer apply (no DOM to click).
+  // The StaticIndicator component itself still has unit tests covering its
+  // click-to-message wiring in StaticIndicator.test.ts.
 
-    document.getElementById('mateclaw-static-focus-button')!.click()
-    expect(shim.sendMessage).toHaveBeenCalledWith({ type: 'SWITCH_TO_MAIN_TAB' })
-
-    document.getElementById('mateclaw-static-dismiss-button')!.click()
-    expect(shim.sendMessage).toHaveBeenCalledWith({ type: 'DISMISS_STATIC_INDICATOR_FOR_GROUP' })
-    expect(document.getElementById('mateclaw-static-indicator-container')).toBeNull()
-  })
-
-  it('static indicator heartbeat hides the pill when SW says the tab is no longer managed', async () => {
+  it('STATIC_INDICATOR heartbeat is suppressed while the pill is disabled', async () => {
     vi.useFakeTimers()
     try {
-      shim.setSendMessageImpl(msg => {
-        if ((msg as { type?: string }).type === 'STATIC_INDICATOR_HEARTBEAT') {
-          return Promise.resolve({ ok: false })
-        }
-        return Promise.resolve({ ok: true })
-      })
+      shim.setSendMessageImpl(() => Promise.resolve({ ok: true }))
       shim.fire({ type: 'SHOW_STATIC_INDICATOR' })
-      expect(document.getElementById('mateclaw-static-indicator-container')).not.toBeNull()
+      expect(document.getElementById('mateclaw-static-indicator-container')).toBeNull()
 
       await vi.advanceTimersByTimeAsync(5_000)
 
