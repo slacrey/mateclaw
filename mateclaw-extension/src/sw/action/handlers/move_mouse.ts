@@ -48,6 +48,13 @@ export interface MoveMouseHandlerDeps {
    */
   cursorState?: Map<number, Point>
   /**
+   * Initial visual/real cursor position for a tab that has no cursorState yet.
+   * The production service worker resolves this from the page viewport center,
+   * matching Claude's "spawn near the middle of the page" feel. Tests can
+   * inject a deterministic point. Falls back to {640,400}.
+   */
+  initialCursorPosition?: (tabId: number) => Promise<Point>
+  /**
    * Chrome API used to drive the VISUAL phantom cursor along the WindMouse
    * path. As each waypoint is dispatched to the real CDP mouse, the handler
    * also fires `chrome.tabs.sendMessage(tabId, { type: 'INDICATOR_CURSOR', x, y })`
@@ -83,8 +90,8 @@ export interface MoveMouseHandlerDeps {
  *
  * Flow:
  *   1. `debugger.attach(tabId)` (idempotent — safe to call on every action).
- *   2. Resolve `from` from `cursorState`; default `{0, 0}` on the first
- *      move per tab.
+ *   2. Resolve `from` from `cursorState`; default to the viewport center on
+ *      the first move per tab so the cursor does not streak in from (0,0).
  *   3. Generate waypoints via `windmouse.generate(from, to, …)`.
  *   4. For each waypoint **after the first** (the cursor is already at
  *      `from`, so dispatching it would be redundant):
@@ -121,11 +128,12 @@ export const moveMouseHandler = (deps: MoveMouseHandlerDeps): ActionHandler<Move
   const sleep = deps.sleep ?? defaultSleep
   const cursorState = deps.cursorState ?? new Map<number, Point>()
   const emitMinIntervalMs = deps.cursorEmitMinIntervalMs ?? DEFAULT_CURSOR_EMIT_MIN_INTERVAL_MS
+  const initialCursorPosition = deps.initialCursorPosition ?? defaultInitialCursorPosition
 
   return async (tabId, params, _deadlineMs) => {
     await deps.debugger.attach(tabId)
 
-    const from = cursorState.get(tabId) ?? { x: 0, y: 0 }
+    const from = cursorState.get(tabId) ?? await safeInitialCursorPosition(initialCursorPosition, tabId)
     const to: Point = { x: params.x, y: params.y }
 
     const waypoints = generate(from, to, {
@@ -218,4 +226,43 @@ export const moveMouseHandler = (deps: MoveMouseHandlerDeps): ActionHandler<Move
       },
     }
   }
+}
+
+export async function viewportCenterFromDebugger(
+  debug: DebuggerManager,
+  tabId: number,
+): Promise<Point> {
+  const result = await debug.send(tabId, 'Runtime.evaluate', {
+    expression: `(() => {
+      const vv = window.visualViewport;
+      const w = Math.max(1, Math.round(vv?.width || window.innerWidth || document.documentElement.clientWidth || 1280));
+      const h = Math.max(1, Math.round(vv?.height || window.innerHeight || document.documentElement.clientHeight || 800));
+      return { x: Math.round(w / 2), y: Math.round(h / 2) };
+    })()`,
+    returnByValue: true,
+  })
+  return normalizePoint(result.result.value)
+}
+
+async function safeInitialCursorPosition(
+  resolver: (tabId: number) => Promise<Point>,
+  tabId: number,
+): Promise<Point> {
+  try {
+    return normalizePoint(await resolver(tabId))
+  } catch {
+    return defaultInitialCursorPosition()
+  }
+}
+
+async function defaultInitialCursorPosition(): Promise<Point> {
+  return { x: 640, y: 400 }
+}
+
+function normalizePoint(value: unknown): Point {
+  if (!value || typeof value !== 'object') return { x: 640, y: 400 }
+  const p = value as Partial<Point>
+  const x = typeof p.x === 'number' && Number.isFinite(p.x) ? Math.round(p.x) : 640
+  const y = typeof p.y === 'number' && Number.isFinite(p.y) ? Math.round(p.y) : 400
+  return { x: Math.max(0, x), y: Math.max(0, y) }
 }

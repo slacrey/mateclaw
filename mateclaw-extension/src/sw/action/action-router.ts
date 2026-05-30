@@ -6,6 +6,7 @@ import {
 import type { ActionExecutor } from './ActionExecutor'
 import type { ActionRequest, ActionResult } from './types'
 import type { TabRefResolver } from './tab-ref-resolver'
+import type { TabGroupManager } from '../tab-group-manager'
 
 export interface ActionRouterDeps {
   resolver: TabRefResolver
@@ -17,6 +18,10 @@ export interface ActionRouterDeps {
    * acknowledges cancels; Wave 3 wires real cancellation into handlers.
    */
   inflight?: Map<string, AbortController>
+  /** Optional visual owner for the Chrome tab group status title. */
+  tabGroupManager?: TabGroupManager
+  /** Subject whose controlled group should be marked Working/Done. */
+  subject?: string
 }
 
 /**
@@ -104,6 +109,7 @@ export class ActionRouter {
     // and shapes them into ActionResult).
     let result: ActionResult
     try {
+      await this.markWorking()
       result = await this.deps.executor.run(tabId, req)
     } catch (err) {
       // Defensive — ActionExecutor.run already catches handler throws,
@@ -114,6 +120,8 @@ export class ActionRouter {
         message: errorMessage(err),
         retryable: true,
       }
+    } finally {
+      await this.markDone()
     }
 
     this.sendResult(msg, result)
@@ -168,6 +176,24 @@ export class ActionRouter {
       traceId: msg.trace_id,
       payload: msg.payload,
     }))
+  }
+
+  private async markWorking(): Promise<void> {
+    if (!this.deps.tabGroupManager || !this.deps.subject) return
+    try {
+      await this.deps.tabGroupManager.markWorking(this.deps.subject)
+    } catch {
+      // Visual status only; never let tab group title churn break an action.
+    }
+  }
+
+  private async markDone(): Promise<void> {
+    if (!this.deps.tabGroupManager || !this.deps.subject) return
+    try {
+      await this.deps.tabGroupManager.markDone(this.deps.subject)
+    } catch {
+      // Visual status only; the action.result has already been shaped.
+    }
   }
 }
 

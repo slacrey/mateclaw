@@ -17,13 +17,15 @@ function setupChromeShim(): {
     sendResponse?: (resp?: unknown) => void,
   ) => boolean | void
   sendMessage: ReturnType<typeof vi.fn>
+  setSendMessageImpl: (impl: (msg: unknown) => unknown) => void
 } {
   let registered: ((
     msg: unknown,
     sender: unknown,
     sendResponse: (resp?: unknown) => void,
   ) => boolean | void) | null = null
-  const sendMessage = vi.fn()
+  const sendMessage = vi.fn((msg: unknown) => sendMessageImpl(msg))
+  let sendMessageImpl: (msg: unknown) => unknown = () => Promise.resolve({ ok: true })
   ;(globalThis as Record<string, unknown>).chrome = {
     runtime: {
       onMessage: {
@@ -46,6 +48,9 @@ function setupChromeShim(): {
   }
   return {
     sendMessage,
+    setSendMessageImpl: impl => {
+      sendMessageImpl = impl
+    },
     fire: (msg, sendResponse) => {
       if (!registered) throw new Error('No listener registered')
       return registered(msg, {}, sendResponse ?? (() => {}))
@@ -201,6 +206,55 @@ describe('visual-indicator content script', () => {
     ]
     for (const id of ids) {
       expect(document.querySelectorAll(`#${id}`).length).toBe(1)
+    }
+  })
+
+  it('SHOW_STATIC_INDICATOR mounts the passive controlled-group pill', () => {
+    shim.fire({ type: 'SHOW_STATIC_INDICATOR' })
+
+    const pill = document.getElementById('mateclaw-static-indicator-container')
+    expect(pill).not.toBeNull()
+    expect(pill!.textContent).toContain('MateClaw is active in this tab group')
+    expect(document.querySelectorAll('#mateclaw-static-indicator-container')).toHaveLength(1)
+  })
+
+  it('SHOW_STATIC_INDICATOR is idempotent and HIDE_STATIC_INDICATOR removes it', () => {
+    shim.fire({ type: 'SHOW_STATIC_INDICATOR' })
+    shim.fire({ type: 'SHOW_STATIC_INDICATOR' })
+    expect(document.querySelectorAll('#mateclaw-static-indicator-container')).toHaveLength(1)
+
+    shim.fire({ type: 'HIDE_STATIC_INDICATOR' })
+    expect(document.getElementById('mateclaw-static-indicator-container')).toBeNull()
+  })
+
+  it('static focus and dismiss buttons send the expected runtime messages', () => {
+    shim.fire({ type: 'SHOW_STATIC_INDICATOR' })
+
+    document.getElementById('mateclaw-static-focus-button')!.click()
+    expect(shim.sendMessage).toHaveBeenCalledWith({ type: 'SWITCH_TO_MAIN_TAB' })
+
+    document.getElementById('mateclaw-static-dismiss-button')!.click()
+    expect(shim.sendMessage).toHaveBeenCalledWith({ type: 'DISMISS_STATIC_INDICATOR_FOR_GROUP' })
+    expect(document.getElementById('mateclaw-static-indicator-container')).toBeNull()
+  })
+
+  it('static indicator heartbeat hides the pill when SW says the tab is no longer managed', async () => {
+    vi.useFakeTimers()
+    try {
+      shim.setSendMessageImpl(msg => {
+        if ((msg as { type?: string }).type === 'STATIC_INDICATOR_HEARTBEAT') {
+          return Promise.resolve({ ok: false })
+        }
+        return Promise.resolve({ ok: true })
+      })
+      shim.fire({ type: 'SHOW_STATIC_INDICATOR' })
+      expect(document.getElementById('mateclaw-static-indicator-container')).not.toBeNull()
+
+      await vi.advanceTimersByTimeAsync(5_000)
+
+      expect(document.getElementById('mateclaw-static-indicator-container')).toBeNull()
+    } finally {
+      vi.useRealTimers()
     }
   })
 

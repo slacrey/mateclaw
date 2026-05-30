@@ -11,6 +11,8 @@ const STORAGE_KEY = 'tabGroups'
  * MateClaw uses its own brand name; orange reads as "the agent's tabs".
  */
 const GROUP_TITLE = 'MateClaw'
+const GROUP_TITLE_WORKING = 'MateClaw - Working'
+const GROUP_TITLE_DONE = 'MateClaw - Done'
 /**
  * Chrome's fixed tab-group palette. The installed @types/chrome in this tree
  * doesn't export `tabGroups.ColorEnum`, so we declare the literal union locally
@@ -30,6 +32,7 @@ type TabGroup = {
    * the equivalent `chromeGroupId` in its group metadata.
    */
   chromeGroupId: number | null
+  staticIndicatorDismissed: boolean
 }
 
 type TabGroups = Record<string, TabGroup>
@@ -42,7 +45,8 @@ type TabGroups = Record<string, TabGroup>
  *   { tabGroups: { [subject: string]: {
  *       mainTabId: number | null,
  *       allTabIds: number[],
- *       chromeGroupId: number | null
+ *       chromeGroupId: number | null,
+ *       staticIndicatorDismissed: boolean
  *   } } }
  *
  * `mainTabId` is the tab the user explicitly bound as "main" for that
@@ -57,6 +61,7 @@ type TabGroups = Record<string, TabGroup>
 export class TabGroupManager {
   #groups: TabGroups | null = null
   #mutationQueue = Promise.resolve()
+  #titleResetTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   constructor(
     private readonly chrome: typeof globalThis.chrome,
@@ -92,8 +97,10 @@ export class TabGroupManager {
         mainTabId: tabId,
         allTabIds: uniqueTabIds([...group.allTabIds, tabId]),
         chromeGroupId: group.chromeGroupId,
+        staticIndicatorDismissed: group.staticIndicatorDismissed,
       }
     })
+    await this.showStaticIndicatorForTab(subject, tabId)
   }
 
   /** Add a tab to subject's group without making it main. */
@@ -104,8 +111,10 @@ export class TabGroupManager {
         mainTabId: group.mainTabId,
         allTabIds: uniqueTabIds([...group.allTabIds, tabId]),
         chromeGroupId: group.chromeGroupId,
+        staticIndicatorDismissed: group.staticIndicatorDismissed,
       }
     })
+    await this.showStaticIndicatorForTab(subject, tabId)
   }
 
   /**
@@ -148,6 +157,7 @@ export class TabGroupManager {
       try {
         await this.chrome.tabs.group({ tabIds: [tabId], groupId: existing })
         await this.#setChromeGroupId(subject, existing)
+        await this.showStaticIndicatorForTab(subject, tabId)
         return existing
       } catch {
         // The tracked group was likely closed/dissolved by the user. Fall
@@ -164,6 +174,7 @@ export class TabGroupManager {
         collapsed: false,
       })
       await this.#setChromeGroupId(subject, groupId)
+      await this.showStaticIndicatorForTab(subject, tabId)
       return groupId
     } catch {
       // Grouping is a visual nicety; never let it break tab provisioning.
@@ -173,9 +184,112 @@ export class TabGroupManager {
 
   /** Remove the binding. Idempotent. Drops the tracked chromeGroupId too. */
   async unbind(subject: string): Promise<void> {
+    const group = (await this.#loadGroups())[subject]
+    if (group) {
+      await this.hideStaticIndicatorForTabs(group.allTabIds)
+      await this.#setChromeGroupTitle(group.chromeGroupId, GROUP_TITLE)
+    }
     await this.#mutateGroups(groups => {
       groups[subject] = emptyGroup()
     })
+  }
+
+  async markWorking(subject: string): Promise<void> {
+    const group = (await this.#loadGroups())[subject]
+    if (!group?.chromeGroupId) return
+    this.#clearTitleResetTimer(subject)
+    await this.#setChromeGroupTitle(group.chromeGroupId, GROUP_TITLE_WORKING)
+  }
+
+  async markDone(subject: string, opts: { resetAfterMs?: number } = {}): Promise<void> {
+    const group = (await this.#loadGroups())[subject]
+    if (!group?.chromeGroupId) return
+
+    await this.#setChromeGroupTitle(group.chromeGroupId, GROUP_TITLE_DONE)
+    const resetAfterMs = opts.resetAfterMs ?? 1_200
+    if (resetAfterMs <= 0) {
+      await this.#setChromeGroupTitle(group.chromeGroupId, GROUP_TITLE)
+      return
+    }
+    const groupId = group.chromeGroupId
+    this.#clearTitleResetTimer(subject)
+    const timer = setTimeout(() => {
+      this.#titleResetTimers.delete(subject)
+      void this.#restoreTitleIfStillGroup(subject, groupId)
+    }, resetAfterMs)
+    this.#titleResetTimers.set(subject, timer)
+  }
+
+  async resetChromeGroupTitle(subject: string): Promise<void> {
+    const group = (await this.#loadGroups())[subject]
+    if (!group?.chromeGroupId) return
+    await this.#setChromeGroupTitle(group.chromeGroupId, GROUP_TITLE)
+  }
+
+  async showStaticIndicatorForSubject(subject: string): Promise<void> {
+    const group = (await this.#loadGroups())[subject]
+    if (!group) return
+    await Promise.all(group.allTabIds.map(tabId => this.showStaticIndicatorForTab(subject, tabId)))
+  }
+
+  async showStaticIndicatorForTab(subject: string, tabId: number): Promise<void> {
+    const group = (await this.#loadGroups())[subject]
+    if (!group || !group.allTabIds.includes(tabId)) return
+    await this.#sendTabMessage(tabId, {
+      type: 'SHOW_STATIC_INDICATOR',
+      dismissed: group.staticIndicatorDismissed,
+    })
+  }
+
+  async hideStaticIndicatorForSubject(subject: string): Promise<void> {
+    const group = (await this.#loadGroups())[subject]
+    if (!group) return
+    await this.hideStaticIndicatorForTabs(group.allTabIds)
+  }
+
+  async dismissStaticIndicatorForTab(tabId: number): Promise<void> {
+    const subject = await this.findSubjectByTab(tabId)
+    if (!subject) return
+    await this.#mutateGroups(groups => {
+      const group = groups[subject]
+      if (!group) return
+      groups[subject] = {
+        ...group,
+        allTabIds: [...group.allTabIds],
+        staticIndicatorDismissed: true,
+      }
+    })
+    await this.hideStaticIndicatorForSubject(subject)
+  }
+
+  async switchToMainTabForTab(tabId: number): Promise<void> {
+    const subject = await this.findSubjectByTab(tabId)
+    if (!subject) return
+    const group = (await this.#loadGroups())[subject]
+    const mainTabId = group?.mainTabId
+    if (typeof mainTabId !== 'number') return
+    try {
+      await this.chrome.tabs.update(mainTabId, { active: true })
+      const tab = await this.chrome.tabs.get?.(mainTabId)
+      if (typeof tab?.windowId === 'number' && this.chrome.windows?.update) {
+        await this.chrome.windows.update(tab.windowId, { focused: true })
+      }
+    } catch {
+      // Visual affordance only; if a user closed the tab, normal tab cleanup
+      // will repair state on the next onRemoved event.
+    }
+  }
+
+  async isManagedTab(tabId: number): Promise<boolean> {
+    return (await this.findSubjectByTab(tabId)) !== null
+  }
+
+  async findSubjectByTab(tabId: number): Promise<string | null> {
+    const groups = await this.#loadGroups()
+    for (const [subject, group] of Object.entries(groups)) {
+      if (group.allTabIds.includes(tabId)) return subject
+    }
+    return null
   }
 
   /** Persist the Chrome group id for subject, creating the row if needed. */
@@ -186,6 +300,7 @@ export class TabGroupManager {
         mainTabId: group.mainTabId,
         allTabIds: group.allTabIds,
         chromeGroupId,
+        staticIndicatorDismissed: group.staticIndicatorDismissed,
       }
     })
   }
@@ -212,6 +327,7 @@ export class TabGroupManager {
           mainTabId: nextMainTabId,
           allTabIds: nextTabIds,
           chromeGroupId: nextChromeGroupId,
+          staticIndicatorDismissed: group.staticIndicatorDismissed,
         }
         changedSubjectCount += 1
       }
@@ -229,13 +345,20 @@ export class TabGroupManager {
     if (details.frameId !== 0) return
 
     const groups = await this.#loadGroups()
-    const isManaged = Object.values(groups).some(group => group.allTabIds.includes(details.tabId))
-    if (!isManaged) return
+    const subject = subjectForTab(groups, details.tabId)
+    if (!subject) return
 
     this.sendUp(makeEdgeMessage({
       kind: EdgeMessageKind.EventPageNavigated,
       payload: { tab_ref: details.tabId, url: details.url },
     }))
+    await this.showStaticIndicatorForTab(subject, details.tabId)
+  }
+
+  async hideStaticIndicatorForTabs(tabIds: number[]): Promise<void> {
+    await Promise.all(
+      uniqueTabIds(tabIds).map(tabId => this.#sendTabMessage(tabId, { type: 'HIDE_STATIC_INDICATOR' })),
+    )
   }
 
   async #loadGroups(): Promise<TabGroups> {
@@ -265,10 +388,43 @@ export class TabGroupManager {
     this.#mutationQueue = next.catch(() => undefined)
     await next
   }
+
+  async #restoreTitleIfStillGroup(subject: string, groupId: number): Promise<void> {
+    const group = (await this.#loadGroups())[subject]
+    if (group?.chromeGroupId !== groupId) return
+    await this.#setChromeGroupTitle(groupId, GROUP_TITLE)
+  }
+
+  #clearTitleResetTimer(subject: string): void {
+    const timer = this.#titleResetTimers.get(subject)
+    if (timer === undefined) return
+    clearTimeout(timer)
+    this.#titleResetTimers.delete(subject)
+  }
+
+  async #setChromeGroupTitle(groupId: number | null, title: string): Promise<void> {
+    if (typeof groupId !== 'number' || !this.chrome.tabGroups?.update) return
+    try {
+      await this.chrome.tabGroups.update(groupId, { title })
+    } catch {
+      // Best-effort styling; user may have dissolved the group manually.
+    }
+  }
+
+  async #sendTabMessage(tabId: number, message: Record<string, unknown>): Promise<void> {
+    const sendMessage = this.chrome.tabs?.sendMessage
+    if (typeof sendMessage !== 'function') return
+    try {
+      await sendMessage(tabId, message)
+    } catch {
+      // Content script may not be present on chrome://, about:, PDF viewer, or
+      // during navigation. The next completed navigation rebroadcasts.
+    }
+  }
 }
 
 function emptyGroup(): TabGroup {
-  return { mainTabId: null, allTabIds: [], chromeGroupId: null }
+  return { mainTabId: null, allTabIds: [], chromeGroupId: null, staticIndicatorDismissed: false }
 }
 
 function uniqueTabIds(tabIds: number[]): number[] {
@@ -283,6 +439,7 @@ function cloneGroups(groups: TabGroups): TabGroups {
         mainTabId: group.mainTabId,
         allTabIds: [...group.allTabIds],
         chromeGroupId: group.chromeGroupId,
+        staticIndicatorDismissed: group.staticIndicatorDismissed,
       },
     ]),
   )
@@ -304,9 +461,17 @@ function normalizeGroups(raw: unknown): TabGroups {
     const chromeGroupId = typeof maybeGroup.chromeGroupId === 'number'
       ? maybeGroup.chromeGroupId
       : null
+    const staticIndicatorDismissed = maybeGroup.staticIndicatorDismissed === true
 
-    groups[subject] = { mainTabId, allTabIds, chromeGroupId }
+    groups[subject] = { mainTabId, allTabIds, chromeGroupId, staticIndicatorDismissed }
   }
 
   return groups
+}
+
+function subjectForTab(groups: TabGroups, tabId: number): string | null {
+  for (const [subject, group] of Object.entries(groups)) {
+    if (group.allTabIds.includes(tabId)) return subject
+  }
+  return null
 }

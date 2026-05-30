@@ -45,6 +45,8 @@ public class DefaultSnapshotEdgeClient implements SnapshotEdgeClient {
     /** Wire-spec timeout — fast enough to surface "extension is wedged" but
      *  generous enough for slow first-page hydration. Tunable later. */
     public static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(10);
+    public static final int DEFAULT_DEPTH = 15;
+    public static final int DEFAULT_MAX_CHARS = 200_000;
 
     private final ObjectMapper mapper;
     private final Clock clock;
@@ -95,7 +97,9 @@ public class DefaultSnapshotEdgeClient implements SnapshotEdgeClient {
                     .sessionId(session.getId())
                     .payload(Map.of(
                             "tab_ref", mapper.convertValue(tabRef, Object.class),
-                            "filter", filter == null ? "interactive" : filter))
+                            "filter", filter == null ? "interactive" : filter,
+                            "depth", DEFAULT_DEPTH,
+                            "max_chars", DEFAULT_MAX_CHARS))
                     .build();
             session.getWs().sendMessage(new TextMessage(mapper.writeValueAsString(envelope)));
         } catch (Exception e) {
@@ -148,6 +152,7 @@ public class DefaultSnapshotEdgeClient implements SnapshotEdgeClient {
     }
 
     private PageSnapshot parseSnapshot(Map<String, Object> payload) {
+        throwIfFailure(payload);
         String snapshotId = readString(payload, "snapshot_id", "");
         long capturedAt = readLong(payload, "captured_at_ms", clock.instant().toEpochMilli());
         long tabRef = readLong(payload, "tab_ref", -1L);
@@ -159,6 +164,19 @@ public class DefaultSnapshotEdgeClient implements SnapshotEdgeClient {
                 tabRef,
                 tree,
                 vp);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void throwIfFailure(Map<String, Object> payload) {
+        Object raw = payload.get("error");
+        if (!(raw instanceof Map<?, ?> m)) {
+            return;
+        }
+        Map<String, Object> error = (Map<String, Object>) m;
+        String code = readString(error, "code", "SNAPSHOT_FAILED");
+        String message = readString(error, "message", "");
+        boolean retryable = readBoolean(error, "retryable", false);
+        throw new SnapshotFailureException(code, message, retryable);
     }
 
     @SuppressWarnings("unchecked")
@@ -193,6 +211,13 @@ public class DefaultSnapshotEdgeClient implements SnapshotEdgeClient {
         return fallback;
     }
 
+    private static boolean readBoolean(Map<String, Object> map, String key, boolean fallback) {
+        Object v = map.get(key);
+        if (v instanceof Boolean b) return b;
+        if (v instanceof String s) return Boolean.parseBoolean(s);
+        return fallback;
+    }
+
     private static ThreadFactory daemonFactory() {
         return r -> {
             Thread t = new Thread(r, "browser-snapshot-deadline");
@@ -211,5 +236,25 @@ public class DefaultSnapshotEdgeClient implements SnapshotEdgeClient {
     /** Thrown when the underlying session closes mid-fetch. */
     public static class SessionDetachedException extends RuntimeException {
         public SessionDetachedException(String message) { super(message); }
+    }
+
+    /** Thrown when the extension returns an error-shaped a11y snapshot response. */
+    public static class SnapshotFailureException extends RuntimeException {
+        private final String code;
+        private final boolean retryable;
+
+        public SnapshotFailureException(String code, String message, boolean retryable) {
+            super(code + (message == null || message.isBlank() ? "" : ": " + message));
+            this.code = code;
+            this.retryable = retryable;
+        }
+
+        public String code() {
+            return code;
+        }
+
+        public boolean retryable() {
+            return retryable;
+        }
     }
 }

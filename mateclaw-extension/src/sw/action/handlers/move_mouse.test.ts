@@ -4,7 +4,7 @@ import { ActionFailureError } from '../ActionExecutor'
 import type { DebuggerManager } from '../../debugger-manager'
 import { SessionDetachedError } from '../../debugger-manager'
 import type { Point } from '../../../lib/windmouse'
-import { moveMouseHandler } from './move_mouse'
+import { moveMouseHandler, viewportCenterFromDebugger } from './move_mouse'
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -162,7 +162,7 @@ describe('move_mouse handler', () => {
     })
   })
 
-  it('first move starts from {0,0} when cursorState is empty', async () => {
+  it('first move starts from injected viewport center when cursorState is empty', async () => {
     const { debuggerStub, sent } = fakeDebugger()
     const { sleep } = fakeSleep()
     const cursorState = new Map<number, Point>()
@@ -172,21 +172,38 @@ describe('move_mouse handler', () => {
       clock: () => 0,
       sleep,
       cursorState,
+      initialCursorPosition: async () => ({ x: 320, y: 240 }),
+      cursorEmitMinIntervalMs: 0,
     })
 
-    // Linear profile is the cleanest way to assert the starting point —
-    // it generates exactly [from, to]; if from were anything other than
-    // {0,0} the destination dispatch would be the second event, not the
-    // first, and the cursor history would carry the prior tab's position.
-    await handler(99, { x: 50, y: 80, profile: 'linear' }, 5000)
+    await handler(99, { x: 50, y: 80, profile: 'natural' }, 5000)
 
-    // The dispatched (destination) waypoint is {50, 80}; cursorState now
-    // holds {50, 80}. Crucial: if a previous test had populated this map
-    // we would see *its* values here. The Map is fresh, so the start of
-    // the path was {0,0} as required.
-    expect(sent).toHaveLength(1)
-    expect(sent[0]!.params).toMatchObject({ x: 50, y: 80 })
+    expect(sent.length).toBeGreaterThanOrEqual(4)
+    // The first dispatched waypoint should be near the viewport center, not
+    // the old top-left origin. This keeps the user-visible cursor from flying
+    // diagonally across the whole page on first use.
+    expect(sent[0]!.params.x as number).toBeGreaterThan(250)
+    expect(sent[0]!.params.y as number).toBeGreaterThan(180)
     expect(cursorState.get(99)).toEqual({ x: 50, y: 80 })
+  })
+
+  it('first move falls back to {640,400} if initial cursor resolver fails', async () => {
+    const { debuggerStub, sent } = fakeDebugger()
+    const { sleep } = fakeSleep()
+    const handler = moveMouseHandler({
+      debugger: debuggerStub,
+      random: seededRandom(99),
+      clock: () => 0,
+      sleep,
+      initialCursorPosition: async () => {
+        throw new Error('viewport unavailable')
+      },
+    })
+
+    await handler(99, { x: 50, y: 80, profile: 'natural' }, 5000)
+
+    expect(sent[0]!.params.x as number).toBeGreaterThan(560)
+    expect(sent[0]!.params.y as number).toBeGreaterThan(330)
   })
 
   it('subsequent move starts from previous arrival point (cursorState carries over)', async () => {
@@ -594,6 +611,22 @@ describe('move_mouse handler', () => {
 
     expect(result.ok).toBe(true)
     expect(sent.length).toBeGreaterThanOrEqual(4)
+  })
+
+  it('viewportCenterFromDebugger reads the page viewport center via Runtime.evaluate', async () => {
+    const { debuggerStub } = fakeDebugger()
+    vi.spyOn(debuggerStub, 'send').mockResolvedValueOnce({
+      result: { type: 'object', value: { x: 390, y: 422 } },
+    } as any)
+
+    const point = await viewportCenterFromDebugger(debuggerStub, 77)
+
+    expect(point).toEqual({ x: 390, y: 422 })
+    expect(debuggerStub.send).toHaveBeenCalledWith(
+      77,
+      'Runtime.evaluate',
+      expect.objectContaining({ returnByValue: true }),
+    )
   })
 })
 

@@ -113,3 +113,4 @@ scripts/.*-sync-state.json
 # Sandbox / external client work that lives in this directory
 # but should not ship in the repo.
 outputs/
+.browser-e2e/

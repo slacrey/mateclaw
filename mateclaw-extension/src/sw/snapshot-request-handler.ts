@@ -15,6 +15,8 @@ export interface SnapshotRequestHandlerDeps {
 }
 
 type SnapshotFilter = 'interactive' | 'all' | 'default'
+const DEFAULT_DEPTH = 15
+const DEFAULT_MAX_CHARS = 200000
 
 interface SnapshotRequestPayload {
   tab_ref: TabRef
@@ -124,11 +126,12 @@ export class SnapshotRequestHandler {
         if (typeof frameId === 'number') {
           ;(window as Window & { __mateclaw_a11y_frame_id?: number }).__mateclaw_a11y_frame_id = frameId
         }
+        const requestedRefId = typeof refId === 'string' ? refId : undefined
         const tree = window.__mateclaw_a11y_tree?.(
           filter as 'interactive' | 'all' | 'default',
           depth as number,
           maxChars as number,
-          refId as string | undefined,
+          requestedRefId,
         )
         if (typeof tree !== 'string') {
           throw new Error('window.__mateclaw_a11y_tree is not available')
@@ -144,7 +147,7 @@ export class SnapshotRequestHandler {
           viewport: { w: vw, h: vh },
         }
       },
-      args: [req.filter, req.depth, req.max_chars, req.ref_id ?? undefined, req.frame_id],
+      args: [req.filter, req.depth, req.max_chars, req.ref_id ?? null, req.frame_id ?? null],
     })
     const first = results[0]?.result
     if (!isSnapshotResult(first)) {
@@ -202,15 +205,19 @@ function parseSnapshotRequest(payload: unknown): SnapshotRequestPayload | null {
 
   if (p.tab_ref !== 'main' && p.tab_ref !== 'active' && typeof p.tab_ref !== 'number') return null
   if (p.filter !== 'interactive' && p.filter !== 'all' && p.filter !== 'default') return null
-  if (typeof p.depth !== 'number') return null
-  if (typeof p.max_chars !== 'number') return null
+  if (p.depth !== undefined && typeof p.depth !== 'number') return null
+  if (p.max_chars !== undefined && typeof p.max_chars !== 'number') return null
   if (p.ref_id !== undefined && typeof p.ref_id !== 'string') return null
   if (p.frame_id !== undefined || 'frame_id' in p) {
     if (typeof p.frame_id !== 'number') return null
     if (!Number.isInteger(p.frame_id) || p.frame_id < 0) return null
   }
 
-  return p as unknown as SnapshotRequestPayload
+  return {
+    ...p,
+    depth: typeof p.depth === 'number' ? p.depth : DEFAULT_DEPTH,
+    max_chars: typeof p.max_chars === 'number' ? p.max_chars : DEFAULT_MAX_CHARS,
+  } as unknown as SnapshotRequestPayload
 }
 
 function isSnapshotResult(value: unknown): value is SnapshotResult {

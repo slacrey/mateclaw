@@ -78,8 +78,11 @@ class DefaultSnapshotEdgeClientTest {
 
         assertThat(envelope.getKind()).isEqualTo(EdgeMessageKind.A11Y_SNAPSHOT_REQUEST);
         assertThat(envelope.getSessionId()).isEqualTo("sess-1");
-        assertThat(envelope.getPayload()).containsKeys("tab_ref", "filter");
+        assertThat(envelope.getPayload()).containsKeys("tab_ref", "filter", "depth", "max_chars");
+        assertThat(envelope.getPayload()).containsEntry("tab_ref", "main");
         assertThat(envelope.getPayload().get("filter")).isEqualTo("interactive");
+        assertThat(envelope.getPayload()).containsEntry("depth", 15);
+        assertThat(envelope.getPayload()).containsEntry("max_chars", 200_000);
 
         // future not yet completed
         assertThat(future.isDone()).isFalse();
@@ -118,6 +121,27 @@ class DefaultSnapshotEdgeClientTest {
                 "viewport", Map.of("w", 800, "h", 600)));
         PageSnapshot snap = future.get(500, TimeUnit.MILLISECONDS);
         assertThat(snap.snapshotId()).isNotBlank();
+    }
+
+    @Test
+    void deliverSnapshot_errorPayload_failsFutureWithSnapshotFailure() throws Exception {
+        var future = client.request(session, new TabRef.Main(), "interactive").toFuture();
+
+        client.deliverSnapshot(capturedEnvelopeMsgId(), Map.of(
+                "snapshot_id", "snap-failed",
+                "captured_at_ms", 1L,
+                "tab_ref", -1L,
+                "tree", "",
+                "viewport", Map.of("w", 0, "h", 0),
+                "error", Map.of(
+                        "code", "SNAPSHOT_FAILED",
+                        "message", "a11y.snapshot.request payload was malformed",
+                        "retryable", false)));
+
+        assertThatThrownBy(() -> future.get(500, TimeUnit.MILLISECONDS))
+                .isInstanceOf(ExecutionException.class)
+                .hasCauseInstanceOf(DefaultSnapshotEdgeClient.SnapshotFailureException.class)
+                .hasMessageContaining("SNAPSHOT_FAILED");
     }
 
     @Test

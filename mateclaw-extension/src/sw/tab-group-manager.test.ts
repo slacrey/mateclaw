@@ -3,7 +3,12 @@ import type { EdgeMessage } from '../shared/edge-protocol'
 import { EdgeMessageKind } from '../shared/edge-protocol'
 import { TabGroupManager } from './tab-group-manager'
 
-type TabGroup = { mainTabId: number | null; allTabIds: number[]; chromeGroupId: number | null }
+type TabGroup = {
+  mainTabId: number | null
+  allTabIds: number[]
+  chromeGroupId: number | null
+  staticIndicatorDismissed?: boolean
+}
 type StorageShape = { tabGroups: Record<string, TabGroup> }
 
 function fakeChrome(storage: StorageShape = { tabGroups: {} }, opts: { nextGroupId?: number } = {}) {
@@ -14,6 +19,9 @@ function fakeChrome(storage: StorageShape = { tabGroups: {} }, opts: { nextGroup
   // create-then-title/color sequence.
   const groupCalls: Array<{ tabIds: number[]; groupId?: number }> = []
   const updateCalls: Array<{ groupId: number; props: chrome.tabGroups.UpdateProperties }> = []
+  const tabMessages: Array<{ tabId: number; message: unknown }> = []
+  const tabUpdates: Array<{ tabId: number; props: chrome.tabs.UpdateProperties }> = []
+  const windowUpdates: Array<{ windowId: number; props: chrome.windows.UpdateInfo }> = []
   let nextGroupId = opts.nextGroupId ?? 7000
 
   return {
@@ -37,6 +45,15 @@ function fakeChrome(storage: StorageShape = { tabGroups: {} }, opts: { nextGroup
           if (typeof info.groupId === 'number') return info.groupId
           return nextGroupId++
         }),
+        sendMessage: vi.fn(async (tabId: number, message: unknown) => {
+          tabMessages.push({ tabId, message })
+          return { ok: true }
+        }),
+        update: vi.fn(async (tabId: number, props: chrome.tabs.UpdateProperties) => {
+          tabUpdates.push({ tabId, props })
+          return { id: tabId, windowId: 901 } as chrome.tabs.Tab
+        }),
+        get: vi.fn(async (tabId: number) => ({ id: tabId, windowId: 901 }) as chrome.tabs.Tab),
       },
       tabGroups: {
         update: vi.fn(async (groupId: number, props: chrome.tabGroups.UpdateProperties) => {
@@ -49,11 +66,20 @@ function fakeChrome(storage: StorageShape = { tabGroups: {} }, opts: { nextGroup
           addListener: (fn: any) => onPageLoadedListeners.push(fn),
         },
       },
+      windows: {
+        update: vi.fn(async (windowId: number, props: chrome.windows.UpdateInfo) => {
+          windowUpdates.push({ windowId, props })
+          return { id: windowId, focused: props.focused } as chrome.windows.Window
+        }),
+      },
     } as unknown as typeof globalThis.chrome,
     storage,
     sentUp,
     groupCalls,
     updateCalls,
+    tabMessages,
+    tabUpdates,
+    windowUpdates,
     sendUp: (msg: EdgeMessage) => {
       sentUp.push(msg)
     },
@@ -73,7 +99,12 @@ describe('TabGroupManager', () => {
 
     await manager.setMainTabId('alice', 42)
 
-    expect(f.storage.tabGroups.alice).toEqual({ mainTabId: 42, allTabIds: [42], chromeGroupId: null })
+    expect(f.storage.tabGroups.alice).toEqual({
+      mainTabId: 42,
+      allTabIds: [42],
+      chromeGroupId: null,
+      staticIndicatorDismissed: false,
+    })
     expect(await manager.getMainTabId('alice')).toBe(42)
   })
 
@@ -100,7 +131,12 @@ describe('TabGroupManager', () => {
 
     await manager.addTab('alice', 42)
 
-    expect(f.storage.tabGroups.alice).toEqual({ mainTabId: null, allTabIds: [42], chromeGroupId: null })
+    expect(f.storage.tabGroups.alice).toEqual({
+      mainTabId: null,
+      allTabIds: [42],
+      chromeGroupId: null,
+      staticIndicatorDismissed: false,
+    })
     expect(await manager.getMainTabId('alice')).toBeNull()
   })
 
@@ -192,7 +228,12 @@ describe('TabGroupManager', () => {
     await manager.addTab('alice', 43)
     await manager.unbind('alice')
 
-    expect(f.storage.tabGroups.alice).toEqual({ mainTabId: null, allTabIds: [], chromeGroupId: null })
+    expect(f.storage.tabGroups.alice).toEqual({
+      mainTabId: null,
+      allTabIds: [],
+      chromeGroupId: null,
+      staticIndicatorDismissed: false,
+    })
     expect(await manager.getMainTabId('alice')).toBeNull()
   })
 
@@ -280,5 +321,75 @@ describe('TabGroupManager', () => {
     await f.triggerTabClose(42)
 
     expect(await manager.getChromeGroupId('alice')).toBeNull()
+  })
+
+  it('joinChromeGroup sends the static controlled-group indicator to the tab', async () => {
+    const f = fakeChrome({ tabGroups: {} }, { nextGroupId: 7001 })
+    const manager = new TabGroupManager(f.chrome, f.sendUp)
+
+    await manager.setMainTabId('alice', 42)
+    await manager.joinChromeGroup('alice', 42)
+
+    expect(f.tabMessages).toContainEqual({
+      tabId: 42,
+      message: { type: 'SHOW_STATIC_INDICATOR', dismissed: false },
+    })
+  })
+
+  it('dismissStaticIndicatorForTab persists dismissal and hides it for every tab in the group', async () => {
+    const f = fakeChrome({ tabGroups: {} }, { nextGroupId: 7001 })
+    const manager = new TabGroupManager(f.chrome, f.sendUp)
+
+    await manager.setMainTabId('alice', 42)
+    await manager.addTab('alice', 43)
+    f.tabMessages.length = 0
+
+    await manager.dismissStaticIndicatorForTab(43)
+
+    expect(f.storage.tabGroups.alice?.staticIndicatorDismissed).toBe(true)
+    expect(f.tabMessages).toEqual([
+      { tabId: 42, message: { type: 'HIDE_STATIC_INDICATOR' } },
+      { tabId: 43, message: { type: 'HIDE_STATIC_INDICATOR' } },
+    ])
+  })
+
+  it('static heartbeat helpers identify managed tabs', async () => {
+    const f = fakeChrome()
+    const manager = new TabGroupManager(f.chrome, f.sendUp)
+
+    await manager.setMainTabId('alice', 42)
+
+    expect(await manager.isManagedTab(42)).toBe(true)
+    expect(await manager.isManagedTab(99)).toBe(false)
+  })
+
+  it('switchToMainTabForTab activates the subject main tab and focuses its window', async () => {
+    const f = fakeChrome()
+    const manager = new TabGroupManager(f.chrome, f.sendUp)
+
+    await manager.setMainTabId('alice', 42)
+    await manager.addTab('alice', 43)
+    await manager.switchToMainTabForTab(43)
+
+    expect(f.tabUpdates).toEqual([{ tabId: 42, props: { active: true } }])
+    expect(f.windowUpdates).toEqual([{ windowId: 901, props: { focused: true } }])
+  })
+
+  it('markWorking / markDone update the Chrome group title and can reset immediately', async () => {
+    const f = fakeChrome({ tabGroups: {} }, { nextGroupId: 7001 })
+    const manager = new TabGroupManager(f.chrome, f.sendUp)
+
+    await manager.setMainTabId('alice', 42)
+    await manager.joinChromeGroup('alice', 42)
+    f.updateCalls.length = 0
+
+    await manager.markWorking('alice')
+    await manager.markDone('alice', { resetAfterMs: 0 })
+
+    expect(f.updateCalls).toEqual([
+      { groupId: 7001, props: { title: 'MateClaw - Working' } },
+      { groupId: 7001, props: { title: 'MateClaw - Done' } },
+      { groupId: 7001, props: { title: 'MateClaw' } },
+    ])
   })
 })

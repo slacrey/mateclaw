@@ -27,6 +27,7 @@ import vip.mate.browser.orchestrator.PlanResult;
 import vip.mate.browser.orchestrator.domain.GroundingHint;
 import vip.mate.browser.orchestrator.domain.GroundingResult;
 import vip.mate.browser.orchestrator.domain.Step;
+import vip.mate.browser.orchestrator.snapshot.DefaultSnapshotEdgeClient.SnapshotFailureException;
 import vip.mate.browser.orchestrator.snapshot.PageSnapshotService;
 
 import java.util.List;
@@ -324,6 +325,12 @@ public class ExtensionBrowserTool {
                     "viewport", Map.of("w", snapshot.viewport().w(), "h", snapshot.viewport().h()),
                     "tree", snapshot.tree()));
         } catch (Exception e) {
+            if (e instanceof SnapshotFailureException sfe) {
+                return error(sfe.code(), sfe.getMessage());
+            }
+            if (e.getCause() instanceof SnapshotFailureException sfe) {
+                return error(sfe.code(), sfe.getMessage());
+            }
             return error("SNAPSHOT_FAILED", e.getMessage());
         }
     }

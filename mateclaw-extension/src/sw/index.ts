@@ -12,7 +12,7 @@
 // forwards inbound Edge messages to the sidepanel. Also exposes the
 // externally_connectable ping/pair/unpair protocol for the admin UI (§2).
 
-import { EdgeMessageKind, type EdgeMessage } from '../shared/edge-protocol'
+import { EdgeMessageKind, makeEdgeMessage, type EdgeMessage } from '../shared/edge-protocol'
 import { NativeBridge } from './native-bridge'
 import { DirectBridgeClient } from './direct-bridge'
 import { ConfigStore } from './config-store'
@@ -28,7 +28,7 @@ import { navigateHandler } from './action/handlers/navigate'
 import { clickHandler } from './action/handlers/click'
 import { typeHandler } from './action/handlers/type'
 import { scrollHandler } from './action/handlers/scroll'
-import { moveMouseHandler } from './action/handlers/move_mouse'
+import { moveMouseHandler, viewportCenterFromDebugger } from './action/handlers/move_mouse'
 import { waitHandler } from './action/handlers/wait'
 import type { Point } from '../lib/windmouse'
 
@@ -168,7 +168,12 @@ const handlers: ActionHandlers = {
   click:      clickHandler({ debugger: debuggerManager }),
   type:       typeHandler({ debugger: debuggerManager }),
   scroll:     scrollHandler({ debugger: debuggerManager }),
-  move_mouse: moveMouseHandler({ debugger: debuggerManager, cursorState, chrome }),
+  move_mouse: moveMouseHandler({
+    debugger: debuggerManager,
+    cursorState,
+    chrome,
+    initialCursorPosition: tabId => viewportCenterFromDebugger(debuggerManager, tabId),
+  }),
   wait:       waitHandler({ chrome }),
 }
 
@@ -187,6 +192,8 @@ const router = new ActionRouter({
   executor,
   sendUp,
   inflight,
+  tabGroupManager,
+  subject: SUBJECT,
 })
 
 const snapshotHandler = new SnapshotRequestHandler({
@@ -209,7 +216,51 @@ const visualCoordinator = new VisualCoordinator({
 // Inbound Edge messages — single dispatcher re-subscribed on each transport.
 // -----------------------------------------------------------------
 
+/**
+ * Synthesize an `indicator.show` envelope for the same tab_ref carried by an
+ * inbound work envelope (action.execute / a11y.snapshot.request /
+ * screenshot.capture.request) and route it through the VisualCoordinator.
+ *
+ * <p>The orchestrator only emits `indicator.hide` (on user-stop / cancel) —
+ * never `indicator.show` — so without this hook live tasks render with no
+ * visual feedback at all. Auto-routing SHOW here is idempotent (the
+ * VisualCoordinator's heartbeat-start dedupes), survives content-script
+ * navigation (every subsequent action re-mounts overlays on the post-nav
+ * page), and matches the official Claude-in-Chrome takeover feel where the
+ * cursor + glow + Stop button stay visible for the duration of the agent's
+ * activity. HIDE remains driven by stop-click / cancel.
+ */
+function autoShowIndicators(inbound: EdgeMessage): void {
+  const payload = inbound.payload as { tab_ref?: unknown } | undefined
+  const tabRef = payload?.tab_ref
+  if (tabRef === undefined) return
+  visualCoordinator
+    .handle(makeEdgeMessage({
+      kind: EdgeMessageKind.IndicatorShow,
+      traceId: inbound.trace_id,
+      payload: { tab_ref: tabRef },
+    }))
+    .catch(e => {
+      console.warn('[mateclaw][sw] auto IndicatorShow failed', e)
+    })
+}
+
 function dispatchInbound(m: EdgeMessage): void {
+  // Auto-show indicators on any inbound work envelope so the user sees the
+  // glow + phantom cursor + Stop button whenever the agent is acting on
+  // their browser — matches the official "Claude in Chrome" experience.
+  // The orchestrator currently only emits indicator.hide (on cancel); without
+  // this hook live tasks would never visibly indicate that the agent has
+  // taken control. VisualCoordinator's heartbeat-start is idempotent, so
+  // re-firing SHOW on every action/snapshot is a no-op after the first.
+  if (
+    m.kind === EdgeMessageKind.ActionExecute ||
+    m.kind === EdgeMessageKind.A11ySnapshotRequest ||
+    m.kind === EdgeMessageKind.ScreenshotCaptureRequest
+  ) {
+    autoShowIndicators(m)
+  }
+
   // Route action.* / indicator.stop_clicked through the ActionRouter.
   if (
     m.kind === EdgeMessageKind.ActionExecute ||
@@ -354,7 +405,7 @@ function safeOrigin(url: string): string | undefined {
 // -----------------------------------------------------------------
 
 chrome.runtime.onMessage.addListener(
-  (req: unknown, _sender, sendResponse: (r: unknown) => void) => {
+  (req: unknown, sender, sendResponse: (r: unknown) => void) => {
     const r = req as { kind?: string; message?: unknown; serverUrl?: string; pat?: string; deviceName?: string }
     switch (r?.kind) {
       case 'edge.outbound':
@@ -396,6 +447,57 @@ chrome.runtime.onMessage.addListener(
           )
           .catch(e => sendResponse({ connected: false, error: String(e) }))
         return true
+      default:
+        break
+    }
+
+    const internal = req as { type?: string }
+    switch (internal?.type) {
+      case 'STOP_AGENT': {
+        const tabId = sender.tab?.id
+        sendUp(makeEdgeMessage({
+          kind: EdgeMessageKind.IndicatorStopClicked,
+          payload: typeof tabId === 'number' ? { tab_ref: tabId } : {},
+        }))
+        sendResponse({ ok: true })
+        return true
+      }
+      case 'STATIC_INDICATOR_HEARTBEAT': {
+        const tabId = sender.tab?.id
+        if (typeof tabId !== 'number') {
+          sendResponse({ ok: false })
+          return true
+        }
+        tabGroupManager
+          .isManagedTab(tabId)
+          .then(ok => sendResponse({ ok }))
+          .catch(() => sendResponse({ ok: false }))
+        return true
+      }
+      case 'DISMISS_STATIC_INDICATOR_FOR_GROUP': {
+        const tabId = sender.tab?.id
+        if (typeof tabId !== 'number') {
+          sendResponse({ ok: false })
+          return true
+        }
+        tabGroupManager
+          .dismissStaticIndicatorForTab(tabId)
+          .then(() => sendResponse({ ok: true }))
+          .catch(e => sendResponse({ ok: false, error: String(e) }))
+        return true
+      }
+      case 'SWITCH_TO_MAIN_TAB': {
+        const tabId = sender.tab?.id
+        if (typeof tabId !== 'number') {
+          sendResponse({ ok: false })
+          return true
+        }
+        tabGroupManager
+          .switchToMainTabForTab(tabId)
+          .then(() => sendResponse({ ok: true }))
+          .catch(e => sendResponse({ ok: false, error: String(e) }))
+        return true
+      }
       default:
         return undefined
     }

@@ -311,15 +311,23 @@ declare global {
 
   function currentFrameId(): number {
     const injected = window.__mateclaw_a11y_frame_id
-    if (Number.isInteger(injected) && injected >= 0) return injected
+    if (isNonNegativeInteger(injected)) return injected
     if (isTopWindow(window)) return 0
 
     const generated = window.__mateclaw_a11y_generated_frame_id
-    if (Number.isInteger(generated) && generated > 0) return generated
+    if (isPositiveInteger(generated)) return generated
 
     const fallback = generateFallbackFrameId()
     window.__mateclaw_a11y_generated_frame_id = fallback
     return fallback
+  }
+
+  function isNonNegativeInteger(value: unknown): value is number {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 0
+  }
+
+  function isPositiveInteger(value: unknown): value is number {
+    return typeof value === 'number' && Number.isInteger(value) && value > 0
   }
 
   function generateFallbackFrameId(): number {

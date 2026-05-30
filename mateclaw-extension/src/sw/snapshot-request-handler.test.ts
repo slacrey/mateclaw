@@ -82,7 +82,7 @@ describe('SnapshotRequestHandler', () => {
     }))
     expect(chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
       target: { tabId: 42, allFrames: false },
-      args: ['interactive', 15, 200000, undefined, undefined],
+      args: ['interactive', 15, 200000, null, null],
     }))
     expect(sentUp).toHaveLength(1)
     expect(sentUp[0]!.kind).toBe(EdgeMessageKind.A11ySnapshotResponse)
@@ -214,7 +214,7 @@ describe('SnapshotRequestHandler', () => {
     }))
 
     expect(chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
-      args: ['interactive', 10, 50000, 'ref_3', undefined],
+      args: ['interactive', 10, 50000, 'ref_3', null],
     }))
   })
 
@@ -228,8 +228,25 @@ describe('SnapshotRequestHandler', () => {
     }))
 
     expect(chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
-      args: ['interactive', 10, 50000, undefined, undefined],
+      args: ['interactive', 10, 50000, null, null],
     }))
+  })
+
+  it('defaults missing depth/max_chars for legacy snapshot requests', async () => {
+    const { handler, chrome, sentUp } = makeHandler()
+
+    await handler.handle(snapshotRequest({
+      depth: undefined,
+      max_chars: undefined,
+    }))
+
+    expect(chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
+      args: ['interactive', 15, 200000, null, null],
+    }))
+    expect(sentUp[0]!.payload).toMatchObject({
+      tree: 'Button[ref=ref_1]: Submit',
+      viewport: { w: 1280, h: 800 },
+    })
   })
 
   it('uses target.frameIds when frame_id is explicitly provided', async () => {
@@ -239,7 +256,7 @@ describe('SnapshotRequestHandler', () => {
 
     expect(chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
       target: { tabId: 42, frameIds: [7] },
-      args: ['interactive', 15, 200000, undefined, 7],
+      args: ['interactive', 15, 200000, null, 7],
     }))
   })
 
@@ -250,7 +267,7 @@ describe('SnapshotRequestHandler', () => {
 
     expect(chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
       target: { tabId: 42, frameIds: [0] },
-      args: ['interactive', 15, 200000, undefined, 0],
+      args: ['interactive', 15, 200000, null, 0],
     }))
   })
 
