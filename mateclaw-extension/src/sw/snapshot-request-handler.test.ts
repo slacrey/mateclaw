@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
-import { SnapshotRequestHandler } from './snapshot-request-handler'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { SnapshotRequestHandler, settleArgs, waitForSettle } from './snapshot-request-handler'
 import { EdgeMessageKind, type EdgeMessage } from '../shared/edge-protocol'
 import type { TabRefResolver } from './action/tab-ref-resolver'
 import type { TabRef } from './action/types'
@@ -82,7 +82,8 @@ describe('SnapshotRequestHandler', () => {
     }))
     expect(chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
       target: { tabId: 42, allFrames: false },
-      args: ['interactive', 15, 200000, null, null],
+      // settleQuietMs(200) + settleCapMs(2000) appended after the original 5 args.
+      args: ['interactive', 15, 200000, null, null, 200, 2000],
     }))
     expect(sentUp).toHaveLength(1)
     expect(sentUp[0]!.kind).toBe(EdgeMessageKind.A11ySnapshotResponse)
@@ -214,7 +215,7 @@ describe('SnapshotRequestHandler', () => {
     }))
 
     expect(chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
-      args: ['interactive', 10, 50000, 'ref_3', null],
+      args: ['interactive', 10, 50000, 'ref_3', null, 200, 2000],
     }))
   })
 
@@ -228,7 +229,7 @@ describe('SnapshotRequestHandler', () => {
     }))
 
     expect(chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
-      args: ['interactive', 10, 50000, null, null],
+      args: ['interactive', 10, 50000, null, null, 200, 2000],
     }))
   })
 
@@ -241,7 +242,7 @@ describe('SnapshotRequestHandler', () => {
     }))
 
     expect(chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
-      args: ['interactive', 15, 200000, null, null],
+      args: ['interactive', 15, 200000, null, null, 200, 2000],
     }))
     expect(sentUp[0]!.payload).toMatchObject({
       tree: 'Button[ref=ref_1]: Submit',
@@ -256,7 +257,7 @@ describe('SnapshotRequestHandler', () => {
 
     expect(chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
       target: { tabId: 42, frameIds: [7] },
-      args: ['interactive', 15, 200000, null, 7],
+      args: ['interactive', 15, 200000, null, 7, 200, 2000],
     }))
   })
 
@@ -267,7 +268,7 @@ describe('SnapshotRequestHandler', () => {
 
     expect(chrome.scripting.executeScript).toHaveBeenCalledWith(expect.objectContaining({
       target: { tabId: 42, frameIds: [0] },
-      args: ['interactive', 15, 200000, null, 0],
+      args: ['interactive', 15, 200000, null, 0, 200, 2000],
     }))
   })
 
@@ -317,5 +318,200 @@ describe('SnapshotRequestHandler', () => {
     await handler.handle(snapshotRequest())
 
     expect(sentUp[0]!.payload!.viewport).toEqual({ w: 390, h: 844 })
+  })
+
+  // ---------------------------------------------------------------------
+  // DOM-settle regression coverage. The settle wait runs INSIDE the real
+  // injected func (mocked away here), so these tests assert the wiring
+  // around it: response shape is unchanged, and empty trees still pass
+  // through empty (the server caches blank trees as STALE — must not be
+  // defeated by adding a settle step). waitForSettle's own timing logic is
+  // unit-tested separately below with fake timers.
+  // ---------------------------------------------------------------------
+
+  it('settle wiring: response still carries url/title/tree/viewport unchanged', async () => {
+    const { chrome } = fakeChrome()
+    ;(chrome.scripting.executeScript as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([({
+      result: {
+        tree: 'Button[ref=ref_1]: Submit',
+        viewport: { w: 1024, h: 768 },
+        url: 'https://www.douyin.com/search/cat',
+        title: '猫 - 抖音搜索',
+      },
+      frameId: 0,
+    }) as unknown as chrome.scripting.InjectionResult<unknown>])
+    const { handler, sentUp } = makeHandler({ chrome })
+
+    await handler.handle(snapshotRequest())
+
+    expect(sentUp[0]!.payload).toMatchObject({
+      tree: 'Button[ref=ref_1]: Submit',
+      viewport: { w: 1024, h: 768 },
+      url: 'https://www.douyin.com/search/cat',
+      title: '猫 - 抖音搜索',
+    })
+  })
+
+  it('settle does not change empty-tree behavior: empty tree stays "" (server STALE cache intact)', async () => {
+    const { chrome } = fakeChrome()
+    ;(chrome.scripting.executeScript as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([({
+      result: {
+        tree: '',
+        viewport: { w: 1280, h: 800 },
+        url: 'https://example.com',
+        title: 'Example',
+      },
+      frameId: 0,
+    }) as unknown as chrome.scripting.InjectionResult<unknown>])
+    const { handler, sentUp } = makeHandler({ chrome })
+
+    await handler.handle(snapshotRequest())
+
+    // Empty tree is propagated verbatim — NOT turned into a SNAPSHOT_FAILED
+    // error and NOT backfilled with anything. The settle step is orthogonal.
+    expect(sentUp[0]!.payload!.tree).toBe('')
+    expect(sentUp[0]!.payload!.error).toBeUndefined()
+    expect(sentUp[0]!.payload).toMatchObject({
+      url: 'https://example.com',
+      title: 'Example',
+      viewport: { w: 1280, h: 800 },
+    })
+  })
+
+  it('settle timings default to 200/2000 in the extractor args', async () => {
+    const { handler, chrome } = makeHandler()
+
+    await handler.handle(snapshotRequest())
+
+    const extractionCall = (chrome.scripting.executeScript as unknown as ReturnType<typeof vi.fn>)
+      .mock.calls.find(c => Array.isArray((c[0] as { args?: unknown[] }).args))?.[0] as { args: unknown[] }
+    expect(extractionCall.args.slice(-2)).toEqual([200, 2000])
+  })
+})
+
+describe('settleArgs', () => {
+  it('defaults to [200, 2000] when no overrides supplied', () => {
+    expect(settleArgs()).toEqual([200, 2000])
+    expect(settleArgs({})).toEqual([200, 2000])
+  })
+
+  it('passes through valid non-negative finite overrides', () => {
+    expect(settleArgs({ quietMs: 10, capMs: 50 })).toEqual([10, 50])
+    expect(settleArgs({ quietMs: 0, capMs: 0 })).toEqual([0, 0])
+  })
+
+  it('clamps bogus values (negative / NaN / Infinity / non-number) to defaults', () => {
+    expect(settleArgs({ quietMs: -5, capMs: -1 })).toEqual([200, 2000])
+    expect(settleArgs({ quietMs: NaN, capMs: Infinity })).toEqual([200, 2000])
+    expect(settleArgs({ quietMs: '10' as unknown as number })).toEqual([200, 2000])
+  })
+})
+
+describe('waitForSettle', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    document.documentElement.innerHTML = ''
+  })
+
+  function setReadyState(state: DocumentReadyState) {
+    Object.defineProperty(document, 'readyState', {
+      configurable: true,
+      get: () => state,
+    })
+  }
+
+  it('readyState=complete + quiet window elapses -> resolves after quietMs', async () => {
+    setReadyState('complete')
+    const settled = vi.fn()
+    const p = waitForSettle(document, { quietMs: 200, capMs: 2000 }).then(settled)
+
+    // Not yet: quiet window hasn't fully elapsed.
+    await vi.advanceTimersByTimeAsync(199)
+    expect(settled).not.toHaveBeenCalled()
+
+    // Cross the 200ms quiet boundary -> resolves (well before the 2000ms cap).
+    await vi.advanceTimersByTimeAsync(1)
+    await p
+    expect(settled).toHaveBeenCalledOnce()
+  })
+
+  it('a DOM mutation resets the quiet timer (does not resolve early)', async () => {
+    setReadyState('complete')
+    const settled = vi.fn()
+    const p = waitForSettle(document, { quietMs: 200, capMs: 5000 }).then(settled)
+
+    // 150ms into the first quiet window, mutate the DOM. happy-dom delivers
+    // MutationObserver records on a ~1ms timer, so step forward a touch to let
+    // the observer fire — it clears the in-flight quiet timer and re-arms a
+    // fresh 200ms window from "now" (~151ms).
+    await vi.advanceTimersByTimeAsync(150)
+    expect(settled).not.toHaveBeenCalled()
+    document.documentElement.appendChild(document.createElement('div'))
+    await vi.advanceTimersByTimeAsync(5) // flush observer delivery + re-arm
+
+    // 150ms more (total ~305ms) — but only ~150ms since the reset, so the
+    // fresh quiet window has NOT elapsed yet.
+    await vi.advanceTimersByTimeAsync(150)
+    expect(settled).not.toHaveBeenCalled()
+
+    // Complete the fresh quiet window (another ~55ms gets us past 200ms of
+    // quiet since the mutation). Give margin.
+    await vi.advanceTimersByTimeAsync(100)
+    await p
+    expect(settled).toHaveBeenCalledOnce()
+  })
+
+  it('hard cap fires while still loading (readyState never reaches complete)', async () => {
+    setReadyState('loading')
+    const settled = vi.fn()
+    const p = waitForSettle(document, { quietMs: 200, capMs: 1000 }).then(settled)
+
+    // Quiet timer never arms while loading; only the cap can resolve it.
+    await vi.advanceTimersByTimeAsync(999)
+    expect(settled).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1)
+    await p
+    expect(settled).toHaveBeenCalledOnce()
+  })
+
+  it('cap wins over quiet when cap < quiet', async () => {
+    setReadyState('complete')
+    const settled = vi.fn()
+    const p = waitForSettle(document, { quietMs: 5000, capMs: 300 }).then(settled)
+
+    await vi.advanceTimersByTimeAsync(300)
+    await p
+    expect(settled).toHaveBeenCalledOnce()
+  })
+
+  it('mutations during loading do NOT arm the quiet timer; resolution waits for load + quiet', async () => {
+    setReadyState('loading')
+    const settled = vi.fn()
+    const p = waitForSettle(document, { quietMs: 200, capMs: 10000 }).then(settled)
+
+    // Churn the DOM while loading — quiet timer must stay disarmed.
+    document.documentElement.appendChild(document.createElement('span'))
+    await Promise.resolve()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(settled).not.toHaveBeenCalled()
+
+    // Transition to complete and fire window load -> quiet countdown begins.
+    setReadyState('complete')
+    window.dispatchEvent(new Event('load'))
+    await vi.advanceTimersByTimeAsync(200)
+    await p
+    expect(settled).toHaveBeenCalledOnce()
+  })
+
+  it('resolves immediately when there is no documentElement to observe', async () => {
+    const fakeDoc = { documentElement: null, readyState: 'complete' } as unknown as Document
+    const settled = vi.fn()
+    const p = waitForSettle(fakeDoc).then(settled)
+    await p
+    expect(settled).toHaveBeenCalledOnce()
   })
 })

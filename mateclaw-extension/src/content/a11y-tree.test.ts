@@ -248,6 +248,127 @@ describe('a11y-tree content script', () => {
     const tree = window.__mateclaw_a11y_tree!('interactive')
     expect(tree).toContain('Email address')
   })
+
+  // ── Nameless-interactive synthesis ──────────────────────────────────────
+
+  it('(a) <input type="search"> with only a placeholder uses the placeholder as the NAME slot', () => {
+    document.body.innerHTML = '<input type="search" placeholder="搜索视频" />'
+    const inp = document.querySelector('input')!
+    stubBBox(inp, 40, 12, 220, 36)
+    const tree = window.__mateclaw_a11y_tree!('interactive')
+    // The placeholder lands in the <name> slot (no `placeholder="..."` shape).
+    expect(tree).toContain('Searchbox[ref=ref_1, frame=0]: 搜索视频 @{40,12 220x36}')
+    expect(tree).not.toContain('placeholder=')
+  })
+
+  it('(a2) Douyin-style nameless searchbox falls back to a humanized "search" hint', () => {
+    // No placeholder, no aria, no label — just a search-y class. This is the
+    // worst-case Douyin SPA input; it must still get an actionable name.
+    document.body.innerHTML = '<input class="search-input semi-input" />'
+    const inp = document.querySelector('input')!
+    stubBBox(inp, 40, 12, 220, 36)
+    const tree = window.__mateclaw_a11y_tree!('interactive')
+    expect(tree).toContain('Textbox[ref=ref_1, frame=0]: search @{40,12 220x36}')
+  })
+
+  it('(b) <div role="textbox" contenteditable> with no name synthesizes from a nearby label', () => {
+    document.body.innerHTML = `
+      <div>
+        <span>Message</span>
+        <div role="textbox" contenteditable="true" id="ce"></div>
+      </div>`
+    const ce = document.getElementById('ce')!
+    stubBBox(ce, 10, 50, 300, 80)
+    const tree = window.__mateclaw_a11y_tree!('interactive')
+    expect(tree).toContain('Textbox[ref=ref_1, frame=0]: Message @{10,50 300x80}')
+  })
+
+  it('(b2) contenteditable div with NO role still emits as Textbox (affordance role)', () => {
+    document.body.innerHTML =
+      '<div contenteditable="true" data-testid="composer" aria-placeholder="Write something"></div>'
+    const ce = document.querySelector('[contenteditable]')!
+    stubBBox(ce, 5, 5, 400, 60)
+    const tree = window.__mateclaw_a11y_tree!('interactive')
+    // aria-placeholder wins over the data-* hint and lands in the name slot.
+    expect(tree).toContain('Textbox[ref=ref_1, frame=0]: Write something @{5,5 400x60}')
+  })
+
+  it('(c) <div onclick> with no role emits as Button', () => {
+    document.body.innerHTML = '<div onclick="doThing()" title="Play">▶</div>'
+    const div = document.querySelector('div')!
+    stubBBox(div, 70, 70, 44, 44)
+    const tree = window.__mateclaw_a11y_tree!('interactive')
+    expect(tree).toContain('Button[ref=ref_1, frame=0]: Play @{70,70 44x44}')
+  })
+
+  it('(c2) tabindex>=0 element with no role emits as Button under interactive filter', () => {
+    document.body.innerHTML = '<div tabindex="0" aria-label="Toggle"></div>'
+    const div = document.querySelector('div')!
+    stubBBox(div, 1, 2, 30, 30)
+    const tree = window.__mateclaw_a11y_tree!('interactive')
+    expect(tree).toContain('Button[ref=ref_1, frame=0]: Toggle @{1,2 30x30}')
+  })
+
+  it('(d) interactive element inside an OPEN shadow root is discovered', () => {
+    document.body.innerHTML = '<div id="host"></div>'
+    const host = document.getElementById('host')!
+    const shadow = host.attachShadow({ mode: 'open' })
+    const btn = document.createElement('button')
+    btn.textContent = 'Shadow Action'
+    shadow.appendChild(btn)
+    stubBBox(btn, 200, 200, 100, 30)
+    const tree = window.__mateclaw_a11y_tree!('interactive')
+    expect(tree).toContain('Button[ref=ref_1, frame=0]: Shadow Action @{200,200 100x30}')
+  })
+
+  it('(e) regression: a normal <button> still emits "Button[...]: Submit"', () => {
+    document.body.innerHTML = '<button id="b">Submit</button>'
+    stubBBox(document.getElementById('b')!, 120, 340, 80, 32)
+    const tree = window.__mateclaw_a11y_tree!('interactive')
+    expect(tree).toContain('Button[ref=ref_1, frame=0]: Submit @{120,340 80x32}')
+  })
+
+  it('password values are never surfaced as a synthesized name (redaction kept)', () => {
+    // Password input with a value but no label/placeholder/title. The synthesis
+    // path must skip the value and emit no leaked secret.
+    document.body.innerHTML = '<input type="password" id="pw" />'
+    const pw = document.getElementById('pw') as HTMLInputElement
+    pw.value = 'hunter2-secret'
+    stubBBox(pw, 0, 0, 200, 30)
+    const tree = window.__mateclaw_a11y_tree!('interactive')
+    expect(tree).not.toContain('hunter2-secret')
+    // It still emits as a Textbox (just without the secret in the name).
+    expect(tree).toContain('Textbox[ref=ref_1, frame=0]')
+  })
+
+  it('text input value (short, non-sensitive) can fill the name when nothing else does', () => {
+    document.body.innerHTML = '<input type="text" id="t" />'
+    const t = document.getElementById('t') as HTMLInputElement
+    t.value = 'prefilled query'
+    stubBBox(t, 0, 0, 200, 30)
+    const tree = window.__mateclaw_a11y_tree!('interactive')
+    expect(tree).toContain('Textbox[ref=ref_1, frame=0]: prefilled query @{0,0 200x30}')
+  })
+
+  it('synthesized contenteditable/searchbox nodes also emit under filter="all"', () => {
+    document.body.innerHTML = `
+      <input type="search" placeholder="搜索" />
+      <div contenteditable="true" aria-label="Editor"></div>`
+    const tree = window.__mateclaw_a11y_tree!('all')
+    expect(tree).toContain('Searchbox')
+    expect(tree).toContain('搜索')
+    expect(tree).toContain('Editor')
+  })
+
+  it('a name containing the bbox marker is sanitized so it cannot desync the line grammar', () => {
+    document.body.innerHTML = '<button aria-label="weird @{x} label">x</button>'
+    const btn = document.querySelector('button')!
+    stubBBox(btn, 1, 1, 10, 10)
+    const tree = window.__mateclaw_a11y_tree!('interactive')
+    // Exactly one real bbox marker — the synthetic ' @{' in the name is neutralised.
+    expect(tree.match(/ @\{/g)!.length).toBe(1)
+    expect(tree).toContain('@{1,1 10x10}')
+  })
 })
 
 function restoreWindowProperty(

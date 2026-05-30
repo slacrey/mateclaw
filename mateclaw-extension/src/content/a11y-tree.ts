@@ -144,6 +144,28 @@ declare global {
     'option',
   ])
 
+  // Roles that MUST end up with a usable name. When the standard ARIA name
+  // computation comes back empty for one of these, we synthesize a name so the
+  // element is actionable (otherwise an LLM can't tell a nameless React input
+  // apart from any other box). 'option' is intentionally excluded — its text
+  // already flows through the textContent fallback.
+  const NAMEABLE_INTERACTIVE_ROLES = new Set<string>([
+    'button',
+    'link',
+    'textbox',
+    'searchbox',
+    'combobox',
+    'checkbox',
+    'radio',
+    'tab',
+    'menuitem',
+    'menuitemcheckbox',
+    'menuitemradio',
+    'switch',
+    'slider',
+    'spinbutton',
+  ])
+
   // Landmark roles for the 'default' filter (in addition to interactive).
   const LANDMARK_ROLES = new Set<string>([
     'banner',
@@ -180,6 +202,27 @@ declare global {
     return IMPLICIT_ROLES[tag] ?? null
   }
 
+  // Synthesize a role for elements that have click affordance but no semantic
+  // role (the modern-SPA pattern: <div onclick=...>, contenteditable rich-text
+  // boxes, tabindex-focusable widgets). Content scripts run isolated from the
+  // page, so React fiber props are unreadable — we detect affordance purely
+  // from attributes we CAN see: contenteditable, tabindex, and an inline
+  // onclick attribute. Returns 'textbox' for editable content, else 'button'.
+  function affordanceRole(el: Element): string | null {
+    const editable = el.getAttribute('contenteditable')
+    if (editable !== null && editable !== 'false' && editable !== 'plaintext-false') {
+      // '', 'true', 'plaintext-only' all mean editable.
+      return 'textbox'
+    }
+    const tabindex = el.getAttribute('tabindex')
+    if (tabindex !== null) {
+      const n = Number.parseInt(tabindex, 10)
+      if (Number.isFinite(n) && n >= 0) return 'button'
+    }
+    if (el.hasAttribute('onclick')) return 'button'
+    return null
+  }
+
   // Capitalise role for output: 'textbox' → 'Textbox'. Special case 'img' → 'Image'.
   function roleLabel(role: string): string {
     if (role === 'img') return 'Image'
@@ -188,6 +231,16 @@ declare global {
 
   function trim(s: string | null | undefined): string {
     return (s ?? '').replace(/\s+/g, ' ').trim()
+  }
+
+  // Defensive guard for the frozen line grammar. The server parses the name as
+  // everything between ': ' and ' @{'; a synthesized name that itself contained
+  // a literal ' @{' (or a newline) would desync that parse. trim() already
+  // collapses whitespace runs to single spaces, so this only has to neutralise
+  // the bbox-marker bigram. We replace the '@' with a fullwidth '＠' so the
+  // visible text is preserved while the ASCII ' @{' marker can't appear.
+  function sanitizeName(s: string): string {
+    return s.replace(/ @\{/g, ' ＠{')
   }
 
   function resolveLabelledBy(el: Element): string {
@@ -217,6 +270,105 @@ declare global {
       p = p.parentElement
     }
     return ''
+  }
+
+  // True when the element's value/contents are sensitive and must never be
+  // surfaced (passwords, credit-card / OTP fields). We key off the input type
+  // plus name/id/autocomplete keyword hints.
+  const SENSITIVE_KEYWORDS = /pass(word|wd)?|secret|otp|cvv|cvc|card[-_ ]?number|creditcard|ssn/i
+  function isSensitiveField(el: Element): boolean {
+    const tag = el.tagName.toUpperCase()
+    if (tag === 'INPUT') {
+      const t = ((el as HTMLInputElement).type || 'text').toLowerCase()
+      if (t === 'password') return true
+    }
+    const autocomplete = (el.getAttribute('autocomplete') ?? '').toLowerCase()
+    if (autocomplete.includes('password') || autocomplete.includes('cc-') || autocomplete === 'one-time-code') {
+      return true
+    }
+    const hint = `${el.getAttribute('name') ?? ''} ${el.getAttribute('id') ?? ''}`
+    return SENSITIVE_KEYWORDS.test(hint)
+  }
+
+  // Look for a nearby visible text label that the user would read as the
+  // control's name: a previous element/text sibling, then a short parent that
+  // wraps only this control. Capped at 40 chars so we never haul in a paragraph.
+  function nearbyLabel(el: Element): string {
+    const MAX = 40
+    // Previous sibling text (e.g. <span>搜索</span><input>).
+    let sib: ChildNode | null = el.previousSibling
+    while (sib) {
+      if (sib.nodeType === 3 /* Text */) {
+        const t = trim(sib.textContent)
+        if (t) return t.length <= MAX ? t : ''
+      } else if (sib.nodeType === 1 /* Element */) {
+        const t = trim((sib as Element).textContent)
+        if (t) return t.length <= MAX ? t : ''
+      }
+      sib = sib.previousSibling
+    }
+    // Short wrapping parent whose entire text is the label (label-like container).
+    const parent = el.parentElement
+    if (parent) {
+      const t = trim(parent.textContent)
+      if (t && t.length <= MAX) return t
+    }
+    return ''
+  }
+
+  // Last-resort: humanize an actionable hint from type / class / id / data-*.
+  // Recognises the common "search" affordance (incl. the CJK 搜索) so a nameless
+  // SPA search box still reads as a searchbox rather than an empty line.
+  function humanizedHint(el: Element): string {
+    const tag = el.tagName.toUpperCase()
+    if (tag === 'INPUT') {
+      const t = ((el as HTMLInputElement).type || 'text').toLowerCase()
+      if (t === 'search') return 'search'
+      if (t === 'email') return 'email'
+      if (t === 'tel') return 'phone'
+      if (t === 'url') return 'url'
+      if (t === 'number') return 'number'
+    }
+    const haystack = [
+      el.getAttribute('class') ?? '',
+      el.getAttribute('id') ?? '',
+      el.getAttribute('name') ?? '',
+      el.getAttribute('data-testid') ?? '',
+      el.getAttribute('data-e2e') ?? '',
+      el.getAttribute('role') ?? '',
+    ]
+      .join(' ')
+      .toLowerCase()
+    if (/(^|[-_ ])search([-_ ]|$)|搜索|searchbox|search-?input/.test(haystack)) return 'search'
+    if (/(^|[-_ ])(submit|send|提交|发送)([-_ ]|$)/.test(haystack)) return 'submit'
+    if (/(^|[-_ ])(close|关闭|dismiss)([-_ ]|$)/.test(haystack)) return 'close'
+    if (/(^|[-_ ])(menu|菜单)([-_ ]|$)/.test(haystack)) return 'menu'
+    return ''
+  }
+
+  // Synthesize a usable name for an interactive element that produced no
+  // standard ARIA name. Priority: placeholder → aria-placeholder → title →
+  // name attr → value (short, non-sensitive) → nearby visible label →
+  // humanized type/class/id/data-* hint.
+  function synthesizeName(el: Element): string {
+    const placeholder = trim(el.getAttribute('placeholder'))
+    if (placeholder) return placeholder
+    const ariaPlaceholder = trim(el.getAttribute('aria-placeholder'))
+    if (ariaPlaceholder) return ariaPlaceholder
+    const title = trim(el.getAttribute('title'))
+    if (title) return title
+    const nameAttr = trim(el.getAttribute('name'))
+    if (nameAttr) return nameAttr
+    // value — only when short and not a sensitive field.
+    if (!isSensitiveField(el)) {
+      const rawValue =
+        (el as HTMLInputElement).value ?? el.getAttribute('value') ?? ''
+      const value = trim(rawValue)
+      if (value && value.length < 50) return value
+    }
+    const near = nearbyLabel(el)
+    if (near) return near
+    return humanizedHint(el)
   }
 
   function accessibleName(el: Element, role: string | null): string {
@@ -268,7 +420,15 @@ declare global {
       'term',
     ])
     if (role && textRoles.has(role)) {
-      return trim(el.textContent)
+      const txt = trim(el.textContent)
+      if (txt) return txt
+    }
+    // 8) Interactive but still nameless (e.g. a nameless React <input>, a
+    // <div role="textbox" contenteditable>, an icon-only button). Synthesize a
+    // usable name so the control is actionable instead of emitting empty.
+    if (role && NAMEABLE_INTERACTIVE_ROLES.has(role)) {
+      const synthesized = synthesizeName(el)
+      if (synthesized) return synthesized
     }
     return ''
   }
@@ -395,18 +555,15 @@ declare global {
     const label = roleLabel(n.role)
     const bb = n.rect ? ` @{${n.rect.x},${n.rect.y} ${n.rect.w}x${n.rect.h}}` : ''
     let suffix = ''
-    if (n.name) suffix = `: ${n.name}`
-    // Per-role extras.
+    // Names are sanitised so they can never inject the ' @{' bbox marker or a
+    // newline into the line (which would desync the server's LINE_PATTERN).
+    if (n.name) suffix = `: ${sanitizeName(n.name)}`
+    // Per-role extras. Placeholders/values now flow through the accessible name
+    // (see synthesizeName) and land in the <name> slot above — no special-case
+    // line shape here. Links still append their href.
     if (n.role === 'link') {
       const href = n.el.getAttribute('href')
       if (href) suffix += ` — href=${href}`
-    } else if (n.role === 'textbox' || n.role === 'searchbox') {
-      // If no accessible name was found but there's a placeholder, surface it.
-      const tag = n.el.tagName.toUpperCase()
-      if (!n.name && (tag === 'INPUT' || tag === 'TEXTAREA')) {
-        const ph = (n.el as HTMLInputElement | HTMLTextAreaElement).placeholder
-        if (ph) suffix = `: placeholder="${ph}"`
-      }
     }
     return `${indent}${label}[ref=${n.ref}, frame=${n.frameId}]${suffix}${bb}`
   }
@@ -420,6 +577,8 @@ declare global {
   ): Node[] {
     const out: Node[] = []
     let refCounter = 0
+    // Shadow roots already descended into — guards against re-entry loops.
+    const visited = new WeakSet<ShadowRoot>()
 
     // Track logical (output) depth separately from DOM depth so indentation
     // reflects the EMITTED tree, not the underlying DOM nesting.
@@ -428,7 +587,11 @@ declare global {
       // Skip aria-hidden subtrees.
       if (el.getAttribute('aria-hidden') === 'true') return
 
-      const role = ariaRole(el)
+      // Real ARIA role first; if none, fall back to a click-affordance role so
+      // <div onclick>, contenteditable boxes, and tabindex widgets become
+      // actionable. The synthesized role flows into accessibleName + shouldEmit
+      // exactly like a native role, so it respects the filter modes.
+      const role = ariaRole(el) ?? affordanceRole(el)
       const name = accessibleName(el, role)
       const emit = shouldEmit(role, name, filter)
       let childOutDepth = outDepth
@@ -453,6 +616,20 @@ declare global {
       for (let i = 0; i < kids.length; i += 1) {
         const child = kids.item(i)
         if (child) recurse(child, childOutDepth, domDepth + 1)
+      }
+      // Open shadow root: web components hang their real content off a shadow
+      // tree that el.children never exposes. Closed roots return null (we can't
+      // reach those and that's fine). Shadow content shares the host's
+      // coordinate space, so bbox translation is unchanged. The visited guard
+      // prevents pathological re-entry if a host appears in its own subtree.
+      const shadow = (el as Element & { shadowRoot?: ShadowRoot | null }).shadowRoot
+      if (shadow && !visited.has(shadow)) {
+        visited.add(shadow)
+        const shadowKids = shadow.children
+        for (let i = 0; i < shadowKids.length; i += 1) {
+          const child = shadowKids.item(i)
+          if (child) recurse(child, childOutDepth, domDepth + 1)
+        }
       }
     }
 

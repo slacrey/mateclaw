@@ -17,6 +17,107 @@ export interface SnapshotRequestHandlerDeps {
 type SnapshotFilter = 'interactive' | 'all' | 'default'
 const DEFAULT_DEPTH = 15
 const DEFAULT_MAX_CHARS = 200000
+/**
+ * DOM-settle defaults. Many SPAs (e.g. Douyin) paint their header/search bar
+ * ~300-800ms AFTER the navigation load event, so reading the a11y tree the
+ * instant the extractor is injected yields a half-rendered page. Before
+ * extracting we wait until the DOM goes quiet (no mutations for
+ * SETTLE_QUIET_MS) once `readyState === 'complete'`, or until a hard
+ * SETTLE_CAP_MS ceiling — whichever comes first.
+ */
+const SETTLE_QUIET_MS = 200
+const SETTLE_CAP_MS = 2000
+
+/** Tunable knobs for {@link waitForSettle}; both default when omitted. */
+export interface SettleOptions {
+  /** Quiet window (ms) with no DOM mutations + readyState complete. */
+  quietMs?: number
+  /** Hard ceiling (ms) regardless of activity. */
+  capMs?: number
+}
+
+/**
+ * The `[quietMs, capMs]` pair appended to the extractor `executeScript` args.
+ * Exported so the wiring is unit-testable without serialising the injected
+ * func. Clamps to non-negative finite numbers, falling back to the module
+ * defaults, so a bogus override can never starve or hang the extractor.
+ */
+export function settleArgs(opts: SettleOptions = {}): [number, number] {
+  const quiet = clampMs(opts.quietMs, SETTLE_QUIET_MS)
+  const cap = clampMs(opts.capMs, SETTLE_CAP_MS)
+  return [quiet, cap]
+}
+
+function clampMs(value: number | undefined, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback
+}
+
+/**
+ * Resolve once the document is "settled enough" to snapshot:
+ *  - `readyState === 'complete'` AND no DOM mutations for a `quietMs` quiet
+ *    window (a MutationObserver on documentElement resets a timer per batch), OR
+ *  - `capMs` elapses (hard ceiling) — whichever fires first.
+ *
+ * Always resolves (never rejects) and disconnects the observer + clears timers
+ * before resolving, so it is safe to `await` unconditionally inside the page.
+ *
+ * This is an exact, standalone mirror of the closure folded into the injected
+ * extractor func below — kept in module scope ONLY so the timing logic is
+ * unit-testable with fake timers (the injected copy is serialised by
+ * `chrome.scripting.executeScript` and cannot reference module bindings).
+ * Keep the two in sync.
+ */
+export function waitForSettle(doc: Document, opts: SettleOptions = {}): Promise<void> {
+  const [quietMs, capMs] = settleArgs(opts)
+  return new Promise<void>(resolve => {
+    const root = doc.documentElement
+    // No documentElement (degenerate doc) → nothing to observe; resolve now.
+    if (!root || typeof MutationObserver === 'undefined') {
+      resolve()
+      return
+    }
+
+    let quietTimer: ReturnType<typeof setTimeout> | undefined
+    let capTimer: ReturnType<typeof setTimeout> | undefined
+    let observer: MutationObserver | undefined
+    let done = false
+
+    const finish = () => {
+      if (done) return
+      done = true
+      if (quietTimer !== undefined) clearTimeout(quietTimer)
+      if (capTimer !== undefined) clearTimeout(capTimer)
+      observer?.disconnect()
+      resolve()
+    }
+
+    // Arm/re-arm the quiet timer. Only counts down once the document has
+    // finished loading; while still loading we keep waiting (the cap still
+    // bounds total time).
+    const armQuiet = () => {
+      if (quietTimer !== undefined) clearTimeout(quietTimer)
+      if (doc.readyState !== 'complete') return
+      quietTimer = setTimeout(finish, quietMs)
+    }
+
+    observer = new MutationObserver(armQuiet)
+    observer.observe(root, { subtree: true, childList: true, attributes: true })
+
+    // Hard ceiling — fires regardless of mutation activity or readyState.
+    capTimer = setTimeout(finish, capMs)
+
+    // If we are already complete, start the quiet countdown immediately;
+    // otherwise wait for the window `load` event (load doesn't fire on the
+    // document node), then begin counting. The observer also re-checks
+    // readyState on every batch, so a late transition to complete is caught
+    // even if the load listener is unavailable.
+    if (doc.readyState === 'complete') {
+      armQuiet()
+    } else {
+      doc.defaultView?.addEventListener?.('load', armQuiet, { once: true })
+    }
+  })
+}
 
 interface SnapshotRequestPayload {
   tab_ref: TabRef
@@ -25,6 +126,8 @@ interface SnapshotRequestPayload {
   max_chars: number
   ref_id?: string
   frame_id?: number
+  /** Optional DOM-settle timing overrides; defaults applied by settleArgs(). */
+  settle?: SettleOptions
 }
 
 interface SnapshotResult {
@@ -124,14 +227,53 @@ export class SnapshotRequestHandler {
     } catch {
       // best-effort — the func below surfaces a clear error if still missing
     }
+    const [settleQuietMs, settleCapMs] = settleArgs(req.settle)
     const results = await chrome.scripting.executeScript({
       target,
-      func: (filter, depth, maxChars, refId, frameId) => {
+      func: async (filter, depth, maxChars, refId, frameId, quietMs, capMs) => {
         // The arg types come back loose (string|number|undefined) — the
         // call-site contract guarantees correct concrete types; assert.
         if (typeof frameId === 'number') {
           ;(window as Window & { __mateclaw_a11y_frame_id?: number }).__mateclaw_a11y_frame_id = frameId
         }
+        // ---- DOM settle wait (runs in the page) -------------------------
+        // Block extraction until the SPA stops mutating (quiet window) once
+        // it has finished loading, or a hard cap elapses — so observe doesn't
+        // read a half-rendered page right after navigate. This is an inline
+        // copy of waitForSettle() in the SW module (kept in sync for tests);
+        // it CANNOT reference module scope because executeScript serialises
+        // this func into the page. Never throws — always resolves.
+        await new Promise<void>(resolve => {
+          const root = document.documentElement
+          if (!root || typeof MutationObserver === 'undefined') { resolve(); return }
+          const quiet = typeof quietMs === 'number' ? quietMs : 200
+          const cap = typeof capMs === 'number' ? capMs : 2000
+          let quietTimer: ReturnType<typeof setTimeout> | undefined
+          let capTimer: ReturnType<typeof setTimeout> | undefined
+          let done = false
+          const observer = new MutationObserver(() => armQuiet())
+          const finish = () => {
+            if (done) return
+            done = true
+            if (quietTimer !== undefined) clearTimeout(quietTimer)
+            if (capTimer !== undefined) clearTimeout(capTimer)
+            observer.disconnect()
+            resolve()
+          }
+          function armQuiet() {
+            if (quietTimer !== undefined) clearTimeout(quietTimer)
+            if (document.readyState !== 'complete') return
+            quietTimer = setTimeout(finish, quiet)
+          }
+          observer.observe(root, { subtree: true, childList: true, attributes: true })
+          capTimer = setTimeout(finish, cap)
+          if (document.readyState === 'complete') {
+            armQuiet()
+          } else {
+            window.addEventListener('load', () => armQuiet(), { once: true })
+          }
+        })
+        // -----------------------------------------------------------------
         const requestedRefId = typeof refId === 'string' ? refId : undefined
         const tree = window.__mateclaw_a11y_tree?.(
           filter as 'interactive' | 'all' | 'default',
@@ -166,7 +308,7 @@ export class SnapshotRequestHandler {
           title,
         }
       },
-      args: [req.filter, req.depth, req.max_chars, req.ref_id ?? null, req.frame_id ?? null],
+      args: [req.filter, req.depth, req.max_chars, req.ref_id ?? null, req.frame_id ?? null, settleQuietMs, settleCapMs],
     })
     const first = results[0]?.result
     if (!isSnapshotResult(first)) {

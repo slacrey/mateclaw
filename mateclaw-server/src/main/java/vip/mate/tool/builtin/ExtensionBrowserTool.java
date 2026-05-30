@@ -155,10 +155,23 @@ public class ExtensionBrowserTool {
 
     @Tool(description = """
             Click an element on the page identified by its accessible role + visible text.
-            The hint_text is matched against the element's accessible name (button label, link
-            text, etc.). near_label is an optional containing-section hint that disambiguates
-            when the same hint_text appears multiple times (for example, two "Like" buttons
-            in different sections — pass near_label="Comments" to pick the one inside the
+            The hint_text is matched as a CASE-INSENSITIVE SUBSTRING against the element's
+            accessible name (button label, link text, etc.). For an unlabeled input — a
+            search box or text field — that accessible name is the element's PLACEHOLDER
+            text, so to click a field whose placeholder is "搜索视频 / Search videos" pass
+            hint_text "搜索" or "search".
+
+            Choosing the role:
+              - role="searchbox" for a site/page SEARCH input (Douyin/YouTube-style search box).
+              - role="textbox" for a generic text field (login, comment, form input).
+              - role="button" (default) | "link" | "menuitem" | "tab" | "checkbox" otherwise.
+            Read the element's Role and accessible name straight from
+            extension_browser_observe's tree, then pass them here. Example — to click
+            Douyin's search field: role="searchbox", hint_text="搜索" (or "search").
+
+            near_label is an optional containing-section hint that disambiguates when the
+            same hint_text appears multiple times (for example, two "Like" buttons in
+            different sections — pass near_label="Comments" to pick the one inside the
             Comments section). Powered by Phase 3 T3.1 A11yEngine.
 
             Returns a JSON object:
@@ -167,9 +180,9 @@ public class ExtensionBrowserTool {
               { "ok": false, "code": "GROUNDING_AMBIGUOUS|GROUNDING_MISS|NO_SESSION", "message": "..." }
             """)
     public String extension_browser_click(
-            @ToolParam(description = "Visible text / accessible name of the element to click (e.g. 'Submit', 'Cancel', 'Comments')")
+            @ToolParam(description = "Accessible name (matched case-insensitively as a substring) of the element to click. For buttons/links it's the visible label ('Submit', 'Cancel', 'Comments'); for an unlabeled search box or text field it's the placeholder text ('搜索', 'Search videos').")
             String hintText,
-            @ToolParam(description = "Optional accessible role hint: 'button' (default) | 'link' | 'menuitem' | 'tab' | 'checkbox'",
+            @ToolParam(description = "Optional accessible role hint: 'button' (default) | 'link' | 'menuitem' | 'tab' | 'checkbox' | 'searchbox' (a site/page search input) | 'textbox' (a generic text field)",
                        required = false) String role,
             @ToolParam(description = "Optional containing-section heading text — used by the A11y engine to disambiguate when hint_text matches multiple elements. Provide the visible text of the nearest enclosing heading/section/landmark/article/region (e.g. 'Comments', 'Search results').",
                        required = false) String nearLabel,
@@ -201,9 +214,16 @@ public class ExtensionBrowserTool {
 
     @Tool(description = """
             Type text into the currently focused element. To type into a specific field,
-            click_first that field via browser_click, then call this tool. The implementation
-            does NOT auto-focus — that's deliberate, to avoid clobbering an existing focus
-            the user established.
+            click that field first via extension_browser_click, then call this tool. The
+            implementation does NOT auto-focus — that's deliberate, to avoid clobbering an
+            existing focus the user established.
+
+            To target a search box or text field, first click it with the right role:
+            role="searchbox" for a site/page search input (e.g. Douyin's search box,
+            hint_text "搜索" / "search"), role="textbox" for a generic field. The hint_text
+            is matched case-insensitively as a substring of the element's accessible name,
+            which for an unlabeled input is its PLACEHOLDER text. After typing, call
+            extension_browser_observe again to confirm the page url/state changed.
 
             Returns a JSON object on success:
               { "ok": true, "chars_typed": 5 }
@@ -328,27 +348,40 @@ public class ExtensionBrowserTool {
             to let the LLM see what's on the page before deciding the next click/type
             target. The returned tree is the same input the A11y engine uses for
             grounding, so referring to "the Submit button near the Comments heading"
-            in your next browser_click matches what the page actually exposes.
+            in your next extension_browser_click matches what the page actually exposes.
 
             The tree format per line is:
-              Role[ref=ref_N]: accessible name @{x,y wxh}
+              Role[ref=ref_N, frame=0]: accessible name @{x,y wxh}
+            for example:
+              Searchbox[ref=ref_1, frame=0]: 搜索视频 @{640,18 220x36}
+            The text after the colon is the element's ACCESSIBLE NAME. For unlabeled
+            inputs (search boxes, text fields) that name is usually the element's
+            PLACEHOLDER text. Read it and use it verbatim as the hint_text of your next
+            extension_browser_click / _type call — and use the Role token (e.g.
+            Searchbox, Textbox, Button, Link) as that call's role argument.
+
+            Typical flow for this tool family:
+              navigate → observe (read the tree + url) → click (by role + hint_text
+              taken from the tree) → type → observe again (confirm url/state changed).
+            Always observe once after navigating and again after a click/type so you act
+            on the page's real, current structure instead of guessing.
 
             Returns a JSON object:
               { "ok": true,
                 "snapshot_id": "...",
-                "url": "https://...",         ← current page URL — compare this between observes to detect that your last click actually navigated
+                "url": "https://...",         ← current page URL — compare this between observes to confirm your last action worked (a successful navigation/click changes it) before retrying
                 "title": "Page title",
                 "viewport": {"w": 1280, "h": 800},
-                "tree": "Button[ref=ref_1]: Submit @{100,200 80x32}\\n..." }
+                "tree": "Button[ref=ref_1, frame=0]: Submit @{100,200 80x32}\\n..." }
             """)
     public String extension_browser_observe(
-            @ToolParam(description = "Snapshot filter: 'interactive' (default — buttons/links/inputs) | 'all' | 'default'",
+            @ToolParam(description = "Snapshot filter: 'default' (default — interactive elements + landmarks/regions, so you get nav/main/search section context to disambiguate; needed for SPA pages like Douyin) | 'interactive' (buttons/links/inputs only) | 'all'",
                        required = false) String filter,
             @Nullable ToolContext ctx) {
         BrowserSession session = resolveSession();
         if (session == null) return noSession();
 
-        String resolvedFilter = defaulted(filter, "interactive");
+        String resolvedFilter = defaulted(filter, "default");
         try {
             var snapshot = snapshotService
                     .request(session, new TabRef.Main(), resolvedFilter)

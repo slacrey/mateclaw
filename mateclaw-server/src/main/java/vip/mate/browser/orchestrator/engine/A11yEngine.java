@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -22,6 +23,19 @@ public class A11yEngine implements GroundingEngine {
     private static final Pattern TREE_LINE_PATTERN = Pattern.compile(
             "^(\\s*)([A-Za-z][\\w-]*)\\s*\\[ref=([\\w-]+)(?:\\s*,\\s*frame=(\\d+))?\\]\\s*"
                     + "(?::\\s*(.*?))?\\s*(?:@\\{(-?\\d+),(-?\\d+)\\s+(\\d+)x(\\d+)\\})?\\s*$");
+
+    /**
+     * Text-entry roles the extension's a11y extractor uses interchangeably.
+     * SPAs (Douyin, React inputs) frequently expose a search field as
+     * {@code searchbox} or {@code combobox} while the LLM guesses
+     * {@code textbox} (or vice-versa). We treat any of these as a match for a
+     * hint asking for any other — but ONLY this closed set, so button/link/
+     * checkbox/etc. stay strict and can't be cross-matched.
+     */
+    private static final Set<String> TEXT_ENTRY_ROLES = Set.of("textbox", "searchbox", "combobox");
+
+    /** Unwraps the literal payload of a {@code \\Q...\\E} quoted pattern. */
+    private static final Pattern QUOTED_LITERAL = Pattern.compile("^\\\\Q(.*?)\\\\E$", Pattern.DOTALL);
 
     @Override
     public String name() {
@@ -53,11 +67,44 @@ public class A11yEngine implements GroundingEngine {
         }
 
         List<TreeLine> lines = parseTree(snapshot.tree());
-        List<TreeLine> roleNameMatches = lines.stream()
+
+        // Role gate: exact (ignore-case) OR within the text-entry equivalence
+        // set so a hint role of textbox/searchbox/combobox matches a candidate
+        // of any of those. Every other role stays strict.
+        List<TreeLine> roleCandidates = lines.stream()
                 .filter(line -> line.bbox() != null)
-                .filter(line -> line.role().equalsIgnoreCase(hint.role()))
-                .filter(line -> hint.namePattern().matcher(line.name()).matches())
+                .filter(line -> rolesMatch(hint.role(), line.role()))
                 .toList();
+
+        // Substring, case/Unicode-insensitive name matching. The hint pattern
+        // arrives Pattern.quote-d (and usually CASE_INSENSITIVE) from
+        // ExtensionBrowserTool; we recompile it adding UNICODE_CASE and switch
+        // the test from .matches() (full) to .find() (substring) so a hint
+        // "搜索"/"search" finds a synthesized placeholder name "搜索视频"/
+        // "Search input".
+        Pattern namePattern = relaxNamePattern(hint.namePattern());
+        String hintLiteral = literalOf(hint.namePattern());
+
+        // Tier 1 — direct hit: the hint pattern is found inside the candidate
+        // name. Preferred whenever any candidate hits this way.
+        List<TreeLine> directHits = roleCandidates.stream()
+                .filter(line -> namePattern.matcher(line.name()).find())
+                .toList();
+
+        // Tier 2 — reverse (bidirectional) containment: the candidate name is
+        // a substring of the hint's literal text (LLM over-specified, e.g.
+        // hint "the search videos box" vs name "搜索"/"search"). Strictly lower
+        // priority than a direct hit, so only consulted when tier 1 is empty.
+        List<TreeLine> roleNameMatches = directHits;
+        boolean reverseTier = false;
+        if (roleNameMatches.isEmpty() && hintLiteral != null && !hintLiteral.isBlank()) {
+            String hintLower = hintLiteral.toLowerCase(Locale.ROOT);
+            roleNameMatches = roleCandidates.stream()
+                    .filter(line -> !line.name().isBlank())
+                    .filter(line -> hintLower.contains(line.name().toLowerCase(Locale.ROOT)))
+                    .toList();
+            reverseTier = !roleNameMatches.isEmpty();
+        }
 
         if (roleNameMatches.isEmpty()) {
             return new GroundingResult.Miss(
@@ -87,7 +134,8 @@ public class A11yEngine implements GroundingEngine {
             return new GroundingResult.Hit(
                     new GroundedTarget(target.bbox(), target.refId()),
                     "narrowed by ancestor " + ancestor.role().toLowerCase(Locale.ROOT)
-                            + ": " + match.label() + " ref=" + target.refId());
+                            + ": " + match.label() + " ref=" + target.refId()
+                            + (reverseTier ? " (name contained in hint)" : ""));
         }
 
         return new GroundingResult.Ambiguous(
@@ -95,6 +143,47 @@ public class A11yEngine implements GroundingEngine {
                         .map(match -> new GroundedTarget(match.candidate().bbox(), match.candidate().refId()))
                         .toList(),
                 ancestorMatches.size() + " candidates narrowed by ancestor nearLabel=\"" + nearLabel + "\"");
+    }
+
+    /**
+     * Role compatibility. Exact match (case-insensitive) always wins; on top of
+     * that, the three text-entry roles ({@link #TEXT_ENTRY_ROLES}) are mutually
+     * interchangeable. No other roles are cross-matched.
+     */
+    private boolean rolesMatch(String hintRole, String candidateRole) {
+        if (hintRole.equalsIgnoreCase(candidateRole)) {
+            return true;
+        }
+        String h = hintRole.toLowerCase(Locale.ROOT);
+        String c = candidateRole.toLowerCase(Locale.ROOT);
+        return TEXT_ENTRY_ROLES.contains(h) && TEXT_ENTRY_ROLES.contains(c);
+    }
+
+    /**
+     * Returns the hint pattern with CASE_INSENSITIVE + UNICODE_CASE forced on,
+     * preserving any flags the caller already set. Recompiling the (quoted)
+     * pattern text is cheap and keeps the substring {@code .find()} robust for
+     * mixed-case ASCII and case-folded Unicode while never altering the literal
+     * the caller asked to match.
+     */
+    private Pattern relaxNamePattern(Pattern original) {
+        int flags = original.flags() | Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE;
+        if (flags == original.flags()) {
+            return original;
+        }
+        return Pattern.compile(original.pattern(), flags);
+    }
+
+    /**
+     * Best-effort recovery of the plain text a {@code Pattern.quote}-d pattern
+     * matches, for the reverse-containment (tier 2) check. Returns {@code null}
+     * when the pattern is not a simple {@code \Q...\E} literal (a real regex):
+     * in that case reverse containment is skipped and only the forward
+     * {@code .find()} applies, so we never treat regex metacharacters as text.
+     */
+    private String literalOf(Pattern pattern) {
+        Matcher m = QUOTED_LITERAL.matcher(pattern.pattern());
+        return m.matches() ? m.group(1) : null;
     }
 
     private Optional<AncestorLabel> nearestMatchingAncestor(

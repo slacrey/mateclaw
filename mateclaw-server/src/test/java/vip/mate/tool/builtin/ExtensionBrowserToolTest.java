@@ -344,6 +344,29 @@ class ExtensionBrowserToolTest {
         assertThat(j.get("title").asText()).isEqualTo("Example page");
     }
 
+    @Test
+    void browserObserve_defaultsFilterToDefault_whenFilterArgIsNull() throws Exception {
+        // The default observe filter is 'default' (interactive + landmarks), NOT
+        // 'interactive'. The landmark/region context lets the LLM disambiguate
+        // SPA pages like Douyin (nav/main/search sections). Capture the filter
+        // string passed downstream to lock this contract.
+        var snap = new PageSnapshot("snap-1", 1L, 42L,
+                "Searchbox[ref=ref_1, frame=0]: 搜索视频 @{640,18 220x36}",
+                new Viewport(1280, 800),
+                "https://www.douyin.com",
+                "抖音");
+        when(snapshotService.request(any(), any(), any())).thenReturn(Mono.just(snap));
+
+        String out = tool.extension_browser_observe(null, null);
+
+        JsonNode j = mapper.readTree(out);
+        assertThat(j.get("ok").asBoolean()).isTrue();
+
+        var filterCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(snapshotService).request(any(), any(), filterCaptor.capture());
+        assertThat(filterCaptor.getValue()).isEqualTo("default");
+    }
+
     // -----------------------------------------------------------------
     // Partial plan failure
     // -----------------------------------------------------------------
