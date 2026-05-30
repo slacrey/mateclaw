@@ -318,6 +318,38 @@ configStore
   })
 
 // -----------------------------------------------------------------
+// Re-show indicators after page navigation.
+//
+// A navigation tears down the page's content script — and with it the
+// glow border, phantom cursor, and Stop Agent button. The new page's
+// `visual-indicator.js` loads at document_idle but starts in the "not
+// shown" state until something tells it otherwise; without this hook
+// the user sees the overlays flash off and only return when the *next*
+// action arrives ("样式掉了，过一会才回来"). We re-fire SHOW for any
+// managed tab that was already in the showing state — VisualCoordinator's
+// heartbeat-start dedupe makes this a no-op if it never lapsed.
+// -----------------------------------------------------------------
+chrome.webNavigation.onCompleted.addListener(details => {
+  if (details.frameId !== 0) return // top frame only
+  const tabId = details.tabId
+  if (!visualCoordinator.isShowingOn(tabId)) return
+  // Tiny delay so the new page's visual-indicator content script (which
+  // runs at document_idle) is in place to receive the message. Without
+  // this the SHOW lands before the listener is registered and gets
+  // silently dropped.
+  setTimeout(() => {
+    visualCoordinator
+      .handle(makeEdgeMessage({
+        kind: EdgeMessageKind.IndicatorShow,
+        payload: { tab_ref: tabId },
+      }))
+      .catch(e => {
+        console.warn('[mateclaw][sw] re-SHOW after navigation failed', e)
+      })
+  }, 200)
+})
+
+// -----------------------------------------------------------------
 // externally_connectable protocol (§2) — admin UI ↔ extension.
 // Every handler validates sender.origin against the whitelist and returns
 // true to keep the async sendResponse channel open.

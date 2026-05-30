@@ -109,6 +109,17 @@ export class VisualCoordinator {
   }
 
   /**
+   * True iff this coordinator is currently keeping indicators alive on the
+   * given tab — i.e. a SHOW envelope has been processed for that tab and no
+   * HIDE has cancelled it. Used by the SW's webNavigation.onCompleted hook
+   * to decide whether to re-fire SHOW after a navigation tears down the
+   * content script (and with it the overlay DOM).
+   */
+  isShowingOn(tabId: number): boolean {
+    return this.#heartbeats.has(tabId)
+  }
+
+  /**
    * Drop every running heartbeat. Called at SW shutdown — and useful in
    * tests so beforeEach starts from a clean slate.
    */

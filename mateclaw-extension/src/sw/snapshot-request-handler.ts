@@ -127,15 +127,38 @@ export class SnapshotRequestHandler {
           ;(window as Window & { __mateclaw_a11y_frame_id?: number }).__mateclaw_a11y_frame_id = frameId
         }
         const requestedRefId = typeof refId === 'string' ? refId : undefined
-        const tree = window.__mateclaw_a11y_tree?.(
+        const rawTree = window.__mateclaw_a11y_tree?.(
           filter as 'interactive' | 'all' | 'default',
           depth as number,
           maxChars as number,
           requestedRefId,
         )
-        if (typeof tree !== 'string') {
+        if (typeof rawTree !== 'string') {
           throw new Error('window.__mateclaw_a11y_tree is not available')
         }
+        // Prepend the current URL and document.title so the LLM can detect
+        // whether its last action actually navigated. Without this the agent
+        // can fall into a "I searched but you say I didn't — let me search
+        // again" loop: it has no way to see that the URL changed from
+        // /home to /search?q=X. The two header lines are deliberately
+        // formatted to be obvious to the LLM (and ignored by anything that
+        // parses the a11y line grammar — they don't match the Role[ref=…]
+        // pattern, so consumers like the orchestrator's grounding engines
+        // skip them as text noise).
+        const url = (() => {
+          try { return location.href } catch { return '' }
+        })()
+        const title = (() => {
+          try { return document.title || '' } catch { return '' }
+        })()
+        // CRUCIAL: when the a11y tree is empty (blank tab / not yet rendered)
+        // we MUST return an empty string, NOT a header-only string — the
+        // server caches blank-tree snapshots as STALE (so the next observe
+        // refetches instead of replaying empty for 30s). A header-only tree
+        // would defeat that fix.
+        const tree = rawTree.trim().length > 0
+          ? `URL: ${url}\nTitle: ${title}\n\n${rawTree}`
+          : ''
         // innerWidth/Height can be 0 on a freshly-created tab whose renderer
         // hasn't laid out yet (observe right after navigate). Fall back to the
         // document client size, then a sane default, so the server's positive-

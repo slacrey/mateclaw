@@ -294,6 +294,25 @@ describe('VisualCoordinator', () => {
       expect(intervals).toHaveLength(0)
     })
 
+    it('isShowingOn tracks per-tab show/hide state for the nav re-show hook', async () => {
+      // The SW's webNavigation.onCompleted handler uses this to decide
+      // whether to re-fire SHOW after a page reload — without this gate,
+      // every navigation on every managed tab would force overlays even if
+      // the agent isn't currently active.
+      const { coordinator } = makeCoordinatorWithFakeScheduler()
+      // fakeResolver always resolves to tabId=42; before any SHOW the
+      // coordinator must report no overlay on it.
+      expect(coordinator.isShowingOn(42)).toBe(false)
+
+      await coordinator.handle(indicatorEnvelope(EdgeMessageKind.IndicatorShow))
+      expect(coordinator.isShowingOn(42)).toBe(true)
+      // Some other tab id that never received SHOW must stay false.
+      expect(coordinator.isShowingOn(7)).toBe(false)
+
+      await coordinator.handle(indicatorEnvelope(EdgeMessageKind.IndicatorHide))
+      expect(coordinator.isShowingOn(42)).toBe(false)
+    })
+
     it('firing the interval callback emits INDICATOR_HEARTBEAT to the tab', async () => {
       const { coordinator, sendMessage, intervals } = makeCoordinatorWithFakeScheduler()
       await coordinator.handle(indicatorEnvelope(EdgeMessageKind.IndicatorShow))
