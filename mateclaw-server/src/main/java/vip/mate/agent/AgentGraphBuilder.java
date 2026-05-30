@@ -1444,7 +1444,43 @@ public class AgentGraphBuilder {
         // Wiki 知识库上下文注入
         String wikiContext = wikiContextService.buildWikiContext(entity.getId());
 
-        return basePrompt + toolGuidance + searchGuidance + wikiContext;
+        String leadBrowserGuidance = leadBrowserHarnessGuidance(entity);
+
+        return basePrompt + toolGuidance + searchGuidance + leadBrowserGuidance + wikiContext;
+    }
+
+    private String leadBrowserHarnessGuidance(AgentEntity entity) {
+        if (!isLeadAcquisitionAgent(entity)) {
+            return "";
+        }
+        return """
+
+                ## Lead Browser Harness
+                This agent is specialized for lead-acquisition browser work. Prefer `lead_browser_*`
+                task-level harnesses for user-visible browser data collection workflows:
+                - `lead_browser_douyin_search(query)` for "open Douyin and search <query>".
+                - `lead_browser_douyin_search_for_leads(query, goal, maxLines)` when the user asks to search Douyin and extract/collect/summarize potential leads.
+                - `lead_browser_snapshot_for_leads(goal, maxLines)` to read the current visible page once as compact lead-candidate lines.
+
+                Use `extension_browser_*` primitives only when no lead-specific harness covers the task.
+                Do not repeat observe/click/type/scroll loops after a lead harness reports DONE.
+                """;
+    }
+
+    private boolean isLeadAcquisitionAgent(AgentEntity entity) {
+        if (entity == null) {
+            return false;
+        }
+        String haystack = String.join(" ",
+                entity.getName() == null ? "" : entity.getName(),
+                entity.getDescription() == null ? "" : entity.getDescription(),
+                entity.getTags() == null ? "" : entity.getTags(),
+                entity.getSystemPrompt() == null ? "" : entity.getSystemPrompt())
+                .toLowerCase(java.util.Locale.ROOT);
+        return haystack.contains("获客")
+                || haystack.contains("线索")
+                || haystack.contains("lead")
+                || haystack.contains("prospect");
     }
 
     /**
