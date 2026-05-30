@@ -223,6 +223,13 @@ public class LeadBrowserHarnessTool {
         if (isDouyinSearchDone(normalizedQuery, observed.snapshot())) {
             return doneRun(observed.snapshot(), "homepage_search_box", attempts);
         }
+        // Douyin gates search behind a login modal: after Enter the page shows
+        // 登录/扫码登录/验证码登录 and never reaches a /search results page. Surface
+        // that as a clear, actionable LOGIN_REQUIRED instead of grinding through
+        // retries to a confusing BLOCKED_LOOP.
+        if (isLoginWall(observed.snapshot())) {
+            return loginRequiredRun(observed.snapshot(), attempts);
+        }
 
         if (!snapshotContainsQuery(normalizedQuery, observed.snapshot())) {
             TypePayload.FocusTarget retryInputFocus = focusTargetForSearchInput(observed.snapshot());
@@ -255,7 +262,7 @@ public class LeadBrowserHarnessTool {
         }
 
         if (guard.repeated(observed.snapshot())) {
-            return blockedRun(observed.snapshot(), attempts);
+            return loginOrBlocked(observed.snapshot(), attempts);
         }
 
         JsonNode submitClick = callBrowser("fallback_click_search_button", attempts,
@@ -274,7 +281,7 @@ public class LeadBrowserHarnessTool {
             return doneRun(observed.snapshot(), "homepage_search_button", attempts);
         }
         if (guard.repeated(observed.snapshot())) {
-            return blockedRun(observed.snapshot(), attempts);
+            return loginOrBlocked(observed.snapshot(), attempts);
         }
 
         if (!snapshotContainsQuery(normalizedQuery, observed.snapshot())) {
@@ -646,6 +653,40 @@ public class LeadBrowserHarnessTool {
         return new SearchRun(false, "BLOCKED_LOOP",
                 "浏览器连续返回同一个页面状态，已停止，避免重复执行同一组搜索动作。",
                 snap, "", attempts);
+    }
+
+    /**
+     * Many CN sites (Douyin especially) gate search behind a login modal: after
+     * Enter the page shows 登录/扫码登录/验证码登录 and never reaches a /search
+     * results page, so the page "repeats" and we'd otherwise emit a confusing
+     * BLOCKED_LOOP. Detect the login wall and prefer a clear LOGIN_REQUIRED.
+     */
+    private SearchRun loginOrBlocked(Snapshot snap, List<Map<String, Object>> attempts) {
+        return isLoginWall(snap) ? loginRequiredRun(snap, attempts) : blockedRun(snap, attempts);
+    }
+
+    private SearchRun loginRequiredRun(Snapshot snap, List<Map<String, Object>> attempts) {
+        return new SearchRun(false, "LOGIN_REQUIRED",
+                "抖音的搜索需要登录。请先在这个浏览器里登录你的抖音账号，然后重新发起搜索"
+                        + "——出于安全原因我无法替你登录。",
+                snap, "", attempts);
+    }
+
+    /**
+     * Heuristic login-wall detector. Requires a modal-ish phrase (扫码登录 /
+     * 验证码登录 / 登录后…) rather than the bare word 登录, so a normal page that
+     * merely has a "登录" button in the corner does not trip it.
+     */
+    private boolean isLoginWall(Snapshot snap) {
+        String hay = (blankFallback(snap.title(), "") + "\n" + blankFallback(snap.tree(), ""))
+                .toLowerCase(Locale.ROOT);
+        return hay.contains("登录后即可")
+                || hay.contains("扫码登录")
+                || hay.contains("验证码登录")
+                || hay.contains("手机号登录")
+                || hay.contains("登录抖音")
+                || hay.contains("scan to log in")
+                || hay.contains("sign in to continue");
     }
 
     private SearchRun failRun(String step, JsonNode raw, List<Map<String, Object>> attempts) {

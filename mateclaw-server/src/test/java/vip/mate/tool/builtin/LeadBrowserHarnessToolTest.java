@@ -73,6 +73,34 @@ class LeadBrowserHarnessToolTest {
     }
 
     @Test
+    void douyinSearch_returnsLoginRequired_notBlockedLoop_whenLoginWallAppears() throws Exception {
+        // Douyin gates search behind a login modal: after typing + Enter the page
+        // shows 登录后即可…/扫码登录 and never reaches a /search page. The tool must
+        // surface a clear LOGIN_REQUIRED, NOT the confusing BLOCKED_LOOP.
+        when(browser.extension_browser_navigate(eq("https://www.douyin.com/"), eq("load"), any()))
+                .thenReturn(ok());
+        Queue<String> observes = new ArrayDeque<>();
+        observes.add(observe("https://www.douyin.com/", "抖音",
+                "Textbox[ref=ref_1]: 搜索你感兴趣的内容 @{700,5 730x72}"));
+        observes.add(observe("https://www.douyin.com/", "抖音",
+                "Textbox[ref=ref_2]: 搜索你感兴趣的内容 @{700,5 730x72}"));
+        observes.add(observe("https://www.douyin.com/jingxuan", "抖音",
+                "Dialog[ref=ref_9]: 登录后即可搜索更多精彩视频\n"
+                        + "Button[ref=ref_10]: 扫码登录\n"
+                        + "Button[ref=ref_11]: 验证码登录"));
+        when(browser.extension_browser_observe(eq("all"), any()))
+                .thenAnswer(ignored -> observes.remove());
+        when(browser.extension_browser_click_at(eq(1065.0), eq(41.0), any())).thenReturn(ok());
+        when(browser.extension_browser_type_at(eq("openclaw\n"), any(), any())).thenReturn(ok());
+
+        String out = tool.lead_browser_douyin_search("openclaw", null);
+
+        assertThat(out).contains("状态：LOGIN_REQUIRED");
+        assertThat(out).contains("登录");
+        assertThat(out).doesNotContain("BLOCKED_LOOP");
+    }
+
+    @Test
     void douyinSearch_stopsWhenAlreadyOnSearchStateAfterHomeNavigate() throws Exception {
         when(browser.extension_browser_navigate(eq("https://www.douyin.com/"), eq("load"), any()))
                 .thenReturn(ok());
