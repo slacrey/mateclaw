@@ -1,5 +1,6 @@
 package vip.mate.llm.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -125,7 +126,7 @@ class ModelProviderServiceCustomProviderTest {
     @DisplayName("createCustomProvider accepts a normal id (e.g. 'local-gemma') and persists")
     void acceptsNormalId() {
         CreateCustomProviderRequest req = req("local-gemma", "Local Gemma");
-        when(providerMapper.selectById("local-gemma")).thenReturn(null);
+        when(providerMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
 
         service.createCustomProvider(req);
 
@@ -136,7 +137,7 @@ class ModelProviderServiceCustomProviderTest {
     @DisplayName("createCustomProvider accepts ids with dot/underscore/hyphen and digits")
     void acceptsRichButSafeChars() {
         CreateCustomProviderRequest req = req("My_Local-Gemma.v2", "Local Gemma");
-        when(providerMapper.selectById("My_Local-Gemma.v2")).thenReturn(null);
+        when(providerMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
 
         service.createCustomProvider(req);
 
@@ -149,7 +150,7 @@ class ModelProviderServiceCustomProviderTest {
         CreateCustomProviderRequest req = req("internal-llm", "Internal LLM");
         req.setDefaultBaseUrl("http://llm.internal/v1");
         req.setRequireApiKey(false);
-        when(providerMapper.selectById("internal-llm")).thenReturn(null);
+        when(providerMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
 
         service.createCustomProvider(req);
 
@@ -177,12 +178,13 @@ class ModelProviderServiceCustomProviderTest {
     void deletesIdContainingSlash() {
         String dirtyId = "google/gemma-4-e4b";
         ModelProviderEntity dirty = customProvider(dirtyId);
-        when(providerMapper.selectById(dirtyId)).thenReturn(dirty);
+        dirty.setId(11L);
+        when(providerMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(dirty);
 
         service.deleteCustomProvider(dirtyId);
 
         verify(modelConfigService).deleteModelsByProvider(dirtyId);
-        verify(providerMapper).deleteById(dirtyId);
+        verify(providerMapper).deleteById(11L);
     }
 
     @Test
@@ -190,12 +192,13 @@ class ModelProviderServiceCustomProviderTest {
     void deletesNormalId() {
         String id = "local-gemma";
         ModelProviderEntity p = customProvider(id);
-        when(providerMapper.selectById(id)).thenReturn(p);
+        p.setId(12L);
+        when(providerMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(p);
 
         service.deleteCustomProvider(id);
 
         verify(modelConfigService).deleteModelsByProvider(id);
-        verify(providerMapper).deleteById(id);
+        verify(providerMapper).deleteById(12L);
     }
 
     @Test
@@ -204,13 +207,13 @@ class ModelProviderServiceCustomProviderTest {
         String id = "openai";
         ModelProviderEntity builtin = customProvider(id);
         builtin.setIsCustom(false);
-        when(providerMapper.selectById(id)).thenReturn(builtin);
+        when(providerMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(builtin);
 
         MateClawException ex = assertThrows(MateClawException.class,
                 () -> service.deleteCustomProvider(id));
 
         assertEquals("err.llm.provider_builtin_readonly", ex.getMsgKey());
-        verify(providerMapper, never()).deleteById(any(String.class));
+        verify(providerMapper, never()).deleteById(any(Long.class));
         verify(modelConfigService, never()).deleteModelsByProvider(any());
     }
 
@@ -221,7 +224,7 @@ class ModelProviderServiceCustomProviderTest {
         ModelProviderEntity existing = customProvider(id);
         existing.setBaseUrl("http://llm.internal/v1");
         existing.setRequireApiKey(true);
-        when(providerMapper.selectById(id)).thenReturn(existing);
+        when(providerMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(existing);
         when(modelConfigService.listModelsByProvider(id)).thenReturn(java.util.List.of());
 
         ProviderConfigRequest req = new ProviderConfigRequest();

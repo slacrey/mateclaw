@@ -90,6 +90,13 @@ export default {
     expiredTitle: 'Account expired',
     expiredDesc: 'Scan the QR code to contact sales for renewal.',
   },
+  contactSupport: {
+    title: 'Scan the QR code',
+    desc: 'Scan the QR code to contact business support. We can help with renewal, expansion, or service questions.',
+    hint: 'We usually respond as soon as possible on business days.',
+    qrAlt: 'Business support QR code',
+    close: 'Close contact support dialog',
+  },
   chat: {
     status: {
       idle: 'Ready',
@@ -408,6 +415,7 @@ export default {
     enterprise: 'Enterprise',
     tools: 'Tools',
     plugins: 'Plugins',
+    contactSupport: 'Contact Support',
     core: 'Core',
     connect: 'Connect',
     system: 'System',

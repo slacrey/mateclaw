@@ -44,12 +44,13 @@
             <div v-if="!effectiveCollapsed" class="nav-group-title">{{ group.label }}</div>
             <McTooltip
               v-for="item in group.items"
-              :key="item.path"
+              :key="item.path || item.action"
               :content="item.tooltip || item.label"
               placement="right"
               :disabled="!effectiveCollapsed"
             >
               <router-link
+                v-if="item.path"
                 :to="item.path"
                 class="nav-item"
                 :class="{ active: isNavItemActive(item) }"
@@ -73,6 +74,16 @@
                   :title="t('notifications.pendingApprovals', { n: pendingApprovals })"
                 />
               </router-link>
+              <button
+                v-else
+                type="button"
+                class="nav-item nav-item--button"
+                :title="effectiveCollapsed ? '' : (item.tooltip || '')"
+                @click="onNavAction(item)"
+              >
+                <span class="nav-icon" v-html="item.icon"></span>
+                <span v-if="!effectiveCollapsed" class="nav-label">{{ item.label }}</span>
+              </button>
             </McTooltip>
           </div>
         </template>
@@ -254,6 +265,41 @@
         </section>
       </div>
     </Transition>
+
+    <Transition name="fade">
+      <div v-if="showContactSupport" class="contact-support-overlay" @click.self="closeContactSupport">
+        <section
+          ref="contactSupportModalRef"
+          class="contact-support-modal"
+          role="dialog"
+          aria-modal="true"
+          :aria-labelledby="contactSupportTitleId"
+          @keydown.esc="closeContactSupport"
+          tabindex="-1"
+        >
+          <button
+            type="button"
+            class="contact-support-modal__close"
+            :aria-label="t('contactSupport.close')"
+            @click="closeContactSupport"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+          <div class="contact-support-modal__copy">
+            <p class="contact-support-modal__eyebrow">{{ t('nav.contactSupport') }}</p>
+            <h2 :id="contactSupportTitleId">{{ t('contactSupport.title') }}</h2>
+            <p>{{ t('contactSupport.desc') }}</p>
+            <p class="contact-support-modal__hint">{{ t('contactSupport.hint') }}</p>
+          </div>
+          <div class="contact-support-modal__qr">
+            <img src="/business-qr.svg" :alt="t('contactSupport.qrAlt')" />
+          </div>
+        </section>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -288,6 +334,8 @@ const accountStore = useAccountStore()
 const sidebarCollapsed = ref(localStorage.getItem('mc-sidebar-collapsed') === 'true')
 const footerPanelOpen = ref(false)
 const expiredModalRef = ref<HTMLElement | null>(null)
+const contactSupportModalRef = ref<HTMLElement | null>(null)
+const showContactSupport = ref(false)
 
 // Workspace 切换时通过 key 变化让 router-view 重新挂载，避免 hard reload 破坏运行状态
 const workspaceRouteKey = computed(() => `ws-${workspaceStore.currentWorkspaceId ?? 'none'}`)
@@ -378,6 +426,10 @@ function isEditableTarget(el: EventTarget | null): boolean {
 }
 
 function onGlobalKeydown(e: KeyboardEvent) {
+  if (showContactSupport.value && e.key === 'Escape') {
+    closeContactSupport()
+    return
+  }
   if (accountStore.expired) {
     e.preventDefault()
     expiredModalRef.value?.focus()
@@ -403,6 +455,15 @@ function onExpiredModalKeydown(e: KeyboardEvent) {
   if (e.key !== 'Tab') return
   e.preventDefault()
   expiredModalRef.value?.focus()
+}
+
+function openContactSupport() {
+  showContactSupport.value = true
+  if (isMobile.value) mobileMenuOpen.value = false
+}
+
+function closeContactSupport() {
+  showContactSupport.value = false
 }
 
 onMounted(async () => {
@@ -444,6 +505,12 @@ watch(() => accountStore.expired, async (expired) => {
   expiredModalRef.value?.focus()
 })
 
+watch(showContactSupport, async (visible) => {
+  if (!visible) return
+  await nextTick()
+  contactSupportModalRef.value?.focus()
+})
+
 function onNavClick() {
   if (isMobile.value) mobileMenuOpen.value = false
 }
@@ -454,6 +521,7 @@ const userInitial = computed(() => username.value.charAt(0).toUpperCase())
 const roleLabel = computed(() => role.value === 'admin' ? t('nav.roleAdmin') : t('nav.roleUser'))
 const expiredDialogTitleId = 'account-expired-title'
 const expiredDialogDescId = 'account-expired-desc'
+const contactSupportTitleId = 'contact-support-title'
 function formatAccountDateTime(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
@@ -506,7 +574,8 @@ const localeOptions = computed<{ value: AppLocale; label: string; short: string 
 // useWorkspaceStore.can() decides visibility from the backend access set so
 // the sidebar can't drift from the route guard or controller annotations.
 type NavItem = {
-  path: string
+  path?: string
+  action?: 'contactSupport'
   label: string
   icon: string
   tooltip?: string
@@ -523,6 +592,12 @@ type NavItem = {
     | 'manage:security'
     | 'manage:settings'
   globalAdmin?: boolean
+}
+
+function onNavAction(item: NavItem) {
+  if (item.action === 'contactSupport') {
+    openContactSupport()
+  }
 }
 
 function filterNav(items: NavItem[]): NavItem[] {
@@ -584,6 +659,11 @@ const navGroups = computed(() => [
     label: t('nav.connect'),
     items: filterNav([
       {
+        action: 'contactSupport',
+        label: t('nav.contactSupport'),
+        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/><path d="M9 10h6"/><path d="M9 14h4"/></svg>`,
+      },
+      {
         path: '/channels',
         label: t('nav.channels'),
         icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 1.18h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.73a16 16 0 0 0 6.29 6.29l1.62-1.62a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>`,
@@ -639,7 +719,8 @@ function toggleSidebar() {
   }
 }
 
-function isNavItemActive(item: { path: string; label: string }) {
+function isNavItemActive(item: NavItem) {
+  if (!item.path) return false
   if (item.path.startsWith('/settings')) {
     return route.path.startsWith('/settings')
   }
@@ -879,6 +960,14 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
   white-space: nowrap;
   overflow: hidden;
   position: relative;
+}
+
+.nav-item--button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
 }
 
 .nav-item:hover {
@@ -1532,6 +1621,98 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
   object-fit: contain;
 }
 
+.contact-support-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(10, 15, 20, 0.42);
+  backdrop-filter: blur(12px);
+}
+
+.contact-support-modal {
+  position: relative;
+  width: min(430px, 100%);
+  padding: 28px;
+  border-radius: 24px;
+  border: 1px solid var(--mc-border);
+  background:
+    radial-gradient(circle at top left, rgba(217, 109, 70, 0.12), transparent 34%),
+    var(--mc-bg-elevated);
+  box-shadow: var(--mc-shadow-large);
+  text-align: center;
+}
+
+.contact-support-modal__close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--mc-border-light);
+  border-radius: 12px;
+  background: var(--mc-bg-muted);
+  color: var(--mc-text-tertiary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.contact-support-modal__close:hover {
+  background: var(--mc-bg-sunken);
+  color: var(--mc-text-primary);
+}
+
+.contact-support-modal__eyebrow {
+  margin: 0 0 8px;
+  color: var(--mc-primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.contact-support-modal h2 {
+  margin: 0;
+  color: var(--mc-text-primary);
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.contact-support-modal p {
+  margin: 10px 0 0;
+  color: var(--mc-text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.contact-support-modal__hint {
+  color: var(--mc-text-tertiary) !important;
+  font-size: 12px !important;
+}
+
+.contact-support-modal__qr {
+  width: 176px;
+  margin: 20px auto 0;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid var(--mc-border-light);
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+}
+
+.contact-support-modal__qr img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+}
+
 /* 动画 */
 .fade-enter-active,
 .fade-leave-active { transition: opacity 0.15s ease; }
@@ -1662,6 +1843,14 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
 
   .expired-modal__qr {
     width: 144px;
+  }
+
+  .contact-support-modal {
+    padding: 24px 20px;
+  }
+
+  .contact-support-modal__qr {
+    width: 160px;
   }
 }
 

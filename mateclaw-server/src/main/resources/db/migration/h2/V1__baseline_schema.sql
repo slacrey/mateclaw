@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS mate_agent (
 CREATE TABLE IF NOT EXISTS mate_model_config (
     id           BIGINT       NOT NULL PRIMARY KEY,
     name         VARCHAR(128) NOT NULL,
+    workspace_id BIGINT       NOT NULL DEFAULT 1,
     provider     VARCHAR(64)  NOT NULL DEFAULT 'dashscope',
     model_name   VARCHAR(128) NOT NULL,
     description  TEXT,
@@ -57,6 +58,7 @@ CREATE TABLE IF NOT EXISTS mate_model_config (
 
 -- 模型 Provider 表
 CREATE TABLE IF NOT EXISTS mate_model_provider (
+    workspace_id                BIGINT       NOT NULL DEFAULT 1,
     provider_id                 VARCHAR(64)  NOT NULL PRIMARY KEY,
     name                        VARCHAR(128) NOT NULL,
     api_key_prefix              VARCHAR(32),
@@ -236,6 +238,8 @@ CREATE INDEX IF NOT EXISTS idx_message_conversation ON mate_message(conversation
 CREATE INDEX IF NOT EXISTS idx_conversation_username ON mate_conversation(username);
 CREATE INDEX IF NOT EXISTS idx_sub_plan_plan_id ON mate_sub_plan(plan_id);
 CREATE INDEX IF NOT EXISTS idx_model_config_model_name ON mate_model_config(model_name);
+CREATE INDEX IF NOT EXISTS idx_model_config_workspace_provider ON mate_model_config(workspace_id, provider, model_name);
+CREATE INDEX IF NOT EXISTS idx_model_config_workspace_default ON mate_model_config(workspace_id, is_default, enabled);
 
 -- 渠道会话存储表（主动推送标识缓存）
 CREATE TABLE IF NOT EXISTS mate_channel_session (

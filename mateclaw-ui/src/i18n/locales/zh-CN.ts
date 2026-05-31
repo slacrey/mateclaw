@@ -90,6 +90,13 @@ export default {
     expiredTitle: '账号已过期',
     expiredDesc: '请扫码联系商务续费',
   },
+  contactSupport: {
+    title: '扫码联系客服',
+    desc: '请使用微信扫码联系商务客服，我们会协助处理续费、扩容或服务咨询。',
+    hint: '工作日通常会尽快响应。',
+    qrAlt: '联系客服商务二维码',
+    close: '关闭联系客服弹窗',
+  },
   chat: {
     status: {
       idle: '就绪',
@@ -411,6 +418,7 @@ export default {
     enterprise: '企业场景',
     tools: '工具',
     plugins: '插件',
+    contactSupport: '联系客服',
     datasources: '数据源',
     mcpServers: 'MCP 连接',
     mcpConnections: 'MCP 连接',

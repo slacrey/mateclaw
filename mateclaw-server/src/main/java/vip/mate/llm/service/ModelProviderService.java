@@ -102,7 +102,9 @@ public class ModelProviderService {
     }
 
     private List<ProviderInfoDTO> listProvidersInternal(boolean enabledOnly) {
+        long workspaceId = ModelWorkspaceResolver.currentWorkspaceId();
         LambdaQueryWrapper<ModelProviderEntity> qw = new LambdaQueryWrapper<>();
+        qw.eq(ModelProviderEntity::getWorkspaceId, workspaceId);
         if (enabledOnly) {
             qw.eq(ModelProviderEntity::getEnabled, true);
         }
@@ -154,10 +156,11 @@ public class ModelProviderService {
             throw new MateClawException("err.llm.provider_id_invalid",
                     "Provider id 仅允许字母/数字及 . _ -（不允许斜杠或空格），首字符必须是字母或数字，长度 1-64: " + request.getId());
         }
-        if (modelProviderMapper.selectById(request.getId()) != null) {
+        if (getProviderOrNull(request.getId()) != null) {
             throw new MateClawException("err.llm.provider_exists", "Provider 已存在: " + request.getId());
         }
         ModelProviderEntity provider = new ModelProviderEntity();
+        provider.setWorkspaceId(ModelWorkspaceResolver.currentWorkspaceId());
         provider.setProviderId(request.getId());
         provider.setName(request.getName());
         provider.setApiKeyPrefix(request.getApiKeyPrefix());
@@ -190,7 +193,7 @@ public class ModelProviderService {
             throw new MateClawException("err.llm.provider_builtin_readonly", "内置 Provider 不支持删除");
         }
         modelConfigService.deleteModelsByProvider(providerId);
-        modelProviderMapper.deleteById(providerId);
+        modelProviderMapper.deleteById(provider.getId());
         eventPublisher.publishEvent(new ModelConfigChangedEvent("provider-deleted"));
     }
 
@@ -227,6 +230,7 @@ public class ModelProviderService {
     public List<ModelProviderEntity> listFallbackChain() {
         com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<ModelProviderEntity> qw =
                 new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
+        qw.eq("workspace_id", ModelWorkspaceResolver.currentWorkspaceId());
         qw.gt("fallback_priority", 0);
         qw.orderByAsc("fallback_priority");
         return modelProviderMapper.selectList(qw);
@@ -317,6 +321,7 @@ public class ModelProviderService {
         // Walk enabled providers in DB order, take the first one with a model.
         List<ModelProviderEntity> candidates = modelProviderMapper.selectList(
                 new LambdaQueryWrapper<ModelProviderEntity>()
+                        .eq(ModelProviderEntity::getWorkspaceId, ModelWorkspaceResolver.currentWorkspaceId())
                         .eq(ModelProviderEntity::getEnabled, true)
                         .ne(ModelProviderEntity::getProviderId, disabledProviderId)
                         .orderByDesc(ModelProviderEntity::getIsLocal)
@@ -343,7 +348,7 @@ public class ModelProviderService {
         boolean shouldAutoActivate = false;
         try {
             ModelConfigEntity currentDefault = modelConfigService.getDefaultModel();
-            ModelProviderEntity defaultProvider = modelProviderMapper.selectById(currentDefault.getProvider());
+            ModelProviderEntity defaultProvider = getProviderOrNull(currentDefault.getProvider());
             if (!isProviderEnabledAndConfigured(defaultProvider)) {
                 shouldAutoActivate = true;
             }
@@ -366,12 +371,67 @@ public class ModelProviderService {
         tryAutoActivateModel(providerId, provider);
     }
 
+    public void seedWorkspaceModels(Long workspaceId) {
+        if (workspaceId == null || workspaceId == ModelWorkspaceResolver.DEFAULT_WORKSPACE_ID) {
+            return;
+        }
+        List<ModelProviderEntity> existing = modelProviderMapper.selectList(
+                new LambdaQueryWrapper<ModelProviderEntity>()
+                        .eq(ModelProviderEntity::getWorkspaceId, workspaceId)
+                        .last("LIMIT 1"));
+        if (!existing.isEmpty()) {
+            return;
+        }
+        List<ModelProviderEntity> templates = modelProviderMapper.selectList(
+                new LambdaQueryWrapper<ModelProviderEntity>()
+                        .eq(ModelProviderEntity::getWorkspaceId, ModelWorkspaceResolver.DEFAULT_WORKSPACE_ID)
+                        .orderByDesc(ModelProviderEntity::getIsLocal)
+                        .orderByAsc(ModelProviderEntity::getIsCustom)
+                        .orderByAsc(ModelProviderEntity::getName));
+        for (ModelProviderEntity template : templates) {
+            ModelProviderEntity copy = copyProviderForWorkspace(template, workspaceId);
+            modelProviderMapper.insert(copy);
+        }
+        modelConfigService.copyModelsToWorkspace(ModelWorkspaceResolver.DEFAULT_WORKSPACE_ID, workspaceId);
+    }
+
     private ModelProviderEntity getProvider(String providerId) {
-        ModelProviderEntity provider = modelProviderMapper.selectById(providerId);
+        ModelProviderEntity provider = getProviderOrNull(providerId);
         if (provider == null) {
             throw new MateClawException("err.llm.provider_not_found", "Provider 不存在: " + providerId);
         }
         return provider;
+    }
+
+    private ModelProviderEntity copyProviderForWorkspace(ModelProviderEntity template, Long workspaceId) {
+        ModelProviderEntity copy = new ModelProviderEntity();
+        copy.setWorkspaceId(workspaceId);
+        copy.setProviderId(template.getProviderId());
+        copy.setName(template.getName());
+        copy.setApiKeyPrefix(template.getApiKeyPrefix());
+        copy.setChatModel(template.getChatModel());
+        copy.setApiKey(Boolean.TRUE.equals(template.getIsLocal()) || Boolean.FALSE.equals(template.getRequireApiKey())
+                ? template.getApiKey()
+                : "");
+        copy.setBaseUrl(template.getBaseUrl());
+        copy.setGenerateKwargs(template.getGenerateKwargs());
+        copy.setIsCustom(template.getIsCustom());
+        copy.setIsLocal(template.getIsLocal());
+        copy.setSupportModelDiscovery(template.getSupportModelDiscovery());
+        copy.setSupportConnectionCheck(template.getSupportConnectionCheck());
+        copy.setFreezeUrl(template.getFreezeUrl());
+        copy.setRequireApiKey(template.getRequireApiKey());
+        copy.setAuthType(template.getAuthType());
+        copy.setFallbackPriority(template.getFallbackPriority());
+        copy.setEnabled(template.getEnabled());
+        return copy;
+    }
+
+    private ModelProviderEntity getProviderOrNull(String providerId) {
+        return modelProviderMapper.selectOne(new LambdaQueryWrapper<ModelProviderEntity>()
+                .eq(ModelProviderEntity::getWorkspaceId, ModelWorkspaceResolver.currentWorkspaceId())
+                .eq(ModelProviderEntity::getProviderId, providerId)
+                .last("LIMIT 1"));
     }
 
     private ProviderInfoDTO toProviderInfo(ModelProviderEntity provider, List<ModelConfigEntity> models) {
