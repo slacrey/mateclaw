@@ -522,7 +522,7 @@ VALUES (1000000022, 'PdfRenderTool', 'PDF Render', 'Render Markdown into a final
 -- Built-in tool: Lead Browser Harness
 MERGE INTO mate_tool (id, name, display_name, description, tool_type, bean_name, icon, enabled, builtin, create_time, update_time, deleted)
 KEY (id)
-VALUES (1000000023, 'LeadBrowserHarnessTool', 'Lead Browser Harness', 'Task-level browser harnesses for lead-acquisition agents: Douyin keyword search through the visible search box and compact current-page lead snapshots.', 'builtin', 'leadBrowserHarnessTool', '🎯', TRUE, TRUE, NOW(), NOW(), 0);
+VALUES (1000000023, 'LeadBrowserHarnessTool', 'Lead Browser Harness', 'Task-level browser harnesses for lead-acquisition agents: cross-site visible search plus filter/sort option selection, Douyin presets, and compact current-page lead snapshots.', 'builtin', 'leadBrowserHarnessTool', '🎯', TRUE, TRUE, NOW(), NOW(), 0);
 
 -- Example MCP Server: Filesystem (see MateClaw docs mcpServers.filesystem)
 MERGE INTO mate_mcp_server (

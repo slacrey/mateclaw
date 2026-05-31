@@ -78,16 +78,30 @@ public class DefaultPageSnapshotService implements PageSnapshotService {
 
     @Override
     public Mono<PageSnapshot> request(BrowserSession session, TabRef tabRef, String filter) {
+        return doRequest(session, tabRef, filter, false);
+    }
+
+    @Override
+    public Mono<PageSnapshot> requestFresh(BrowserSession session, TabRef tabRef, String filter) {
+        return doRequest(session, tabRef, filter, true);
+    }
+
+    private Mono<PageSnapshot> doRequest(BrowserSession session, TabRef tabRef, String filter, boolean forceFresh) {
         String sessionId = session.getId();
         RefKey refKey = new RefKey(sessionId, canonical(tabRef));
 
         // Fast path: do we have a previously-resolved tab id for this selector,
-        // and is its cached entry still usable? If so, no wire call.
-        Long lastResolvedTabId = refIndex.get(refKey);
-        if (lastResolvedTabId != null) {
-            Cached cached = cache.get(new TabKey(sessionId, lastResolvedTabId));
-            if (cached != null && isUsable(cached)) {
-                return Mono.just(cached.snapshot());
+        // and is its cached entry still usable? If so, no wire call. SKIPPED when
+        // forceFresh (observe wants the live page, not a cached one) — but we
+        // still join an in-flight fetch below (that fetch IS live) and still
+        // repopulate the cache FRESH so the next grounding reuses this read.
+        if (!forceFresh) {
+            Long lastResolvedTabId = refIndex.get(refKey);
+            if (lastResolvedTabId != null) {
+                Cached cached = cache.get(new TabKey(sessionId, lastResolvedTabId));
+                if (cached != null && isUsable(cached)) {
+                    return Mono.just(cached.snapshot());
+                }
             }
         }
 

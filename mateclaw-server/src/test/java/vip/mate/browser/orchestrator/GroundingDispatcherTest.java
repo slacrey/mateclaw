@@ -79,15 +79,17 @@ class GroundingDispatcherTest {
     }
 
     @Test
-    void domMissAllStubs_returnsMiss() {
+    void domMissAllStubs_returnsLastEngineMissReason() {
         givenSnapshot(snapshot, hint);
         when(dom.ground(session, new TabRef.Main(), snapshot, hint)).thenReturn(new GroundingResult.Miss("dom miss"));
-        when(a11y.ground(session, new TabRef.Main(), snapshot, hint)).thenReturn(new GroundingResult.Miss("stub-phase-2"));
-        when(vision.ground(session, new TabRef.Main(), snapshot, hint)).thenReturn(new GroundingResult.Miss("stub-phase-2"));
+        when(a11y.ground(session, new TabRef.Main(), snapshot, hint)).thenReturn(new GroundingResult.Miss("a11y miss"));
+        when(vision.ground(session, new TabRef.Main(), snapshot, hint)).thenReturn(new GroundingResult.Miss("vision: no model configured"));
 
         var result = dispatcher.ground(session, new TabRef.Main(), hint);
 
-        assertThat(result).isEqualTo(new GroundingResult.Miss("no-engine-hit"));
+        // The dispatcher surfaces the LAST engine's (vision's) miss reason — the
+        // most actionable one — rather than a generic "no-engine-hit" sentinel.
+        assertThat(result).isEqualTo(new GroundingResult.Miss("vision: no model configured"));
     }
 
     @Test

@@ -15,6 +15,7 @@ import vip.mate.browser.edge.action.NavigateSuccess;
 import vip.mate.browser.edge.action.TabRef;
 import vip.mate.browser.edge.action.TypePayload;
 import vip.mate.browser.edge.action.TypeSuccess;
+import vip.mate.browser.edge.action.WaitPayload;
 import vip.mate.browser.edge.session.BrowserSession;
 import vip.mate.browser.edge.session.BrowserSessionRegistry;
 import vip.mate.browser.edge.session.BrowserSessionView;
@@ -291,6 +292,30 @@ class ExtensionBrowserToolTest {
     }
 
     @Test
+    void browserHoverAt_dispatchesMoveAndDwellRequestsForHarnesses() throws Exception {
+        when(planExec.execute(any(), any())).thenReturn(Mono.just((PlanResult)
+                new PlanResult.Success(List.of(
+                        new ActionResult.Success(11L,
+                                new vip.mate.browser.edge.action.MoveMouseSuccess(11L, 3))))));
+
+        tool.extension_browser_hover_at(1065.0, 41.0, null);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(planExec).execute(any(), captor.capture());
+        @SuppressWarnings("unchecked")
+        List<ActionRequest> sent = (List<ActionRequest>) captor.getValue();
+        assertThat(sent).hasSize(2);
+        assertThat(sent.get(0).kind()).isEqualTo(ActionKind.MOVE_MOUSE);
+        assertThat(sent.get(1).kind()).isEqualTo(ActionKind.WAIT);
+        var move = (MoveMousePayload) sent.get(0).params();
+        var wait = (WaitPayload) sent.get(1).params();
+        assertThat(move.x()).isEqualTo(1065.0);
+        assertThat(move.y()).isEqualTo(41.0);
+        assertThat(wait.strategy()).isEqualTo("time");
+        assertThat(wait.durationMs()).isEqualTo(450L);
+    }
+
+    @Test
     void browserScroll_dispatchesScrollRequest() throws Exception {
         when(planExec.execute(any(), any())).thenReturn(Mono.just((PlanResult)
                 new PlanResult.Success(List.of())));
@@ -329,7 +354,7 @@ class ExtensionBrowserToolTest {
                 new Viewport(1280, 800),
                 "https://example.com/page",
                 "Example page");
-        when(snapshotService.request(any(), any(), any())).thenReturn(Mono.just(snap));
+        when(snapshotService.requestFresh(any(), any(), any())).thenReturn(Mono.just(snap));
 
         String out = tool.extension_browser_observe("interactive", null);
 
@@ -355,7 +380,7 @@ class ExtensionBrowserToolTest {
                 new Viewport(1280, 800),
                 "https://www.douyin.com",
                 "抖音");
-        when(snapshotService.request(any(), any(), any())).thenReturn(Mono.just(snap));
+        when(snapshotService.requestFresh(any(), any(), any())).thenReturn(Mono.just(snap));
 
         String out = tool.extension_browser_observe(null, null);
 
@@ -363,7 +388,7 @@ class ExtensionBrowserToolTest {
         assertThat(j.get("ok").asBoolean()).isTrue();
 
         var filterCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
-        verify(snapshotService).request(any(), any(), filterCaptor.capture());
+        verify(snapshotService).requestFresh(any(), any(), filterCaptor.capture());
         assertThat(filterCaptor.getValue()).isEqualTo("default");
     }
 

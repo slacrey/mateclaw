@@ -108,4 +108,30 @@ class DbRuleGuardianTest {
         DbRuleGuardian g = new DbRuleGuardian(reg);
         assertEquals(0, g.evaluate(ctx("any_tool", "{}")).size());
     }
+
+    @Test
+    @DisplayName("browser outbound contact rule gates private-message clicks but not filter clicks")
+    void browserOutboundContactClickRequiresApprovalOnlyForContactLabels() {
+        ToolGuardRuleRegistry reg = mock(ToolGuardRuleRegistry.class);
+        ToolGuardRuleEntity r = rule(
+                "\"(hintText|hint_text)\"\\s*:\\s*\"\\s*(关注|私信|发送消息|follow|message|send|dm)\\s*\"",
+                "HIGH", "NEEDS_APPROVAL", null);
+        r.setRuleId("BROWSER_OUTBOUND_CONTACT_CLICK");
+        r.setToolName("extension_browser_click");
+        r.setCategory(GuardCategory.NETWORK_ABUSE.name());
+        when(reg.getRulesForTool(eq("extension_browser_click"))).thenReturn(List.of(r));
+        when(reg.getCompiledPattern(r.getPattern()))
+                .thenReturn(Pattern.compile(r.getPattern(), Pattern.CASE_INSENSITIVE));
+
+        DbRuleGuardian g = new DbRuleGuardian(reg);
+        List<GuardFinding> dmFindings = g.evaluate(ctx(
+                "extension_browser_click", "{\"hintText\":\"私信\",\"role\":\"button\"}"));
+        List<GuardFinding> filterFindings = g.evaluate(ctx(
+                "extension_browser_click", "{\"hintText\":\"筛选\",\"role\":\"button\"}"));
+
+        assertEquals(1, dmFindings.size());
+        assertEquals(GuardCategory.NETWORK_ABUSE, dmFindings.get(0).category());
+        assertEquals(GuardDecision.NEEDS_APPROVAL, dmFindings.get(0).decision());
+        assertEquals(0, filterFindings.size());
+    }
 }

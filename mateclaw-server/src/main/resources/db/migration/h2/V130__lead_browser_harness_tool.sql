@@ -8,7 +8,7 @@ VALUES (
     1000000023,
     'LeadBrowserHarnessTool',
     'Lead Browser Harness',
-    'Task-level browser harnesses for lead-acquisition agents: Douyin keyword search through the visible search box and compact current-page lead snapshots.',
+    'Task-level browser harnesses for lead-acquisition agents: cross-site visible search plus filter/sort option selection, Douyin presets, and compact current-page lead snapshots.',
     'builtin',
     'leadBrowserHarnessTool',
     '🎯',

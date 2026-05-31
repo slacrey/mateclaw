@@ -160,6 +160,16 @@ public class DefaultScreenshotEdgeClient implements ScreenshotEdgeClient {
     }
 
     private PageScreenshot parseScreenshot(Map<String, Object> payload) {
+        // Surface a typed extension-side failure (SCREENSHOT_TOO_LARGE /
+        // PERMISSION_DENIED / NO_TARGET_TAB) with its REAL code + message, rather
+        // than letting readBase64 below mask it as a generic "missing data_base64".
+        if (payload.get("error") instanceof Map<?, ?> err) {
+            Object code = err.get("code");
+            Object message = err.get("message");
+            throw new IllegalStateException("screenshot.capture failed: "
+                    + (code == null ? "ERROR" : code)
+                    + (message == null ? "" : " — " + message));
+        }
         String snapshotId = readString(payload, "snapshot_id", "");
         long capturedAt = readLong(payload, "captured_at_ms", clock.instant().toEpochMilli());
         long tabRef = readLong(payload, "tab_ref", -1L);

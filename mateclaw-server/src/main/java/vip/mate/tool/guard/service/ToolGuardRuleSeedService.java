@@ -321,6 +321,17 @@ public class ToolGuardRuleSeedService implements ApplicationRunner {
                 GuardSeverity.HIGH, GuardCategory.CODE_EXECUTION, "NEEDS_APPROVAL",
                 "execute_shell_command", gf("SHELL_OBFUSCATED_EXEC"), 150));
 
+        // === Browser outbound contact rules ===
+        // Lead discovery may navigate and rank candidates automatically, but
+        // visible-browser clicks that contact real users must pause for human
+        // approval. Keep the pattern narrow: only exact visible button labels
+        // on extension_browser_click are gated; search/filter/read actions
+        // continue without approval.
+        rules.add(rule("BROWSER_OUTBOUND_CONTACT_CLICK", gn("BROWSER_OUTBOUND_CONTACT_CLICK"),
+                "\"(hintText|hint_text)\"\\s*:\\s*\"\\s*(关注|互关|私信|发私信|发送私信|发消息|发送消息|follow|message|send|dm)\\s*\"",
+                GuardSeverity.HIGH, GuardCategory.NETWORK_ABUSE, "NEEDS_APPROVAL",
+                "extension_browser_click", gf("BROWSER_OUTBOUND_CONTACT_CLICK"), 145));
+
         // === Credential Rules ===
         rules.add(rule("CRED_PASSWORD_ASSIGN", gn("CRED_PASSWORD_ASSIGN"), "(password|secret|api[_-]?key|token)\\s*=\\s*['\"]?\\S{8,}",
                 GuardSeverity.HIGH, GuardCategory.CREDENTIAL_EXPOSURE, "NEEDS_APPROVAL",

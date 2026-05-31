@@ -35,8 +35,17 @@ public class WebSocketConfig implements WebSocketConfigurer {
      */
     private static final int MAX_BINARY_BUFFER_BYTES = 8 * 1024 * 1024;
 
-    /** Text frames stay reasonably small (init / state / transcript JSON). */
-    private static final int MAX_TEXT_BUFFER_BYTES = 64 * 1024;
+    /**
+     * Max text frame. The edge WebSocket carries JSON envelopes as TEXT, and two
+     * of them are large: the a11y snapshot tree (up to ~200 KB, see
+     * SnapshotRequestHandler DEFAULT_MAX_CHARS) and — the binding case — the
+     * {@code screenshot.capture.response} whose {@code data_base64} holds a full
+     * viewport screenshot (a JPEG is ~100 KB–1 MB; a HiDPI capture more). At the
+     * old 64 KB cap every screenshot frame (and any large tree) was rejected with
+     * CloseStatus 1009, so vision grounding could NEVER receive an image. 8 MB
+     * (matching the binary buffer) gives ample headroom for both.
+     */
+    private static final int MAX_TEXT_BUFFER_BYTES = 8 * 1024 * 1024;
 
     private final TalkModeWebSocketHandler talkModeHandler;
     private final EdgeWebSocketHandler edgeHandler;

@@ -174,6 +174,16 @@ public class ExtensionBrowserTool {
             different sections — pass near_label="Comments" to pick the one inside the
             Comments section). Powered by Phase 3 T3.1 A11yEngine.
 
+            ★ TOGGLES: a control that opens a menu / dropdown / filter panel (筛选, 排序, a
+            "more" menu) CLOSES it when clicked again. After clicking one to open it, do NOT
+            click it a second time — call extension_browser_observe to read the now-open panel
+            and click the option you want INSIDE it. Re-clicking the toggle is what closes it.
+
+            ★ VISIBLE BUT NOT IN THE TREE: if you can SEE a target on the page (a filter option,
+            a custom widget) but it isn't a Button/Link/etc. in the observe tree, STILL call this
+            tool with its visible text — grounding falls back to a screenshot + vision pass that
+            can locate it. Don't refuse just because it's not a "standard" element.
+
             Returns a JSON object:
               { "ok": true, "elapsed_ms": 123 }
             or on grounding failure:
@@ -209,6 +219,73 @@ public class ExtensionBrowserTool {
     }
 
     // -----------------------------------------------------------------
+    // browser_hover
+    // -----------------------------------------------------------------
+
+    @Tool(description = """
+            Move the mouse ONTO an element WITHOUT clicking — to open a HOVER-triggered
+            menu / panel and keep it open. Many sites reveal a panel only WHILE the mouse
+            rests on a trigger and remove it from the DOM the instant the mouse leaves —
+            e.g. Douyin's 筛选 sort panel (排序依据 / 最多点赞 / 最新发布 / 发布时间). A
+            CLICK does not reliably open these (and moving away closes them); a hover does.
+
+            Canonical flow for a hover menu:
+              extension_browser_hover(hint_text="筛选")        ← panel opens, cursor parked on it
+              extension_browser_observe(...)                    ← the panel is now in the tree
+              extension_browser_click(hint_text="最多点赞")     ← select the option
+            The panel stays open while the cursor rests on the trigger, so observe + the
+            follow-up click see it. Do NOT click the trigger to open a hover menu, and do
+            NOT move the mouse elsewhere before clicking the option.
+
+            Same role + hint_text + near_label matching as extension_browser_click. The
+            cursor is left ON the element (a ~400ms dwell lets the panel render before this
+            returns).
+
+            Returns: { "ok": true, ... } or { "ok": false, "code": "GROUNDING_MISS|GROUNDING_AMBIGUOUS|NO_SESSION", ... }
+            """)
+    public String extension_browser_hover(
+            @ToolParam(description = "Accessible name (case-insensitive substring) of the element to hover over, e.g. '筛选'. Read it from extension_browser_observe.")
+            String hintText,
+            @ToolParam(description = "Optional role hint: 'button' (default) | 'link' | 'menuitem' | 'tab' | 'searchbox' | 'textbox'",
+                       required = false) String role,
+            @ToolParam(description = "Optional containing-section heading text to disambiguate when hint_text matches multiple elements.",
+                       required = false) String nearLabel,
+            @Nullable ToolContext ctx) {
+        BrowserSession session = resolveSession();
+        if (session == null) return noSession();
+
+        String resolvedRole = defaulted(role, "button");
+        GroundingHint hint = new GroundingHint.A11yMatch(
+                resolvedRole,
+                Pattern.compile(Pattern.quote(hintText), Pattern.CASE_INSENSITIVE),
+                "interactive",
+                emptyToNull(nearLabel));
+
+        GroundingResult ground = dispatcher.ground(session, new TabRef.Main(), hint);
+        return switch (ground) {
+            case GroundingResult.Hit hit -> {
+                var center = hit.target().bbox().center();
+                // Move the (real) cursor onto the element and STOP — no press. This
+                // fires mouseover/mouseenter so a hover-triggered panel opens, and the
+                // synthetic pointer stays parked there (CDP keeps the last-moved
+                // position), so the panel persists for the next observe + click. The
+                // trailing WAIT gives the panel ~400ms to render before we return.
+                ActionRequest move = new ActionRequest(
+                        newMsgId(), new TabRef.Main(), ActionKind.MOVE_MOUSE,
+                        new MoveMousePayload(center.x(), center.y(), "natural"), DEFAULT_DEADLINE_MS);
+                ActionRequest dwell = new ActionRequest(
+                        newMsgId(), new TabRef.Main(), ActionKind.WAIT,
+                        new WaitPayload("time", 400L, null, null), DEFAULT_DEADLINE_MS);
+                yield executePlan(session, List.of(move, dwell));
+            }
+            case GroundingResult.Ambiguous a -> error("GROUNDING_AMBIGUOUS",
+                    "found " + a.candidates().size() + " candidates: " + a.evidence()
+                            + " — try refining with a near_label");
+            case GroundingResult.Miss m -> error("GROUNDING_MISS", m.reason());
+        };
+    }
+
+    // -----------------------------------------------------------------
     // browser_type
     // -----------------------------------------------------------------
 
@@ -228,8 +305,12 @@ public class ExtensionBrowserTool {
             text="openclaw\\n". The trailing \\n is sent as the ENTER key, which submits
             the search in one step — you do NOT need to separately click the search button.
             (You may still click the search button instead if Enter doesn't apply.)
-            After typing, call extension_browser_observe again and check that the `url`
-            changed (e.g. to a /search/... URL) to confirm the submit worked before retrying.
+            After typing, call extension_browser_observe and confirm the submit worked by its
+            EFFECT, not by one fixed signal: results / new content appeared, OR the `url` /
+            `title` changed, OR the field now holds your text. Many sites (especially SPAs)
+            render results IN PLACE with the url UNCHANGED — do NOT treat an unchanged url as
+            failure. If nothing changed at all, retry once, then click the visible search
+            button instead; never repeat the same action in a loop.
 
             Returns a JSON object on success:
               { "ok": true, "chars_typed": 5 }
@@ -275,6 +356,26 @@ public class ExtensionBrowserTool {
                 DEFAULT_DEADLINE_MS);
 
         return executePlan(session, List.of(move, click));
+    }
+
+    String extension_browser_hover_at(double x, double y, @Nullable ToolContext ctx) {
+        BrowserSession session = resolveSession();
+        if (session == null) return noSession();
+
+        ActionRequest move = new ActionRequest(
+                newMsgId(),
+                new TabRef.Main(),
+                ActionKind.MOVE_MOUSE,
+                new MoveMousePayload(x, y, "natural"),
+                DEFAULT_DEADLINE_MS);
+        ActionRequest dwell = new ActionRequest(
+                newMsgId(),
+                new TabRef.Main(),
+                ActionKind.WAIT,
+                new WaitPayload("time", 450L, null, null),
+                DEFAULT_DEADLINE_MS);
+
+        return executePlan(session, List.of(move, dwell));
     }
 
     // -----------------------------------------------------------------
@@ -367,8 +468,9 @@ public class ExtensionBrowserTool {
             Searchbox, Textbox, Button, Link) as that call's role argument.
 
             Typical flow for this tool family:
-              navigate → observe (read the tree + url) → click (by role + hint_text
-              taken from the tree) → type → observe again (confirm url/state changed).
+              navigate → observe (read the tree + url/title) → click (by role + hint_text
+              taken from the tree) → type → observe again (confirm the page changed — new
+              content appeared, or url/title changed).
             Always observe once after navigating and again after a click/type so you act
             on the page's real, current structure instead of guessing.
 
@@ -384,7 +486,7 @@ public class ExtensionBrowserTool {
             Returns a JSON object:
               { "ok": true,
                 "snapshot_id": "...",
-                "url": "https://...",         ← current page URL — compare this between observes to confirm your last action worked (a successful navigation/click changes it) before retrying
+                "url": "https://...",         ← current page URL. ONE signal of change, not the only one — compare between observes, but many sites/SPAs update content with the url UNCHANGED, so also check `title` and whether goal-relevant content appeared in the tree
                 "title": "Page title",
                 "viewport": {"w": 1280, "h": 800},
                 "tree": "Button[ref=ref_1, frame=0]: Submit @{100,200 80x32}\\n..." }
@@ -398,8 +500,14 @@ public class ExtensionBrowserTool {
 
         String resolvedFilter = defaulted(filter, "default");
         try {
+            // requestFresh, NOT request: observe is the agent's "read the page
+            // NOW" call. A cached snapshot here can replay a pre-navigation page
+            // (e.g. the homepage after a search submit that the SPA route change
+            // never invalidated), making the agent think its action failed and
+            // loop. Fetch live; the result still repopulates the cache FRESH so
+            // the click the agent grounds next reuses it.
             var snapshot = snapshotService
-                    .request(session, new TabRef.Main(), resolvedFilter)
+                    .requestFresh(session, new TabRef.Main(), resolvedFilter)
                     .block(java.time.Duration.ofSeconds(15));
             if (snapshot == null) {
                 return error("SNAPSHOT_FAILED", "PageSnapshotService returned null");

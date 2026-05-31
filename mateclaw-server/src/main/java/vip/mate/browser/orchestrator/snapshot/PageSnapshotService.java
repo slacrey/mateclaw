@@ -55,6 +55,26 @@ public interface PageSnapshotService {
     Mono<PageSnapshot> request(BrowserSession session, TabRef tabRef, String filter);
 
     /**
+     * Like {@link #request}, but ALWAYS fetches a live snapshot from the
+     * Extension — it never serves a cached entry, even a {@code FRESH} one
+     * within TTL. The freshly fetched snapshot still repopulates the cache
+     * (as {@code FRESH}) so an immediately-following {@link #request} — e.g. the
+     * grounding for the click the agent decides on after reading the tree —
+     * reuses it without a second wire call.
+     *
+     * <p><strong>Why this exists.</strong> {@code extension_browser_observe} is
+     * the agent's explicit "what is on the page right now" call. The cache's
+     * only action-driven invalidations are {@link #onActionSuccess} (not wired
+     * into the action path) and {@link PageEvent#NAVIGATED} (which an SPA's
+     * {@code history.pushState} route change — Douyin search — does not emit).
+     * So a plain cached {@code request} after a search submit can replay the
+     * pre-navigation (homepage) snapshot for up to 30 s, and the agent, seeing
+     * an unchanged URL, wrongly concludes the search failed and loops. observe
+     * must therefore read live.
+     */
+    Mono<PageSnapshot> requestFresh(BrowserSession session, TabRef tabRef, String filter);
+
+    /**
      * Called by the orchestrator (or an {@code ActionResult} listener) on a
      * successful {@code action.result}. Transitions the cached entry for
      * {@code (sessionId, resolvedTabId)} per the lifecycle table:

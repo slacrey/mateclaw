@@ -569,7 +569,7 @@ ON DUPLICATE KEY UPDATE name=VALUES(name), display_name=VALUES(display_name), de
 
 -- 内置工具：获客浏览器 Harness
 INSERT INTO mate_tool (id, name, display_name, description, tool_type, bean_name, icon, enabled, builtin, create_time, update_time, deleted)
-VALUES (1000000023, 'LeadBrowserHarnessTool', '获客浏览器 Harness', '面向获客场景的任务级浏览器 Harness：通过可见搜索框完成抖音关键词搜索，并提供紧凑的线索候选页面快照。', 'builtin', 'leadBrowserHarnessTool', '🎯', TRUE, TRUE, NOW(), NOW(), 0)
+VALUES (1000000023, 'LeadBrowserHarnessTool', '获客浏览器 Harness', '面向获客场景的任务级浏览器 Harness：跨站点可见搜索、筛选/排序选项选择、抖音预设，以及紧凑的线索候选页面快照。', 'builtin', 'leadBrowserHarnessTool', '🎯', TRUE, TRUE, NOW(), NOW(), 0)
 ON DUPLICATE KEY UPDATE name=VALUES(name), display_name=VALUES(display_name), description=VALUES(description), tool_type=VALUES(tool_type), bean_name=VALUES(bean_name), icon=VALUES(icon), enabled=VALUES(enabled), builtin=VALUES(builtin), update_time=VALUES(update_time), deleted=VALUES(deleted);
 
 -- 示例 MCP Server：Filesystem（参考 MateClaw 文档中的 mcpServers.filesystem）

@@ -339,6 +339,268 @@ class LeadBrowserHarnessToolTest {
     }
 
     @Test
+    void siteSearchSelectOption_worksForXiaohongshuStyleSearchAndSortFlow() throws Exception {
+        when(browser.extension_browser_navigate(eq("https://www.xiaohongshu.com"), eq("load"), any()))
+                .thenReturn(ok());
+        Queue<String> observes = new ArrayDeque<>();
+        observes.add(observe(
+                "https://www.xiaohongshu.com",
+                "小红书",
+                "Textbox[ref=ref_1]: 搜索小红书 @{300,10 500x40}"));
+        observes.add(observe(
+                "https://www.xiaohongshu.com",
+                "小红书",
+                "Textbox[ref=ref_2]: 搜索小红书 @{300,10 500x40}"));
+        observes.add(observe(
+                "https://www.xiaohongshu.com/search_result?keyword=openclaw",
+                "openclaw - 小红书搜索",
+                "Textbox[ref=ref_1]: openclaw @{300,10 500x40}\n"
+                        + "Button[ref=ref_filter]: 筛选 @{930,96 64x32}\n"
+                        + "Article[ref=ref_card]: OpenClaw 使用笔记 @{240,180 260x120}"));
+        observes.add(observe(
+                "https://www.xiaohongshu.com/search_result?keyword=openclaw",
+                "openclaw - 小红书搜索",
+                "Textbox[ref=ref_1]: openclaw @{300,10 500x40}\n"
+                        + "Button[ref=ref_filter]: 筛选 @{930,96 64x32}\n"
+                        + "Button[ref=ref_general]: 综合排序 @{926,168 80x28}\n"
+                        + "Button[ref=ref_like]: 最多点赞 @{926,204 80x28}\n"
+                        + "Button[ref=ref_latest]: 最新发布 @{926,240 80x28}"));
+        observes.add(observe(
+                "https://www.xiaohongshu.com/search_result?keyword=openclaw",
+                "openclaw - 小红书搜索",
+                "Textbox[ref=ref_1]: openclaw @{300,10 500x40}\n"
+                        + "Button[ref=ref_filter]: 筛选 @{930,96 64x32}\n"
+                        + "Button[ref=ref_like]: 最多点赞 已选 @{926,204 102x28}\n"
+                        + "Article[ref=ref_card]: OpenClaw 使用笔记 @{240,180 260x120}"));
+        when(browser.extension_browser_observe(eq("all"), any()))
+                .thenAnswer(ignored -> observes.remove());
+        when(browser.extension_browser_click_at(eq(550.0), eq(30.0), any())).thenReturn(ok());
+        when(browser.extension_browser_type_at(eq("openclaw\n"), any(), any())).thenReturn(ok());
+        when(browser.extension_browser_hover_at(eq(962.0), eq(112.0), any())).thenReturn(ok());
+        when(browser.extension_browser_click_at(eq(966.0), eq(218.0), any())).thenReturn(ok());
+
+        String out = tool.lead_browser_site_search_select_option(
+                "www.xiaohongshu.com", "openclaw", "筛选", "最多点赞", "小红书", null);
+
+        JsonNode j = mapper.readTree(out);
+        assertThat(j.path("ok").asBoolean()).isTrue();
+        assertThat(j.path("status").asText()).isEqualTo("DONE");
+        assertThat(j.path("site").asText()).isEqualTo("小红书");
+        assertThat(j.path("selected_option").asText()).isEqualTo("最多点赞");
+        assertThat(j.path("query").asText()).isEqualTo("openclaw");
+        verify(browser).extension_browser_navigate(eq("https://www.xiaohongshu.com"), eq("load"), any());
+        verify(browser).extension_browser_click_at(eq(550.0), eq(30.0), any());
+        verify(browser).extension_browser_hover_at(eq(962.0), eq(112.0), any());
+        verify(browser).extension_browser_click_at(eq(966.0), eq(218.0), any());
+    }
+
+    @Test
+    void douyinSearchSortMostLiked_searchesThenHoversFilterAndClicksMostLiked() throws Exception {
+        when(browser.extension_browser_navigate(eq("https://www.douyin.com/"), eq("load"), any()))
+                .thenReturn(ok());
+        Queue<String> observes = new ArrayDeque<>();
+        observes.add(observe(
+                "https://www.douyin.com/",
+                "抖音",
+                "Textbox[ref=ref_1]: 搜索你感兴趣的内容 @{700,5 730x72}"));
+        observes.add(observe(
+                "https://www.douyin.com/",
+                "抖音",
+                "Textbox[ref=ref_2]: 搜索你感兴趣的内容 @{700,5 730x72}"));
+        observes.add(observe(
+                "https://www.douyin.com/search/openclaw?type=general",
+                "openclaw - 抖音搜索",
+                "Textbox[ref=ref_1]: openclaw @{700,5 730x72}\n"
+                        + "Button[ref=ref_filter]: 筛选 @{930,96 64x32}\n"
+                        + "Article[ref=ref_card]: OpenClaw 官方账号 @{240,180 260x120}"));
+        observes.add(observe(
+                "https://www.douyin.com/search/openclaw?type=general",
+                "openclaw - 抖音搜索",
+                "Textbox[ref=ref_1]: openclaw @{700,5 730x72}\n"
+                        + "Button[ref=ref_filter]: 筛选 @{930,96 64x32}\n"
+                        + "Text[ref=ref_sort]: 排序依据 @{926,136 68x24}\n"
+                        + "Button[ref=ref_general]: 综合排序 @{926,168 80x28}\n"
+                        + "Button[ref=ref_like]: 最多点赞 @{926,204 80x28}\n"
+                        + "Button[ref=ref_latest]: 最新发布 @{926,240 80x28}"));
+        observes.add(observe(
+                "https://www.douyin.com/search/openclaw?type=general",
+                "openclaw - 抖音搜索",
+                "Textbox[ref=ref_1]: openclaw @{700,5 730x72}\n"
+                        + "Button[ref=ref_filter]: 筛选 @{930,96 64x32}\n"
+                        + "Button[ref=ref_like]: 最多点赞 已选 @{926,204 102x28}\n"
+                        + "Article[ref=ref_card]: OpenClaw 官方账号 @{240,180 260x120}"));
+        when(browser.extension_browser_observe(eq("all"), any()))
+                .thenAnswer(ignored -> observes.remove());
+        when(browser.extension_browser_click_at(eq(1065.0), eq(41.0), any())).thenReturn(ok());
+        when(browser.extension_browser_type_at(eq("openclaw\n"), any(), any())).thenReturn(ok());
+        when(browser.extension_browser_hover_at(eq(962.0), eq(112.0), any())).thenReturn(ok());
+        when(browser.extension_browser_click_at(eq(966.0), eq(218.0), any())).thenReturn(ok());
+
+        String out = tool.lead_browser_douyin_search_sort_most_liked("openclaw", null);
+
+        JsonNode j = mapper.readTree(out);
+        assertThat(j.path("ok").asBoolean()).isTrue();
+        assertThat(j.path("status").asText()).isEqualTo("DONE");
+        assertThat(j.path("sort").asText()).isEqualTo("最多点赞");
+        assertThat(j.path("query").asText()).isEqualTo("openclaw");
+        verify(browser).extension_browser_hover_at(eq(962.0), eq(112.0), any());
+        verify(browser).extension_browser_click_at(eq(966.0), eq(218.0), any());
+        verify(browser, never()).extension_browser_hover(eq("筛选"), any(), any(), any());
+    }
+
+    @Test
+    void douyinSearchSortMostLiked_fallsBackToClickFilterWhenHoverDoesNotExposeOption() throws Exception {
+        when(browser.extension_browser_navigate(eq("https://www.douyin.com/"), eq("load"), any()))
+                .thenReturn(ok());
+        Queue<String> observes = new ArrayDeque<>();
+        observes.add(observe(
+                "https://www.douyin.com/",
+                "抖音",
+                "Textbox[ref=ref_1]: 搜索你感兴趣的内容 @{700,5 730x72}"));
+        observes.add(observe(
+                "https://www.douyin.com/",
+                "抖音",
+                "Textbox[ref=ref_2]: 搜索你感兴趣的内容 @{700,5 730x72}"));
+        observes.add(observe(
+                "https://www.douyin.com/search/openclaw?type=general",
+                "openclaw - 抖音搜索",
+                "Textbox[ref=ref_1]: openclaw @{700,5 730x72}\n"
+                        + "Button[ref=ref_filter]: 筛选 @{930,96 64x32}"));
+        observes.add(observe(
+                "https://www.douyin.com/search/openclaw?type=general",
+                "openclaw - 抖音搜索",
+                "Textbox[ref=ref_1]: openclaw @{700,5 730x72}\n"
+                        + "Button[ref=ref_filter]: 筛选 @{930,96 64x32}"));
+        observes.add(observe(
+                "https://www.douyin.com/search/openclaw?type=general",
+                "openclaw - 抖音搜索",
+                "Button[ref=ref_filter]: 筛选 @{930,96 64x32}\n"
+                        + "Text[ref=ref_sort]: 排序依据 @{926,136 68x24}\n"
+                        + "Button[ref=ref_like]: 最多点赞 @{926,204 80x28}"));
+        observes.add(observe(
+                "https://www.douyin.com/search/openclaw?type=general",
+                "openclaw - 抖音搜索",
+                "Button[ref=ref_filter]: 筛选 @{930,96 64x32}\n"
+                        + "Button[ref=ref_like]: 最多点赞 已选 @{926,204 102x28}"));
+        when(browser.extension_browser_observe(eq("all"), any()))
+                .thenAnswer(ignored -> observes.remove());
+        when(browser.extension_browser_click_at(eq(1065.0), eq(41.0), any())).thenReturn(ok());
+        when(browser.extension_browser_type_at(eq("openclaw\n"), any(), any())).thenReturn(ok());
+        when(browser.extension_browser_hover_at(eq(962.0), eq(112.0), any())).thenReturn(ok());
+        when(browser.extension_browser_click_at(eq(962.0), eq(112.0), any())).thenReturn(ok());
+        when(browser.extension_browser_click_at(eq(966.0), eq(218.0), any())).thenReturn(ok());
+
+        String out = tool.lead_browser_douyin_search_sort_most_liked("openclaw", null);
+
+        JsonNode j = mapper.readTree(out);
+        assertThat(j.path("ok").asBoolean()).isTrue();
+        assertThat(j.path("status").asText()).isEqualTo("DONE");
+        verify(browser).extension_browser_hover_at(eq(962.0), eq(112.0), any());
+        verify(browser).extension_browser_click_at(eq(962.0), eq(112.0), any());
+        verify(browser).extension_browser_click_at(eq(966.0), eq(218.0), any());
+    }
+
+    @Test
+    void douyinSearchSortMostLiked_fallsBackToVisibleTextClickWhenOptionIsMissingFromTree() throws Exception {
+        when(browser.extension_browser_navigate(eq("https://www.douyin.com/"), eq("load"), any()))
+                .thenReturn(ok());
+        Queue<String> observes = new ArrayDeque<>();
+        observes.add(observe(
+                "https://www.douyin.com/",
+                "抖音",
+                "Textbox[ref=ref_1]: 搜索你感兴趣的内容 @{700,5 730x72}"));
+        observes.add(observe(
+                "https://www.douyin.com/",
+                "抖音",
+                "Textbox[ref=ref_2]: 搜索你感兴趣的内容 @{700,5 730x72}"));
+        observes.add(observe(
+                "https://www.douyin.com/search/openclaw?type=general",
+                "openclaw - 抖音搜索",
+                "Textbox[ref=ref_1]: openclaw @{700,5 730x72}\n"
+                        + "Button[ref=ref_filter]: 筛选 @{930,96 64x32}"));
+        observes.add(observe(
+                "https://www.douyin.com/search/openclaw?type=general",
+                "openclaw - 抖音搜索",
+                "Button[ref=ref_filter]: 筛选 @{930,96 64x32}\n"
+                        + "Button[ref=ref_general]: 综合排序 @{926,168 80x28}"));
+        observes.add(observe(
+                "https://www.douyin.com/search/openclaw?type=general",
+                "openclaw - 抖音搜索",
+                "Button[ref=ref_filter]: 筛选 @{930,96 64x32}\n"
+                        + "Button[ref=ref_general]: 综合排序 @{926,168 80x28}"));
+        observes.add(observe(
+                "https://www.douyin.com/search/openclaw?type=general",
+                "openclaw - 抖音搜索",
+                "Button[ref=ref_filter]: 筛选 @{930,96 64x32}\n"
+                        + "Button[ref=ref_like]: 最多点赞 已选 @{926,204 102x28}"));
+        when(browser.extension_browser_observe(eq("all"), any()))
+                .thenAnswer(ignored -> observes.remove());
+        when(browser.extension_browser_click_at(eq(1065.0), eq(41.0), any())).thenReturn(ok());
+        when(browser.extension_browser_type_at(eq("openclaw\n"), any(), any())).thenReturn(ok());
+        when(browser.extension_browser_hover_at(eq(962.0), eq(112.0), any())).thenReturn(ok());
+        when(browser.extension_browser_click_at(eq(962.0), eq(112.0), any())).thenReturn(ok());
+        when(browser.extension_browser_click(eq("最多点赞"), eq("button"), any(), any())).thenReturn(ok());
+
+        String out = tool.lead_browser_douyin_search_sort_most_liked("openclaw", null);
+
+        JsonNode j = mapper.readTree(out);
+        assertThat(j.path("ok").asBoolean()).isTrue();
+        assertThat(j.path("status").asText()).isEqualTo("DONE");
+        verify(browser).extension_browser_hover_at(eq(962.0), eq(112.0), any());
+        verify(browser).extension_browser_click_at(eq(962.0), eq(112.0), any());
+        verify(browser).extension_browser_click(eq("最多点赞"), eq("button"), any(), any());
+    }
+
+    @Test
+    void douyinSearchSortMostLiked_returnsClearFailureWhenVisibleTextFallbackAlsoMisses() throws Exception {
+        when(browser.extension_browser_navigate(eq("https://www.douyin.com/"), eq("load"), any()))
+                .thenReturn(ok());
+        Queue<String> observes = new ArrayDeque<>();
+        observes.add(observe(
+                "https://www.douyin.com/",
+                "抖音",
+                "Textbox[ref=ref_1]: 搜索你感兴趣的内容 @{700,5 730x72}"));
+        observes.add(observe(
+                "https://www.douyin.com/",
+                "抖音",
+                "Textbox[ref=ref_2]: 搜索你感兴趣的内容 @{700,5 730x72}"));
+        observes.add(observe(
+                "https://www.douyin.com/search/openclaw?type=general",
+                "openclaw - 抖音搜索",
+                "Textbox[ref=ref_1]: openclaw @{700,5 730x72}\n"
+                        + "Button[ref=ref_filter]: 筛选 @{930,96 64x32}"));
+        observes.add(observe(
+                "https://www.douyin.com/search/openclaw?type=general",
+                "openclaw - 抖音搜索",
+                "Button[ref=ref_filter]: 筛选 @{930,96 64x32}\n"
+                        + "Button[ref=ref_general]: 综合排序 @{926,168 80x28}"));
+        observes.add(observe(
+                "https://www.douyin.com/search/openclaw?type=general",
+                "openclaw - 抖音搜索",
+                "Button[ref=ref_filter]: 筛选 @{930,96 64x32}\n"
+                        + "Button[ref=ref_general]: 综合排序 @{926,168 80x28}"));
+        when(browser.extension_browser_observe(eq("all"), any()))
+                .thenAnswer(ignored -> observes.remove());
+        when(browser.extension_browser_click_at(eq(1065.0), eq(41.0), any())).thenReturn(ok());
+        when(browser.extension_browser_type_at(eq("openclaw\n"), any(), any())).thenReturn(ok());
+        when(browser.extension_browser_hover_at(eq(962.0), eq(112.0), any())).thenReturn(ok());
+        when(browser.extension_browser_click_at(eq(962.0), eq(112.0), any())).thenReturn(ok());
+        when(browser.extension_browser_click(eq("最多点赞"), eq("button"), any(), any()))
+                .thenReturn(miss("vision: no model configured"));
+
+        String out = tool.lead_browser_douyin_search_sort_most_liked("openclaw", null);
+
+        JsonNode j = mapper.readTree(out);
+        assertThat(j.path("ok").asBoolean()).isFalse();
+        assertThat(j.path("status").asText()).isEqualTo("SORT_OPTION_NOT_FOUND");
+        assertThat(j.path("message").asText()).contains("最多点赞");
+        assertThat(j.path("message").asText()).contains("vision");
+        verify(browser).extension_browser_hover_at(eq(962.0), eq(112.0), any());
+        verify(browser).extension_browser_click_at(eq(962.0), eq(112.0), any());
+        verify(browser).extension_browser_click(eq("最多点赞"), eq("button"), any(), any());
+    }
+
+    @Test
     void snapshotForLeads_returnsCompactCandidateLines() throws Exception {
         when(browser.extension_browser_observe(eq("all"), any())).thenReturn(observe(
                 "https://www.douyin.com/search/openclaw?type=general",

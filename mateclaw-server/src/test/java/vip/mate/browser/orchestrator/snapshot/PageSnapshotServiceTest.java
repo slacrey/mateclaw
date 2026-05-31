@@ -148,6 +148,41 @@ class PageSnapshotServiceTest {
     }
 
     @Test
+    void requestFresh_bypassesUsableCache_andRefetches() {
+        // observe() uses requestFresh: it must NOT serve a cached snapshot even
+        // when the entry is FRESH and within TTL — observe means "read the page
+        // NOW". This is what stops a post-submit observe from replaying the
+        // pre-navigation (homepage) snapshot and falsely concluding the search
+        // failed (the re-search loop the user hit).
+        service.request(session, new TabRef.Main(), "default").block(); // caches firstSnap FRESH
+        reset(client);
+        when(client.request(any(BrowserSession.class), any(TabRef.class), anyString()))
+                .thenReturn(Mono.just(secondSnap));
+
+        PageSnapshot snap = service.requestFresh(session, new TabRef.Main(), "default").block();
+
+        assertThat(snap.snapshotId()).isEqualTo("snap-2"); // live snapshot, NOT the FRESH cache entry
+        verify(client, times(1)).request(eq(session), any(TabRef.class), eq("default"));
+    }
+
+    @Test
+    void requestFresh_repopulatesCacheFresh_soFollowingRequestReusesIt() {
+        // After observe(requestFresh) lands a live snapshot, the immediately
+        // following click grounding (which uses the cached request()) must reuse
+        // it — no second wire fetch — so the click acts on the SAME tree the
+        // agent just observed.
+        when(client.request(any(BrowserSession.class), any(TabRef.class), anyString()))
+                .thenReturn(Mono.just(secondSnap));
+        service.requestFresh(session, new TabRef.Main(), "default").block();
+        reset(client);
+
+        PageSnapshot reused = service.request(session, new TabRef.Main(), "default").block();
+
+        assertThat(reused.snapshotId()).isEqualTo("snap-2");
+        verifyNoInteractions(client);
+    }
+
+    @Test
     void navigateAction_marksStale_nextRequestRefetches() {
         service.request(session, new TabRef.Main(), "default").block();
         service.onActionSuccess(SESSION_ID, TAB_ID, ActionKind.NAVIGATE);

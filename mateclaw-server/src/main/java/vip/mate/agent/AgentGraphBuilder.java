@@ -1455,17 +1455,77 @@ public class AgentGraphBuilder {
         }
         return """
 
-                ## Browser work — drive the page with the composable primitives
+                ## Browser work — compose reusable lead workflows
+                Preferred first choice for common site search + filter/sort tasks:
+                call `lead_browser_site_search_select_option(homeUrl, query, triggerText,
+                optionText, siteName)`. Use it for sites that fit:
+                  home page → visible search box → results → 筛选/排序 trigger → option text
+                Example: Douyin or Xiaohongshu with query=openclaw, triggerText=筛选,
+                optionText=最多点赞. This generic harness avoids repeated click/search loops,
+                tries hover-triggered panels first, falls back to click-triggered panels, and
+                finally uses visible-text grounding for custom menu rows.
+
+                Convenience preset: for the exact request "用我的浏览器打开抖音，搜索 <query>，
+                点击筛选，按最多点赞排序" (or the same request in English), you may call
+                `lead_browser_douyin_search_sort_most_liked(query)`. It is only a preset over
+                the generic search + select-option pattern; do not generalize from it by
+                inventing hard-coded URL params or platform-specific one-off loops.
+
                 For ALL interactive or multi-step browser tasks (open a site, search, then
                 filter / sort / open a result / read comments / fill a form / page through),
                 use the `extension_browser_*` primitives and let the page tell you what to do:
-                  navigate → observe (read the tree + the `url`) → click / type (by role + the
-                  visible text you saw in the tree) → observe again to confirm the url/state
+                  navigate → observe (read the tree + `url`/`title`) → click / type (by role +
+                  the visible text you saw in the tree) → observe again to confirm the page
                   changed → repeat until the goal is met.
-                These compose into arbitrarily long flows and work on ANY site. After each
-                action, observe and compare the `url`/tree to confirm progress before the next
-                step; if the same page/url keeps repeating, change tactics — do NOT keep
-                repeating the same action.
+                These compose into arbitrarily long flows and work on ANY site.
+
+                Confirm an action worked by its EFFECT, not by one fixed signal. After an action,
+                observe and look for ANY change consistent with your intent:
+                  • goal-relevant content appeared (search results, a list, a new section/heading),
+                  • the `url` OR `title` changed,
+                  • the field now shows the text you typed, or a panel / menu / dialog opened.
+                Do NOT assume the `url` must change (or must contain "/search/") — many sites,
+                especially SPAs, render results IN PLACE with the url unchanged. Judge success by
+                whether the goal-relevant content is now present in the tree.
+                Bounded retry — never loop: if nothing changed, retry the SAME action at most
+                once; if still nothing, switch tactics (e.g. click the visible 搜索 / Search
+                button instead of pressing Enter, or vice-versa); if it still doesn't move, STOP
+                and tell the user what you observed rather than repeating.
+
+                Menus / dropdowns / filter panels are TOGGLES. A control that OPENS a panel
+                (筛选 / 排序 / a "more" menu / a dropdown) CLOSES it again when clicked a second
+                time. So after clicking such a control ONCE, do NOT click it again to "make
+                sure" or "retry" — that just closes the panel you opened (it flickers open then
+                shut). Instead: observe — the panel's options should now be in the tree (they
+                may render as Button/Menuitem/Option lines like 综合排序 / 最多点赞 / 最新发布).
+                If they are not there yet, `extension_browser_wait` ~500ms and observe again
+                (the panel may animate in), or scroll it into view — only re-click the toggle if
+                an observe has CONFIRMED the panel is closed. Then click the desired option
+                INSIDE the panel by its visible text, not the toggle again.
+
+                HOVER menus (important): some panels open on mouse-HOVER, not click — they
+                appear only while the cursor RESTS on the trigger and VANISH (removed from the
+                DOM) the instant it leaves. Douyin's 筛选 sort panel (排序依据 / 最多点赞 /
+                最新发布 / 发布时间) is exactly this. A click will NOT reliably open it, and
+                moving the mouse away (or observing after a click that left the cursor
+                elsewhere) makes it disappear. For these, use extension_browser_hover:
+                  extension_browser_hover("筛选")  → panel opens, cursor parked on it
+                  extension_browser_observe(...)    → the panel is now in the tree
+                  extension_browser_click("最多点赞") (then hover 筛选 again + click "一周内", etc.)
+                The cursor stays on the trigger so the panel persists across the observe and
+                the option click. Tell-tale sign you need hover instead of click: a panel that
+                flickers open then disappears before you can read or click it. NEVER fall back
+                to crafting sort/filter URL params (e.g. sort_type=) — the site strips them.
+
+                See it but can't ground it? If something is clearly VISIBLE on the page (a filter
+                option like 最新发布 / 一周内, a custom widget, an icon-only button) but does NOT
+                appear as a Button/Link/etc. in the tree — STILL call extension_browser_click
+                with its visible text. Grounding falls back to a screenshot + vision pass that
+                locates targets the accessibility tree can't expose. Do NOT give up and hand the
+                user manual click-by-click instructions — that is the exact failure we're
+                avoiding. Only if the click returns a GROUNDING_MISS whose message says vision is
+                unconfigured ("vision: no model configured") should you tell the user to enable a
+                vision-capable model in Settings → Models, then retry.
 
                 To SEARCH a site, open its HOME page (e.g. https://www.douyin.com/) and use the
                 on-page search box: click it → type the query → submit. Do NOT navigate
@@ -1480,16 +1540,40 @@ public class AgentGraphBuilder {
                 STOP and tell the user to log in (or solve it) in this same browser, then retry.
                 You cannot log in or solve verification for them.
 
-                The `lead_browser_*` tools are OPTIONAL one-shot READ helpers, not drivers — use
-                them only to extract candidates from a page you have ALREADY navigated to with
-                the primitives:
+                ## Comment-section lead acquisition workflow
+                For "评论区获客" tasks, run the workflow in safe stages:
+                1. Discover: search the requested platform/keyword, apply the requested sort,
+                   open relevant videos/notes/posts, and read visible comments.
+                2. Rank: compare comments to the user's target comment/query, deduplicate users,
+                   and return a candidate queue with evidence: platform, post, username/profile,
+                   matched comment, similarity reason, and confidence.
+                3. Draft: generate personalized follow/private-message copy for each candidate
+                   using the user's product pitch, but keep it as a draft until approved.
+                4. Act with approval: do NOT bulk follow users, bulk send DMs, or send promotional
+                   messages automatically. Before any external action that follows a user, opens
+                   a DM composer, or sends a promotional message, ask for explicit confirmation
+                   for that specific candidate/message. After approval, execute at most the
+                   approved single action, then report the result.
+
+                This boundary is part of the product behavior, not a temporary limitation:
+                the agent may automate navigation, extraction, similarity ranking, and draft
+                preparation; the user remains in control of outbound contact.
+
+                The `lead_browser_*` tools are task-level helpers. Use the exact helper when
+                one matches the whole task; otherwise fall back to the primitives:
+                - `lead_browser_site_search_select_option(homeUrl, query, triggerText, optionText,
+                  siteName)` — generic cross-site helper for homepage search + filter/sort option
+                  selection, including Douyin/Xiaohongshu-style pages.
+                - `lead_browser_douyin_search_sort_most_liked(query)` — open Douyin in the
+                  user's browser, search the query, open 筛选, and select 最多点赞; this is a
+                  convenience preset, not the only path.
                 - `lead_browser_snapshot_for_leads(goal, maxLines)` — read the CURRENT page once
                   into compact lead-candidate lines.
                 - `lead_browser_douyin_search_for_leads(query, goal, maxLines)` — ONLY when the
                   WHOLE task is "search Douyin for <query> and return lead candidates" with no
                   follow-up interaction.
-                Do NOT use a harness to drive a multi-step task; use the primitives and keep
-                going after each observe.
+                Do not use a non-matching harness to drive an arbitrary multi-step task; use the
+                primitives and keep going after each observe.
                 """;
     }
 

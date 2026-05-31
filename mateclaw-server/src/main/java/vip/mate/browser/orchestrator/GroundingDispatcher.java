@@ -27,6 +27,7 @@ public class GroundingDispatcher {
     public GroundingResult ground(BrowserSession session, TabRef tabRef, GroundingHint hint) {
         PageSnapshot snapshot = snapshotService.request(session, tabRef, hint.filter()).block();
         GroundingResult.Ambiguous firstAmbiguous = null;
+        GroundingResult.Miss lastMiss = null;
 
         for (GroundingEngine engine : List.of(dom, a11y, vision)) {
             GroundingResult result = engine.ground(session, tabRef, snapshot, hint);
@@ -39,14 +40,17 @@ public class GroundingDispatcher {
                         firstAmbiguous = ambiguous;
                     }
                 }
-                case GroundingResult.Miss ignored -> {
-                }
+                case GroundingResult.Miss miss -> lastMiss = miss;
             }
         }
 
         if (firstAmbiguous != null) {
             return firstAmbiguous;
         }
-        return new GroundingResult.Miss("no-engine-hit");
+        // Surface the LAST engine's miss reason (vision's) rather than a generic
+        // sentinel: it's the most actionable for the agent/user — e.g. "vision:
+        // no model configured" tells them to enable a VL model, vs an opaque
+        // "no-engine-hit" that hides why a clearly-visible element couldn't be hit.
+        return lastMiss != null ? lastMiss : new GroundingResult.Miss("no-engine-hit");
     }
 }
