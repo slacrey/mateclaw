@@ -54,9 +54,48 @@ export interface CDP {
     params: {
       format?: 'jpeg' | 'png' | 'webp'
       quality?: number
+      /**
+       * Capture region in CSS px relative to the page (document) origin, plus a
+       * render `scale`. We pass `scale: 1` so the output is exactly CSS-pixel
+       * sized REGARDLESS of the display device-pixel ratio / OS scaling —
+       * keeping image px == CSS px == the a11y bbox space the click/grounding
+       * paths use. Omit to capture the visual viewport at the native DPR.
+       */
+      clip?: { x: number; y: number; width: number; height: number; scale: number }
+      /** When false (our default with a clip), restrict to the on-screen region. */
+      captureBeyondViewport?: boolean
     }
     result: {
       data: string
+    }
+  }
+  /**
+   * Page layout metrics. We read the CSS-pixel viewports to build a `scale: 1`
+   * screenshot clip (see {@code Page.captureScreenshot}). `pageX/pageY` are the
+   * scroll offset (document coords of the visible top-left); `clientWidth/Height`
+   * the viewport size — together they position the clip over exactly what is
+   * visible, at CSS-pixel scale.
+   */
+  'Page.getLayoutMetrics': {
+    params: Record<string, never>
+    result: {
+      cssLayoutViewport: {
+        pageX: number
+        pageY: number
+        clientWidth: number
+        clientHeight: number
+      }
+      cssVisualViewport?: {
+        offsetX: number
+        offsetY: number
+        pageX: number
+        pageY: number
+        clientWidth: number
+        clientHeight: number
+        scale: number
+        zoom?: number
+      }
+      cssContentSize?: { x: number; y: number; width: number; height: number }
     }
   }
   'Runtime.evaluate': {
@@ -76,4 +115,87 @@ export interface CDP {
       exceptionDetails?: unknown
     }
   }
+  /**
+   * Full accessibility tree for the inspected page (top frame; child frames are
+   * inlined by Chrome). Each node carries its computed role/name, the
+   * {@link AXNode.backendDOMNodeId} pointing back at the DOM node (used to
+   * resolve layout bounds via {@code DOM.getBoxModel}), an {@code ignored}
+   * flag for AX-irrelevant nodes, and {@code childIds} preserving tree order.
+   * Consumed by the CDP-native a11y extractor.
+   */
+  'Accessibility.getFullAXTree': {
+    params: {
+      /** Max depth; omitted = whole tree. */
+      depth?: number
+      /** Restrict to a frame; omitted = top frame. */
+      frameId?: string
+    }
+    result: {
+      nodes: AXNode[]
+    }
+  }
+  /**
+   * Box model (content/padding/border/margin quads, in CSS pixels relative to
+   * the top-level layout viewport — same space as getBoundingClientRect in the
+   * main frame) for a single DOM node addressed by backend id. The extractor
+   * calls this once per kept AX node to attach a bbox.
+   */
+  'DOM.getBoxModel': {
+    params: {
+      backendNodeId?: number
+      nodeId?: number
+      objectId?: string
+    }
+    result: {
+      model: BoxModel
+    }
+  }
+}
+
+/** A single property attached to an {@link AXNode} (state/relation/etc.). */
+export interface AXProperty {
+  name: string
+  value: AXValue
+}
+
+/** A typed accessibility value (role, name, description, property value, …). */
+export interface AXValue {
+  type: string
+  value?: unknown
+}
+
+/**
+ * One node of {@code Accessibility.getFullAXTree}. Only the fields the CDP
+ * extractor reads are modelled; the protocol carries more.
+ */
+export interface AXNode {
+  /** Unique id of this AX node within the tree. */
+  nodeId: string
+  /** True if this node is not exposed to assistive tech (skip it). */
+  ignored?: boolean
+  /** Computed ARIA-ish role, e.g. {@code { type: 'role', value: 'button' }}. */
+  role?: AXValue
+  /** Computed accessible name. */
+  name?: AXValue
+  /** Computed accessible description (unused for the line format, kept for parity). */
+  description?: AXValue
+  /** State/relation properties (focusable, checked, disabled, …). */
+  properties?: AXProperty[]
+  /** Ordered child AX node ids — drives emitted tree order + indentation. */
+  childIds?: string[]
+  /** Back-pointer to the DOM node; the key we correlate bounds by. */
+  backendDOMNodeId?: number
+}
+
+/**
+ * {@code DOM.getBoxModel} result. Each quad is 8 numbers — four (x,y) corners
+ * in clockwise order: top-left, top-right, bottom-right, bottom-left.
+ */
+export interface BoxModel {
+  content: number[]
+  padding: number[]
+  border: number[]
+  margin: number[]
+  width: number
+  height: number
 }

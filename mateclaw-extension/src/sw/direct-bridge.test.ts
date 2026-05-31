@@ -262,6 +262,33 @@ describe('DirectBridgeClient', () => {
     expect(c.connected).toBe(false)
   })
 
+  it('ticks resetIdleTimer (MV3 keep-alive) every 20s while connected, and stops on disconnect', () => {
+    vi.useFakeTimers()
+    const resetIdleTimer = vi.fn()
+    const c = new DirectBridgeClient({
+      deviceId: 'dev-123',
+      agentVersion: '0.1.0',
+      WebSocketImpl: MockWebSocket as unknown as typeof WebSocket,
+      resetIdleTimer,
+    })
+    c.connect(URL, PAT)
+    const ws = MockWebSocket.last()
+    ws.fireOpen()
+    // Keep-alive begins with the heartbeat, i.e. only after HELLO_ACK.
+    ws.fireMessage(helloAck('SID-KA'))
+
+    expect(resetIdleTimer).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(20_000)
+    expect(resetIdleTimer).toHaveBeenCalledTimes(1)
+    vi.advanceTimersByTime(20_000)
+    expect(resetIdleTimer).toHaveBeenCalledTimes(2)
+
+    // After an intentional disconnect the keep-alive must stop (no SW to keep).
+    c.disconnect()
+    vi.advanceTimersByTime(60_000)
+    expect(resetIdleTimer).toHaveBeenCalledTimes(2)
+  })
+
   it('disconnect() stops the heartbeat timer', () => {
     vi.useFakeTimers()
     const c = newClient()

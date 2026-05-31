@@ -8,6 +8,20 @@ export interface ClickHandlerDeps {
   random?: () => number
   /** Extra micro-delay before mouseReleased (default: 30-100ms log-normal) */
   pressHoldMs?: () => number
+  /**
+   * Awaited AFTER the click lands so the click's DOM effect — a dropdown /
+   * filter panel / menu opening — has time to render before the agent's next
+   * observe reads the tree. Without this the click handler returns the instant
+   * the mouse event is dispatched (~50ms), the agent observes immediately, and
+   * observe's quiet-settle fires before the (async, React) panel paints — so the
+   * panel is missed, the agent thinks the click failed and re-clicks, which
+   * TOGGLES the panel shut (the "点开了又没了 / 好几次没获取到" flicker).
+   * Default: an adaptive MutationObserver settle in the page via
+   * chrome.scripting — waits for the post-click DOM burst to go quiet (bounded),
+   * and returns fast when the click changed nothing. No-op (resolves at once)
+   * when chrome.scripting is unavailable, e.g. unit tests.
+   */
+  settleAfterClick?: (tabId: number) => Promise<void>
 }
 
 type MouseButton = NonNullable<ClickParams['button']>
@@ -31,6 +45,7 @@ export const clickHandler = (deps: ClickHandlerDeps): ActionHandler<ClickParams>
   const clock = deps.clock ?? Date.now
   const random = deps.random ?? Math.random
   const pressHoldMs = deps.pressHoldMs ?? (() => logNormalMs(55, 0.35, 30, 100, random))
+  const settleAfterClick = deps.settleAfterClick ?? defaultSettleAfterClick
 
   return async (tabId, params, _deadlineMs) => {
     const startedAt = clock()
@@ -51,6 +66,16 @@ export const clickHandler = (deps: ClickHandlerDeps): ActionHandler<ClickParams>
         }
       }
 
+      // Let the click's DOM effect (a dropdown / filter panel / menu opening)
+      // render before we return, so the agent's next observe captures it
+      // instead of racing the async paint. Bounded + best-effort: a settle that
+      // fails must NEVER fail a click that already landed.
+      try {
+        await settleAfterClick(tabId)
+      } catch {
+        // ignore — the click succeeded; settling is only a timing aid
+      }
+
       return {
         ok: true,
         elapsed_ms: Math.max(0, clock() - startedAt),
@@ -62,6 +87,66 @@ export const clickHandler = (deps: ClickHandlerDeps): ActionHandler<ClickParams>
       }
       throw err
     }
+  }
+}
+
+/**
+ * Default post-click settle: run an adaptive DOM-quiet wait IN THE PAGE via
+ * chrome.scripting, so a panel/menu the click opened has rendered before the
+ * agent observes. Resolves immediately when chrome.scripting is unavailable
+ * (unit tests / non-SW contexts). Best-effort — swallows all errors.
+ *
+ * In-page timing:
+ *  - GRACE (≤500ms): wait for the FIRST post-click mutation. If none arrives,
+ *    the click changed nothing visible → resolve at GRACE (don't stall).
+ *  - QUIET (180ms): once mutations start, resolve 180ms after they stop (the
+ *    panel finished painting).
+ *  - CAP (1200ms): hard ceiling regardless, so a perpetually-animating page
+ *    can't hang the action.
+ */
+async function defaultSettleAfterClick(tabId: number): Promise<void> {
+  const chromeApi = (globalThis as unknown as { chrome?: typeof chrome }).chrome
+  if (!chromeApi?.scripting?.executeScript) return
+  try {
+    await chromeApi.scripting.executeScript({
+      target: { tabId, allFrames: false },
+      func: () =>
+        new Promise<void>(resolve => {
+          const root = document.documentElement
+          if (!root || typeof MutationObserver === 'undefined') {
+            setTimeout(resolve, 250)
+            return
+          }
+          const GRACE = 500
+          const QUIET = 180
+          const CAP = 1200
+          let sawMutation = false
+          let done = false
+          let quietTimer: ReturnType<typeof setTimeout> | undefined
+          const finish = () => {
+            if (done) return
+            done = true
+            if (quietTimer !== undefined) clearTimeout(quietTimer)
+            clearTimeout(capTimer)
+            clearTimeout(graceTimer)
+            obs.disconnect()
+            resolve()
+          }
+          const obs = new MutationObserver(() => {
+            sawMutation = true
+            if (quietTimer !== undefined) clearTimeout(quietTimer)
+            quietTimer = setTimeout(finish, QUIET)
+          })
+          obs.observe(root, { subtree: true, childList: true, attributes: true })
+          const capTimer = setTimeout(finish, CAP)
+          // No DOM change within GRACE ⇒ the click had no visible effect; stop.
+          const graceTimer = setTimeout(() => {
+            if (!sawMutation) finish()
+          }, GRACE)
+        }),
+    })
+  } catch {
+    // best-effort — a failed settle must never fail the click
   }
 }
 

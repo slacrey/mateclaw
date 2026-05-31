@@ -1,6 +1,8 @@
 import { EdgeMessageKind, makeEdgeMessage, type EdgeMessage } from '../shared/edge-protocol'
 import type { TabRefResolver } from './action/tab-ref-resolver'
 import type { TabRef } from './action/types'
+import type { DebuggerManager } from './debugger-manager'
+import { extractAxTreeViaCdp } from './cdp-ax-extractor'
 
 export interface SnapshotRequestHandlerDeps {
   resolver: TabRefResolver
@@ -12,6 +14,14 @@ export interface SnapshotRequestHandlerDeps {
   uuid?: () => string
   /** captured_at_ms source (defaults to Date.now). */
   clock?: () => number
+  /**
+   * Shared CDP session manager. When present AND the request targets the top
+   * frame (no explicit `frame_id`), {@link SnapshotRequestHandler.captureSnapshot}
+   * tries a CDP-native a11y extraction first (Chrome's own accessibility tree
+   * over DevTools Protocol) and falls back to the injected-JS DOM walker on ANY
+   * error. When absent the handler behaves exactly as before — JS walker only.
+   */
+  debuggerManager?: DebuggerManager
 }
 
 type SnapshotFilter = 'interactive' | 'all' | 'default'
@@ -211,7 +221,135 @@ export class SnapshotRequestHandler {
     })
   }
 
+  /**
+   * Capture the page a11y tree. CDP-first, JS-fallback:
+   *
+   *  1. If a {@link DebuggerManager} is wired AND the request targets the top
+   *     frame (no explicit `frame_id` — CDP getFullAXTree is whole-page/top
+   *     frame), try {@link captureSnapshotViaCdp}: Chrome's own accessibility
+   *     tree over DevTools Protocol. This avoids injecting a content script and
+   *     re-deriving ARIA roles in JS.
+   *  2. On ANY failure of the CDP path — not attachable, CDP command rejected,
+   *     empty/degenerate tree — silently fall back to the injected-JS DOM
+   *     walker ({@link captureSnapshotViaInjectedJs}), unchanged. The fallback
+   *     is also the only path for explicit child-frame requests.
+   *
+   * Both paths return the SAME {@link SnapshotResult} shape (tree text +
+   * viewport + url + title) and both honour the DOM-settle wait.
+   */
   private async captureSnapshot(tabId: number, req: SnapshotRequestPayload): Promise<SnapshotResult> {
+    const manager = this.deps.debuggerManager
+    // CDP extraction is top-frame only (getFullAXTree is whole-page). For an
+    // explicit child-frame request, or with no DebuggerManager wired, go
+    // straight to the JS walker which handles per-frame extraction.
+    if (manager && req.frame_id === undefined) {
+      try {
+        return await this.captureSnapshotViaCdp(manager, tabId, req)
+      } catch {
+        // Any CDP failure (not attached, command rejected, empty tree) → fall
+        // through to the injected-JS walker below, unchanged.
+      }
+    }
+    return this.captureSnapshotViaInjectedJs(tabId, req)
+  }
+
+  /**
+   * CDP-native path. Attaches the shared debugger session (idempotent), runs
+   * the in-page DOM-settle wait + reads url/title/viewport via a tiny injected
+   * func (so SPAs that paint late aren't read half-rendered, same as the JS
+   * walker), then extracts the a11y tree from Chrome's accessibility engine.
+   * Throws on any CDP failure so {@link captureSnapshot} can fall back.
+   */
+  private async captureSnapshotViaCdp(
+    manager: DebuggerManager,
+    tabId: number,
+    req: SnapshotRequestPayload,
+  ): Promise<SnapshotResult> {
+    await manager.attach(tabId)
+    // Settle + metadata first: this waits for the SPA to go quiet (same timing
+    // contract as the JS walker) and returns url/title/viewport. Reading the AX
+    // tree only after the page settles avoids a half-rendered capture.
+    const meta = await this.settleAndReadMeta(tabId, req)
+    const tree = await extractAxTreeViaCdp(manager, tabId, req.filter, req.max_chars)
+    return { tree, viewport: meta.viewport, url: meta.url, title: meta.title }
+  }
+
+  /**
+   * Inject a minimal func that performs the DOM-settle wait (an inline copy of
+   * {@link waitForSettle}, identical to the JS walker's) and returns the live
+   * url/title/viewport — but NOT the tree (the CDP path sources that). Used by
+   * the CDP path so it preserves the settle wait + metadata without re-running
+   * the full a11y DOM walk.
+   */
+  private async settleAndReadMeta(
+    tabId: number,
+    req: SnapshotRequestPayload,
+  ): Promise<{ viewport: { w: number; h: number }; url: string; title: string }> {
+    const chrome = this.deps.chrome ?? globalThis.chrome
+    const [settleQuietMs, settleCapMs] = settleArgs(req.settle)
+    const results = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: false },
+      func: async (quietMs, capMs) => {
+        await new Promise<void>(resolve => {
+          const root = document.documentElement
+          if (!root || typeof MutationObserver === 'undefined') { resolve(); return }
+          const quiet = typeof quietMs === 'number' ? quietMs : 200
+          const cap = typeof capMs === 'number' ? capMs : 2000
+          let quietTimer: ReturnType<typeof setTimeout> | undefined
+          let capTimer: ReturnType<typeof setTimeout> | undefined
+          let done = false
+          const observer = new MutationObserver(() => armQuiet())
+          const finish = () => {
+            if (done) return
+            done = true
+            if (quietTimer !== undefined) clearTimeout(quietTimer)
+            if (capTimer !== undefined) clearTimeout(capTimer)
+            observer.disconnect()
+            resolve()
+          }
+          function armQuiet() {
+            if (quietTimer !== undefined) clearTimeout(quietTimer)
+            if (document.readyState !== 'complete') return
+            quietTimer = setTimeout(finish, quiet)
+          }
+          observer.observe(root, { subtree: true, childList: true, attributes: true })
+          capTimer = setTimeout(finish, cap)
+          if (document.readyState === 'complete') {
+            armQuiet()
+          } else {
+            window.addEventListener('load', () => armQuiet(), { once: true })
+          }
+        })
+        const url = (() => {
+          try { return location.href } catch { return '' }
+        })()
+        const title = (() => {
+          try { return document.title || '' } catch { return '' }
+        })()
+        const vw = window.innerWidth || document.documentElement?.clientWidth || 1280
+        const vh = window.innerHeight || document.documentElement?.clientHeight || 800
+        return { viewport: { w: vw, h: vh }, url, title }
+      },
+      args: [settleQuietMs, settleCapMs],
+    })
+    const first = results[0]?.result as
+      | { viewport?: { w?: unknown; h?: unknown }; url?: unknown; title?: unknown }
+      | undefined
+    const w = typeof first?.viewport?.w === 'number' ? first.viewport.w : 1280
+    const h = typeof first?.viewport?.h === 'number' ? first.viewport.h : 800
+    return {
+      viewport: { w, h },
+      url: typeof first?.url === 'string' ? first.url : '',
+      title: typeof first?.title === 'string' ? first.title : '',
+    }
+  }
+
+  /**
+   * Injected-JS extraction path (the original, unchanged behaviour). Used as
+   * the fallback for the CDP path and as the only path for child-frame requests
+   * or when no DebuggerManager is wired.
+   */
+  private async captureSnapshotViaInjectedJs(tabId: number, req: SnapshotRequestPayload): Promise<SnapshotResult> {
     const chrome = this.deps.chrome ?? globalThis.chrome
     const target = req.frame_id === undefined
       ? { tabId, allFrames: false }

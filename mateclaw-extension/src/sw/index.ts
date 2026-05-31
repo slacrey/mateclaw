@@ -15,6 +15,14 @@
 import { EdgeMessageKind, makeEdgeMessage, type EdgeMessage } from '../shared/edge-protocol'
 import { NativeBridge } from './native-bridge'
 import { DirectBridgeClient } from './direct-bridge'
+import { OffscreenBridgeProxy } from './offscreen-bridge-proxy'
+import {
+  OFFSCREEN_DISCONNECTED,
+  OFFSCREEN_INBOUND,
+  OFFSCREEN_SEND,
+  OFFSCREEN_STATE,
+  isOffscreenMsg,
+} from '../shared/offscreen-protocol'
 import { ConfigStore } from './config-store'
 import { TabGroupManager } from './tab-group-manager'
 import { DebuggerManager } from './debugger-manager'
@@ -59,19 +67,56 @@ const ALLOWED_EXTERNAL_ORIGINS = new Set<string>([
 // handler wiring below never needs to know which transport is live.
 // -----------------------------------------------------------------
 
-type Bridge = DirectBridgeClient | NativeBridge
+type Bridge = DirectBridgeClient | OffscreenBridgeProxy | NativeBridge
 
 const configStore = new ConfigStore()
 let activeBridge: Bridge | null = null
 let bridgeUnsub: (() => void) | null = null
 
+/**
+ * Whether this runtime hosts the socket in an offscreen document. Resolved
+ * SYNCHRONOUSLY at SW load (chrome.offscreen is available pre-startup), so both
+ * the top-level relay listener and sendUp can rely on it before the async
+ * startup connect runs — critical for cold-wake correctness.
+ */
+const usingOffscreen = typeof chrome.offscreen?.createDocument === 'function'
+
 const sendUp = (msg: EdgeMessage): void => {
   try {
-    activeBridge?.send(msg)
+    if (usingOffscreen) {
+      // Post straight to the offscreen socket host. Stateless on purpose: a
+      // reply emitted on a cold SW wake must not depend on connectDirect having
+      // re-created the proxy yet. If the socket is mid-reconnect the dropped
+      // frame is reissued by the server on its next request.
+      chrome.runtime.sendMessage({ type: OFFSCREEN_SEND, message: msg }).catch(() => {})
+    } else {
+      activeBridge?.send(msg)
+    }
   } catch (e) {
     // Best-effort — bridge may be disconnected during a reconnect window.
     console.error('[mateclaw][sw] sendUp failed', e)
   }
+}
+
+// MV3-CRITICAL: register the offscreen relay listener SYNCHRONOUSLY at SW load.
+// The offscreen document owns the socket and posts inbound frames here; an
+// inbound chrome.runtime message is what WAKES a suspended SW, and Chrome only
+// delivers that waking message to listeners registered during the synchronous
+// top-level execution. A listener added later (e.g. inside connectDirect's async
+// chain) would miss the very frame that woke us. dispatchInbound + every handler
+// instance are constructed synchronously below at module load, so dispatching
+// here is safe even before the (async) startup connect has run.
+if (usingOffscreen) {
+  chrome.runtime.onMessage.addListener((raw: unknown): undefined => {
+    if (!isOffscreenMsg(raw)) return
+    if (raw.type === OFFSCREEN_INBOUND) {
+      dispatchInbound(raw.message)
+    } else if (raw.type === OFFSCREEN_STATE || raw.type === OFFSCREEN_DISCONNECTED) {
+      // Connection-state relays drive the sidepanel pill + isConnected().
+      if (activeBridge instanceof OffscreenBridgeProxy) activeBridge.ingestRelay(raw)
+    }
+    return undefined
+  })
 }
 
 /** Resolve the extension version for the HELLO payload. */
@@ -101,14 +146,33 @@ async function connectDirect(serverUrl: string, pat: string): Promise<void> {
     }
   }
 
-  const client = new DirectBridgeClient({
-    deviceId: cfg.deviceId,
-    deviceName: cfg.deviceName,
-    agentVersion: agentVersion(),
-  })
-  bridgeUnsub = client.onMessage(dispatchInbound)
-  activeBridge = client
-  client.connect(serverUrl, pat)
+  // Prefer the offscreen-hosted socket: it survives SW idle-suspension, which
+  // is the root fix for the mid-task "断线重连". Fall back to the in-SW
+  // DirectBridgeClient (keepalive-guarded) only when the offscreen API is
+  // unavailable (pre-116 / disabled) so connectivity never regresses.
+  if (usingOffscreen) {
+    // Inbound frames + connection-state relays arrive via the TOP-LEVEL listener
+    // registered above (cold-wake-safe) — so we do NOT subscribe dispatchInbound
+    // on the proxy here. The proxy owns only ensure-doc + (idempotent) connect +
+    // pill state. Re-running this on every wake is a no-op in the offscreen host.
+    const proxy = new OffscreenBridgeProxy({
+      deviceId: cfg.deviceId,
+      deviceName: cfg.deviceName,
+      agentVersion: agentVersion(),
+      chrome,
+    })
+    activeBridge = proxy
+    proxy.connect(serverUrl, pat)
+  } else {
+    const client = new DirectBridgeClient({
+      deviceId: cfg.deviceId,
+      deviceName: cfg.deviceName,
+      agentVersion: agentVersion(),
+    })
+    bridgeUnsub = client.onMessage(dispatchInbound)
+    activeBridge = client
+    client.connect(serverUrl, pat)
+  }
 }
 
 /** Tear down the active transport (used by unpair). */
@@ -123,9 +187,13 @@ function disconnectActive(): void {
   activeBridge = null
 }
 
-/** True iff the active transport is a connected DirectBridgeClient. */
+/** True iff the active direct transport (in-SW or offscreen-hosted) is connected. */
 function isConnected(): boolean {
-  return activeBridge instanceof DirectBridgeClient && activeBridge.connected
+  return (
+    (activeBridge instanceof DirectBridgeClient ||
+      activeBridge instanceof OffscreenBridgeProxy) &&
+    activeBridge.connected
+  )
 }
 
 const tabGroupManager = new TabGroupManager(chrome, sendUp)
@@ -199,10 +267,15 @@ const router = new ActionRouter({
 const snapshotHandler = new SnapshotRequestHandler({
   resolver,
   sendUp,
+  // Share the CDP session manager so snapshots try a CDP-native a11y
+  // extraction first (Chrome's own accessibility tree), falling back to the
+  // injected-JS DOM walker on any failure.
+  debuggerManager,
 })
 
 const screenshotCaptureHandler = new ScreenshotCaptureHandler({
   resolver,
+  debuggerManager,
   sendUp,
 })
 

@@ -389,6 +389,170 @@ describe('SnapshotRequestHandler', () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// CDP-first / JS-fallback path. When a DebuggerManager is wired, captureSnapshot
+// tries the CDP-native a11y extractor first and falls back to the injected-JS
+// walker on ANY failure. These tests stub the manager's CDP send + a metadata
+// executeScript (settle + url/title/viewport).
+// ---------------------------------------------------------------------------
+
+interface CdpFake {
+  /** Accessibility.getFullAXTree result, or an Error to throw. */
+  axTree?: { nodes: Array<Record<string, unknown>> } | Error
+  /** backendDOMNodeId → box model content quad. */
+  box?: (backendNodeId: number) => number[] | undefined
+}
+
+/** Fake DebuggerManager whose send() routes the two CDP methods the extractor uses. */
+function fakeDebuggerManager(fake: CdpFake) {
+  const send = vi.fn(async (_tabId: number, method: string, params: unknown) => {
+    if (method === 'Accessibility.getFullAXTree') {
+      if (fake.axTree instanceof Error) throw fake.axTree
+      return fake.axTree ?? { nodes: [] }
+    }
+    if (method === 'DOM.getBoxModel') {
+      const id = (params as { backendNodeId?: number }).backendNodeId
+      const content = id != null ? fake.box?.(id) : undefined
+      if (!content) throw new Error('no box')
+      return { model: { content, padding: content, border: content, margin: content, width: 1, height: 1 } }
+    }
+    throw new Error(`unexpected method ${method}`)
+  })
+  const attach = vi.fn(async () => {})
+  return {
+    manager: { attach, send, detach: vi.fn(async () => {}), isAttached: () => true } as unknown as
+      import('./debugger-manager').DebuggerManager,
+    send,
+    attach,
+  }
+}
+
+/** Chrome stub whose executeScript returns ONLY the CDP metadata shape. */
+function metaChrome(meta = { viewport: { w: 1024, h: 768 }, url: 'https://example.com/a', title: 'A Page' }) {
+  return {
+    scripting: {
+      executeScript: vi.fn(async () => [{ result: meta, frameId: 0 }]),
+    },
+  } as unknown as typeof globalThis.chrome
+}
+
+describe('SnapshotRequestHandler — CDP-first path', () => {
+  function makeCdpHandler(opts: {
+    cdp: CdpFake
+    chrome?: typeof globalThis.chrome
+    resolver?: TabRefResolver
+  }) {
+    const sentUp: EdgeMessage[] = []
+    const { manager, send, attach } = fakeDebuggerManager(opts.cdp)
+    const chrome = opts.chrome ?? metaChrome()
+    const handler = new SnapshotRequestHandler({
+      resolver: opts.resolver ?? fakeResolver(),
+      chrome,
+      sendUp: msg => sentUp.push(msg),
+      uuid: () => 'snap-cdp',
+      clock: () => 1730000000999,
+      debuggerManager: manager,
+    })
+    return { handler, sentUp, chrome, send, attach }
+  }
+
+  it('uses the CDP extractor on success: tree from AX tree, metadata from injected meta script', async () => {
+    const { handler, sentUp, send, attach, chrome } = makeCdpHandler({
+      cdp: {
+        axTree: {
+          nodes: [
+            { nodeId: '1', role: { value: 'RootWebArea' }, name: { value: 'Doc' }, childIds: ['2'], backendDOMNodeId: 1 },
+            { nodeId: '2', role: { value: 'button' }, name: { value: 'Submit' }, backendDOMNodeId: 2 },
+          ],
+        },
+        box: id => (id === 2 ? [120, 340, 200, 340, 200, 372, 120, 372] : undefined),
+      },
+    })
+
+    await handler.handle(snapshotRequest())
+
+    expect(attach).toHaveBeenCalledExactlyOnceWith(42)
+    // getFullAXTree issued exactly once.
+    expect(send.mock.calls.filter(c => c[1] === 'Accessibility.getFullAXTree')).toHaveLength(1)
+    // Metadata script injected once (settle + url/title/viewport).
+    expect(chrome.scripting.executeScript).toHaveBeenCalledTimes(1)
+    expect(sentUp).toHaveLength(1)
+    expect(sentUp[0]!.payload).toMatchObject({
+      tree: 'Button[ref=ref_1, frame=0]: Submit @{120,340 80x32}',
+      viewport: { w: 1024, h: 768 },
+      url: 'https://example.com/a',
+      title: 'A Page',
+    })
+  })
+
+  it('falls back to the injected-JS walker when getFullAXTree rejects', async () => {
+    // The metadata/extractor chrome stub here returns a full JS-walker result,
+    // so the fallback path produces a tree from executeScript.
+    const jsChrome = {
+      scripting: {
+        executeScript: vi.fn(async () => [{
+          result: { tree: 'Link[ref=ref_1, frame=0]: JS fallback @{0,0 10x10}', viewport: { w: 800, h: 600 }, url: 'https://fallback', title: 'FB' },
+          frameId: 0,
+        }]),
+      },
+    } as unknown as typeof globalThis.chrome
+    const { handler, sentUp } = makeCdpHandler({
+      cdp: { axTree: new Error('CDP not supported') },
+      chrome: jsChrome,
+    })
+
+    await handler.handle(snapshotRequest())
+
+    expect(sentUp[0]!.payload).toMatchObject({
+      tree: 'Link[ref=ref_1, frame=0]: JS fallback @{0,0 10x10}',
+      viewport: { w: 800, h: 600 },
+      url: 'https://fallback',
+      title: 'FB',
+    })
+    expect(sentUp[0]!.payload!.error).toBeUndefined()
+  })
+
+  it('falls back when the CDP tree is empty (zero emittable nodes)', async () => {
+    const jsChrome = {
+      scripting: {
+        executeScript: vi.fn(async () => [{
+          result: { tree: 'Button[ref=ref_1, frame=0]: From JS @{1,2 3x4}', viewport: { w: 640, h: 480 }, url: 'u', title: 't' },
+          frameId: 0,
+        }]),
+      },
+    } as unknown as typeof globalThis.chrome
+    const { handler, sentUp } = makeCdpHandler({
+      cdp: { axTree: { nodes: [] } }, // empty AX tree → extractor throws → fallback
+      chrome: jsChrome,
+    })
+
+    await handler.handle(snapshotRequest())
+
+    expect(sentUp[0]!.payload!.tree).toBe('Button[ref=ref_1, frame=0]: From JS @{1,2 3x4}')
+  })
+
+  it('explicit frame_id bypasses CDP and goes straight to the JS walker', async () => {
+    const jsChrome = {
+      scripting: {
+        executeScript: vi.fn(async () => [{
+          result: { tree: 'Button[ref=ref_1, frame=7]: framed @{0,0 5x5}', viewport: { w: 100, h: 100 }, url: 'f', title: 'f' },
+          frameId: 7,
+        }]),
+      },
+    } as unknown as typeof globalThis.chrome
+    const { handler, sentUp, send } = makeCdpHandler({
+      cdp: { axTree: { nodes: [{ nodeId: '1', role: { value: 'button' }, name: { value: 'x' }, backendDOMNodeId: 1 }] } },
+      chrome: jsChrome,
+    })
+
+    await handler.handle(snapshotRequest({ frame_id: 7 }))
+
+    // No CDP send for an explicit child-frame request.
+    expect(send).not.toHaveBeenCalled()
+    expect(sentUp[0]!.payload!.tree).toBe('Button[ref=ref_1, frame=7]: framed @{0,0 5x5}')
+  })
+})
+
 describe('settleArgs', () => {
   it('defaults to [200, 2000] when no overrides supplied', () => {
     expect(settleArgs()).toEqual([200, 2000])

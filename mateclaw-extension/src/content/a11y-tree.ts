@@ -181,6 +181,30 @@ declare global {
   // Roles we always emit because they anchor reading position.
   const ALWAYS_EMIT_ROLES = new Set<string>(['heading'])
 
+  // Roles that represent a SINGLE click target and "collapse" their subtree for
+  // the weak cursor:pointer affordance. Once we're inside one of these (a real
+  // <button>/<a>, role="button", a menu item, an onclick <div>, …), a descendant
+  // that looks clickable ONLY because it inherited cursor:pointer is almost
+  // always the same visual control — e.g. Douyin renders 筛选 as
+  // <div role="button"><span>筛选</span></div> where the span inherits the
+  // pointer cursor. Emitting BOTH produces two identical "Button: 筛选" lines,
+  // which makes role+name grounding ambiguous (GROUNDING_AMBIGUOUS). So inside
+  // these roles the cursor:pointer fallback is suppressed; explicit affordances
+  // (onclick / tabindex / contenteditable) and real ARIA roles still emit, since
+  // those are deliberate nested controls rather than label spans.
+  const CLICK_COLLAPSE_ROLES = new Set<string>([
+    'button',
+    'link',
+    'menuitem',
+    'menuitemcheckbox',
+    'menuitemradio',
+    'tab',
+    'option',
+    'checkbox',
+    'radio',
+    'switch',
+  ])
+
   function ariaRole(el: Element): string | null {
     // Explicit role= wins.
     const explicit = el.getAttribute('role')
@@ -208,7 +232,7 @@ declare global {
   // page, so React fiber props are unreadable — we detect affordance purely
   // from attributes we CAN see: contenteditable, tabindex, and an inline
   // onclick attribute. Returns 'textbox' for editable content, else 'button'.
-  function affordanceRole(el: Element): string | null {
+  function affordanceRole(el: Element, ancestorClickable: boolean): string | null {
     const editable = el.getAttribute('contenteditable')
     if (editable !== null && editable !== 'false' && editable !== 'plaintext-false') {
       // '', 'true', 'plaintext-only' all mean editable.
@@ -223,14 +247,20 @@ declare global {
     // cursor:pointer is the strongest generic "this is clickable" signal for
     // React-onClick <div>/<span> menu options that carry no role / onclick attr
     // / tabindex — e.g. Douyin's 综合排序 / 最多点赞 sort items, which were
-    // GROUNDING_MISS before this. To avoid emitting every pointer-styled
-    // CONTAINER (video cards, nav rows) and bloating the tree, gate on a cheap
-    // shape check FIRST: only a leaf-ish element with its OWN short visible text
-    // (1..40 chars) qualifies — that's the shape of a clickable option label.
-    // getComputedStyle is only paid for those few candidates, not every node.
-    const own = directOwnText(el)
-    if (own.length > 0 && own.length <= 40 && hasPointerCursor(el)) {
-      return 'button'
+    // GROUNDING_MISS before this. Two guards keep it from over-emitting:
+    //  1) NOT already inside a click target (ancestorClickable) — otherwise a
+    //     label span that merely INHERITED the pointer cursor from its
+    //     clickable parent would emit a duplicate "Button" line and make
+    //     role+name grounding ambiguous (the 筛选 double-emit bug).
+    //  2) a cheap shape check: only a leaf-ish element with its OWN short
+    //     visible text (1..40 chars) qualifies — the shape of an option label,
+    //     not a pointer-styled CONTAINER (video card, nav row).
+    // getComputedStyle is only paid for those few surviving candidates.
+    if (!ancestorClickable) {
+      const own = directOwnText(el)
+      if (own.length > 0 && own.length <= 40 && hasPointerCursor(el)) {
+        return 'button'
+      }
     }
     return null
   }
@@ -616,8 +646,11 @@ declare global {
     const visited = new WeakSet<ShadowRoot>()
 
     // Track logical (output) depth separately from DOM depth so indentation
-    // reflects the EMITTED tree, not the underlying DOM nesting.
-    function recurse(el: Element, outDepth: number, domDepth: number): void {
+    // reflects the EMITTED tree, not the underlying DOM nesting. ancestorClickable
+    // is true once any ancestor was emitted as a single click target (see
+    // CLICK_COLLAPSE_ROLES); it suppresses the weak cursor:pointer affordance on
+    // descendant label spans so they don't double-emit the parent's control.
+    function recurse(el: Element, outDepth: number, domDepth: number, ancestorClickable: boolean): void {
       if (domDepth > maxDepth) return
       // Skip aria-hidden subtrees.
       if (el.getAttribute('aria-hidden') === 'true') return
@@ -626,7 +659,7 @@ declare global {
       // <div onclick>, contenteditable boxes, and tabindex widgets become
       // actionable. The synthesized role flows into accessibleName + shouldEmit
       // exactly like a native role, so it respects the filter modes.
-      const role = ariaRole(el) ?? affordanceRole(el)
+      const role = ariaRole(el) ?? affordanceRole(el, ancestorClickable)
       const name = accessibleName(el, role)
       const emit = shouldEmit(role, name, filter)
       let childOutDepth = outDepth
@@ -646,11 +679,15 @@ declare global {
         })
         childOutDepth = outDepth + 1
       }
+      // Once we emit a single-click-target role, its subtree is "inside a
+      // clickable" — descendant pointer-cursor label spans must not double-emit.
+      const childClickable =
+        ancestorClickable || (emit && role !== null && CLICK_COLLAPSE_ROLES.has(role))
       // Descend — but stop at maxDepth measured in DOM levels.
       const kids = el.children
       for (let i = 0; i < kids.length; i += 1) {
         const child = kids.item(i)
-        if (child) recurse(child, childOutDepth, domDepth + 1)
+        if (child) recurse(child, childOutDepth, domDepth + 1, childClickable)
       }
       // Open shadow root: web components hang their real content off a shadow
       // tree that el.children never exposes. Closed roots return null (we can't
@@ -663,12 +700,12 @@ declare global {
         const shadowKids = shadow.children
         for (let i = 0; i < shadowKids.length; i += 1) {
           const child = shadowKids.item(i)
-          if (child) recurse(child, childOutDepth, domDepth + 1)
+          if (child) recurse(child, childOutDepth, domDepth + 1, childClickable)
         }
       }
     }
 
-    recurse(root, 0, 0)
+    recurse(root, 0, 0, false)
     return out
   }
 
@@ -699,7 +736,14 @@ declare global {
     maxChars: number = 200000,
     refId?: string,
   ): string {
-    const root = document.body ?? document.documentElement
+    // Root at <html>, not <body>: popovers / dropdowns / filter panels are
+    // frequently portaled to a container that is a SIBLING of <body> under
+    // <html> (or onto <html> itself). Walking from <body> misses those, so an
+    // opened filter panel would be invisible to observe even though it rendered.
+    // <head> is included too but emits nothing (no roles/names/bbox), so this is
+    // pure extra coverage. Non-emitting containers don't add depth, so emitted
+    // indentation is unchanged vs rooting at <body>.
+    const root = document.documentElement ?? document.body
     if (!root) return ''
 
     const frameOffset = getFrameOffsetToPage()

@@ -330,6 +330,52 @@ describe('a11y-tree content script', () => {
     }
   })
 
+  it('(c4) a pointer-cursor label span INSIDE a clickable ancestor does NOT double-emit', () => {
+    // Douyin renders 筛选 as <div role="button"><span>筛选</span></div>. The span
+    // INHERITS cursor:pointer from the role=button wrapper. Before the
+    // CLICK_COLLAPSE_ROLES guard, BOTH emitted as "Button: 筛选" → two identical
+    // lines → role+name grounding became GROUNDING_AMBIGUOUS. The wrapper must
+    // emit exactly once; the inner span is suppressed.
+    document.body.innerHTML = '<div role="button" id="w"><span id="s">筛选</span></div>'
+    const w = document.querySelector('#w')!
+    const s = document.querySelector('#s')!
+    stubBBox(w, 600, 18, 64, 32)
+    stubBBox(s, 604, 22, 56, 24)
+    const realGCS = window.getComputedStyle.bind(window)
+    const spy = vi.spyOn(window, 'getComputedStyle').mockImplementation(((el: Element) => {
+      if (el === w || el === s) return { cursor: 'pointer' } as CSSStyleDeclaration
+      return realGCS(el as Element)
+    }) as typeof window.getComputedStyle)
+    try {
+      const tree = window.__mateclaw_a11y_tree!('default')
+      // Exactly ONE line carries 筛选 (the wrapper); the inner span is gone.
+      expect(tree.split('\n').filter((l) => l.includes('筛选'))).toHaveLength(1)
+      expect(tree).toContain('Button[ref=ref_1, frame=0]: 筛选 @{600,18 64x32}')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('(c5) a pointer-cursor option with NO clickable ancestor still emits (no over-suppression)', () => {
+    // Guard against the dedup over-firing: 最多点赞 lives in a plain (non-role)
+    // container, so it must still surface as a Button — the suppression only
+    // applies INSIDE a click target.
+    document.body.innerHTML = '<div id="panel"><div id="opt">最多点赞</div></div>'
+    const opt = document.querySelector('#opt')!
+    stubBBox(opt, 100, 200, 80, 28)
+    const realGCS = window.getComputedStyle.bind(window)
+    const spy = vi.spyOn(window, 'getComputedStyle').mockImplementation(((el: Element) => {
+      if (el === opt) return { cursor: 'pointer' } as CSSStyleDeclaration
+      return realGCS(el as Element)
+    }) as typeof window.getComputedStyle)
+    try {
+      const tree = window.__mateclaw_a11y_tree!('default')
+      expect(tree).toContain('Button[ref=ref_1, frame=0]: 最多点赞 @{100,200 80x28}')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('(c2) tabindex>=0 element with no role emits as Button under interactive filter', () => {
     document.body.innerHTML = '<div tabindex="0" aria-label="Toggle"></div>'
     const div = document.querySelector('div')!
@@ -348,6 +394,28 @@ describe('a11y-tree content script', () => {
     stubBBox(btn, 200, 200, 100, 30)
     const tree = window.__mateclaw_a11y_tree!('interactive')
     expect(tree).toContain('Button[ref=ref_1, frame=0]: Shadow Action @{200,200 100x30}')
+  })
+
+  it('(f) a panel portaled onto <html> (sibling of <body>) is captured — overlay/popover pattern', () => {
+    // Filter panels / dropdowns / popovers are frequently portaled OUTSIDE
+    // <body> (onto <html>). Rooting the walk at <html> captures them; rooting at
+    // <body> (the old behaviour) missed them, so an opened 筛选/排序 panel was
+    // invisible to observe even though it had rendered.
+    document.body.innerHTML = '<div role="button" id="b">筛选</div>'
+    const panel = document.createElement('div')
+    panel.id = 'mc-test-portal'
+    panel.setAttribute('role', 'menu')
+    panel.innerHTML = '<div role="menuitem">最多点赞</div>'
+    document.documentElement.appendChild(panel)
+    try {
+      const item = panel.querySelector('[role="menuitem"]') as Element
+      stubBBox(item, 100, 200, 120, 32)
+      const tree = window.__mateclaw_a11y_tree!('default')
+      expect(tree).toContain('Menuitem[ref=')
+      expect(tree).toContain('最多点赞')
+    } finally {
+      panel.remove() // appended to <html>, so beforeEach's body reset won't clear it
+    }
   })
 
   it('(e) regression: a normal <button> still emits "Button[...]: Submit"', () => {

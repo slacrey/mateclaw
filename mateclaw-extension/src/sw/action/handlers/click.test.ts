@@ -123,6 +123,35 @@ describe('click handler', () => {
     expect(random).toHaveBeenCalled()
   })
 
+  it('awaits settleAfterClick AFTER dispatching the click (so an opened panel renders before observe)', async () => {
+    const { debuggerStub, sent } = fakeDebugger()
+    let sentCountAtSettle = -1
+    const settleAfterClick = vi.fn(async () => {
+      sentCountAtSettle = sent.length
+    })
+    const handler = clickHandler({ debugger: debuggerStub, pressHoldMs: () => 0, settleAfterClick })
+
+    const result = await handler(42, { x: 10, y: 20 }, 5000)
+
+    expect(result.ok).toBe(true)
+    expect(settleAfterClick).toHaveBeenCalledExactlyOnceWith(42)
+    // settle runs only after BOTH mouse events were dispatched.
+    expect(sentCountAtSettle).toBe(2)
+  })
+
+  it('a settleAfterClick that throws does NOT fail a click that already landed', async () => {
+    const { debuggerStub, sent } = fakeDebugger()
+    const settleAfterClick = vi.fn(async () => {
+      throw new Error('settle boom')
+    })
+    const handler = clickHandler({ debugger: debuggerStub, pressHoldMs: () => 0, settleAfterClick })
+
+    const result = await handler(42, { x: 10, y: 20 }, 5000)
+
+    expect(result.ok).toBe(true)
+    expect(sent).toHaveLength(2)
+  })
+
   it('throws SESSION_DETACHED when DebuggerManager.send throws SessionDetachedError', async () => {
     const { debuggerStub } = fakeDebugger()
     vi.mocked(debuggerStub.send).mockRejectedValueOnce(new SessionDetachedError(42, 'target_closed'))

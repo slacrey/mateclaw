@@ -37,6 +37,16 @@ export const EDGE_SUBPROTOCOL = 'mateclaw.edge.v1'
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000
 const BACKOFF_BASE_MS = 1_000
 const BACKOFF_CAP_MS = 30_000
+/**
+ * MV3 service-worker keep-alive cadence. Chrome terminates an idle MV3 service
+ * worker after ~30s, and a bare WebSocket `send()` from a setInterval does NOT
+ * reset that idle timer — only a chrome.* API call (or an inbound event) does.
+ * So while connected we tick a trivial chrome API call comfortably under 30s.
+ * Without this the SW dies mid-task during a long LLM turn, its socket closes
+ * (server logs CloseStatus 1001 "going away"), and the next action has to
+ * reconnect — the "中途断线重连" the user saw.
+ */
+const KEEPALIVE_INTERVAL_MS = 20_000
 
 export interface DirectBridgeDeps {
   /** Stable per-install device id (ConfigStore.getDeviceId). */
@@ -47,6 +57,12 @@ export interface DirectBridgeDeps {
   agentVersion: string
   /** Injectable WebSocket ctor for tests; defaults to the global. */
   WebSocketImpl?: typeof WebSocket
+  /**
+   * Resets the MV3 idle timer to keep the service worker alive while connected.
+   * Default calls a cheap chrome.* API (getPlatformInfo); injectable + a no-op
+   * outside an extension (unit tests). Called every {@link KEEPALIVE_INTERVAL_MS}.
+   */
+  resetIdleTimer?: () => void
 }
 
 export class DirectBridgeClient {
@@ -59,6 +75,7 @@ export class DirectBridgeClient {
 
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private heartbeatIntervalMs = DEFAULT_HEARTBEAT_INTERVAL_MS
+  private keepAliveTimer: ReturnType<typeof setInterval> | null = null
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectAttempt = 0
   /** Set by disconnect(); suppresses the auto-reconnect on the next close. */
@@ -72,12 +89,14 @@ export class DirectBridgeClient {
   private readonly deviceId: string
   private readonly deviceName?: string
   private readonly agentVersion: string
+  private readonly resetIdleTimer: () => void
 
   constructor(deps: DirectBridgeDeps) {
     this.deviceId = deps.deviceId
     this.deviceName = deps.deviceName
     this.agentVersion = deps.agentVersion
     this.WebSocketImpl = deps.WebSocketImpl ?? WebSocket
+    this.resetIdleTimer = deps.resetIdleTimer ?? defaultResetIdleTimer
   }
 
   /** True once the socket is OPEN and we have a server-issued session_id. */
@@ -199,6 +218,25 @@ export class DirectBridgeClient {
         this.rawSend(makeEdgeMessage({ kind: EdgeMessageKind.Heartbeat }))
       }
     }, this.heartbeatIntervalMs)
+    // Separately keep the MV3 service worker alive while connected. The heartbeat
+    // above is for SERVER liveness (a bare ws.send does NOT reset Chrome's 30s
+    // SW idle timer); this ticks a chrome.* API under that window so the worker
+    // — and thus the socket and pending actions — survive a long agent turn.
+    this.startKeepAlive()
+  }
+
+  private startKeepAlive(): void {
+    this.stopKeepAlive()
+    this.keepAliveTimer = setInterval(() => {
+      this.resetIdleTimer()
+    }, KEEPALIVE_INTERVAL_MS)
+  }
+
+  private stopKeepAlive(): void {
+    if (this.keepAliveTimer !== null) {
+      clearInterval(this.keepAliveTimer)
+      this.keepAliveTimer = null
+    }
   }
 
   private stopHeartbeat(): void {
@@ -206,6 +244,7 @@ export class DirectBridgeClient {
       clearInterval(this.heartbeatTimer)
       this.heartbeatTimer = null
     }
+    this.stopKeepAlive()
   }
 
   private clearTimers(): void {
@@ -268,6 +307,7 @@ export class DirectBridgeClient {
   /** Intentional teardown: stop timers, close socket, suppress reconnect. */
   disconnect(): void {
     this.intentionalClose = true
+    this.stopKeepAlive()
     this.clearTimers()
     this.sessionId = ''
     if (this.ws) {
@@ -280,5 +320,28 @@ export class DirectBridgeClient {
       this.ws = null
     }
     this.emitState('closed')
+  }
+}
+
+/**
+ * Default {@link DirectBridgeDeps.resetIdleTimer}: a cheap chrome.* call whose
+ * only purpose is to reset the MV3 service-worker idle timer. getPlatformInfo
+ * has no side effects and is available without any permission. Guarded so it is
+ * a harmless no-op outside an extension (unit tests) and never throws.
+ */
+function defaultResetIdleTimer(): void {
+  try {
+    const runtime = (globalThis as unknown as { chrome?: typeof chrome }).chrome?.runtime
+    const result = runtime?.getPlatformInfo?.()
+    // MV3 returns a Promise; swallow it so an idle-keepalive can't surface an
+    // unhandled rejection. (Older callback signature returns undefined — fine.)
+    if (result && typeof (result as Promise<unknown>).then === 'function') {
+      ;(result as Promise<unknown>).then(
+        () => {},
+        () => {},
+      )
+    }
+  } catch {
+    // not in an extension context, or API unavailable — nothing to keep alive
   }
 }
