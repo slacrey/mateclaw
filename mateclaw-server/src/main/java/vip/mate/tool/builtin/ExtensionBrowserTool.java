@@ -17,6 +17,7 @@ import vip.mate.browser.edge.action.MoveMousePayload;
 import vip.mate.browser.edge.action.MoveMouseSuccess;
 import vip.mate.browser.edge.action.NavigatePayload;
 import vip.mate.browser.edge.action.NavigateSuccess;
+import vip.mate.browser.edge.action.PressKeyPayload;
 import vip.mate.browser.edge.action.ScrollPayload;
 import vip.mate.browser.edge.action.ScrollSuccess;
 import vip.mate.browser.edge.action.TabRef;
@@ -338,19 +339,41 @@ public class ExtensionBrowserTool {
         return executePlan(session, List.of(req));
     }
 
+    String extension_browser_press_key(String key, @Nullable ToolContext ctx) {
+        BrowserSession session = resolveSession();
+        if (session == null) return noSession();
+
+        ActionRequest req = new ActionRequest(
+                newMsgId(),
+                new TabRef.Main(),
+                ActionKind.PRESS_KEY,
+                new PressKeyPayload(key),
+                DEFAULT_DEADLINE_MS);
+
+        return executePlan(session, List.of(req));
+    }
+
     String extension_browser_click_at(double x, double y, @Nullable ToolContext ctx) {
+        return extension_browser_click_at_tab(new TabRef.Main(), x, y, ctx);
+    }
+
+    String extension_browser_click_at_active(double x, double y, @Nullable ToolContext ctx) {
+        return extension_browser_click_at_tab(new TabRef.Active(), x, y, ctx);
+    }
+
+    String extension_browser_click_at_tab(TabRef tabRef, double x, double y, @Nullable ToolContext ctx) {
         BrowserSession session = resolveSession();
         if (session == null) return noSession();
 
         ActionRequest move = new ActionRequest(
                 newMsgId(),
-                new TabRef.Main(),
+                tabRef,
                 ActionKind.MOVE_MOUSE,
                 new MoveMousePayload(x, y, "natural"),
                 DEFAULT_DEADLINE_MS);
         ActionRequest click = new ActionRequest(
                 newMsgId(),
-                new TabRef.Main(),
+                tabRef,
                 ActionKind.CLICK,
                 new ClickPayload(x, y, "left", 1),
                 DEFAULT_DEADLINE_MS);
@@ -495,6 +518,14 @@ public class ExtensionBrowserTool {
             @ToolParam(description = "Snapshot filter: 'default' (default — interactive elements + landmarks/regions, so you get nav/main/search section context to disambiguate; needed for SPA pages like Douyin) | 'interactive' (buttons/links/inputs only) | 'all'",
                        required = false) String filter,
             @Nullable ToolContext ctx) {
+        return extension_browser_observe_tab(new TabRef.Main(), filter, ctx);
+    }
+
+    String extension_browser_observe_active(String filter, @Nullable ToolContext ctx) {
+        return extension_browser_observe_tab(new TabRef.Active(), filter, ctx);
+    }
+
+    String extension_browser_observe_tab(TabRef tabRef, String filter, @Nullable ToolContext ctx) {
         BrowserSession session = resolveSession();
         if (session == null) return noSession();
 
@@ -507,7 +538,7 @@ public class ExtensionBrowserTool {
             // loop. Fetch live; the result still repopulates the cache FRESH so
             // the click the agent grounds next reuses it.
             var snapshot = snapshotService
-                    .requestFresh(session, new TabRef.Main(), resolvedFilter)
+                    .requestFresh(session, tabRef, resolvedFilter)
                     .block(java.time.Duration.ofSeconds(15));
             if (snapshot == null) {
                 return error("SNAPSHOT_FAILED", "PageSnapshotService returned null");
@@ -597,6 +628,7 @@ public class ExtensionBrowserTool {
             case NavigateSuccess ignored -> "navigate";
             case ClickSuccess ignored -> "click";
             case TypeSuccess ignored -> "type";
+            case vip.mate.browser.edge.action.PressKeySuccess ignored -> "press_key";
             case ScrollSuccess ignored -> "scroll";
             case MoveMouseSuccess ignored -> "move_mouse";
             case WaitSuccess ignored -> "wait";

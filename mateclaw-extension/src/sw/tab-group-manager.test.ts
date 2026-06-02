@@ -11,7 +11,10 @@ type TabGroup = {
 }
 type StorageShape = { tabGroups: Record<string, TabGroup> }
 
-function fakeChrome(storage: StorageShape = { tabGroups: {} }, opts: { nextGroupId?: number } = {}) {
+function fakeChrome(
+  storage: StorageShape = { tabGroups: {} },
+  opts: { missingTabs?: number[]; nextGroupId?: number } = {},
+) {
   const onRemovedListeners: Array<(tabId: number, info: any) => void> = []
   const onPageLoadedListeners: Array<(details: any) => void> = []
   const sentUp: EdgeMessage[] = []
@@ -23,6 +26,7 @@ function fakeChrome(storage: StorageShape = { tabGroups: {} }, opts: { nextGroup
   const tabUpdates: Array<{ tabId: number; props: chrome.tabs.UpdateProperties }> = []
   const windowUpdates: Array<{ windowId: number; props: chrome.windows.UpdateInfo }> = []
   let nextGroupId = opts.nextGroupId ?? 7000
+  const missingTabs = new Set(opts.missingTabs ?? [])
 
   return {
     chrome: {
@@ -53,7 +57,10 @@ function fakeChrome(storage: StorageShape = { tabGroups: {} }, opts: { nextGroup
           tabUpdates.push({ tabId, props })
           return { id: tabId, windowId: 901 } as chrome.tabs.Tab
         }),
-        get: vi.fn(async (tabId: number) => ({ id: tabId, windowId: 901 }) as chrome.tabs.Tab),
+        get: vi.fn(async (tabId: number) => {
+          if (missingTabs.has(tabId)) throw new Error(`No tab with id: ${tabId}`)
+          return { id: tabId, windowId: 901 } as chrome.tabs.Tab
+        }),
       },
       tabGroups: {
         update: vi.fn(async (groupId: number, props: chrome.tabGroups.UpdateProperties) => {
@@ -123,6 +130,28 @@ describe('TabGroupManager', () => {
     await f.triggerTabClose(42)
 
     expect(await manager.getMainTabId('alice')).toBeNull()
+  })
+
+  it('getMainTabId lazily clears a stale bound tab that Chrome no longer has', async () => {
+    const f = fakeChrome({
+      tabGroups: {
+        alice: {
+          mainTabId: 42,
+          allTabIds: [42],
+          chromeGroupId: 7000,
+          staticIndicatorDismissed: false,
+        },
+      },
+    }, { missingTabs: [42] })
+    const manager = new TabGroupManager(f.chrome, f.sendUp)
+
+    expect(await manager.getMainTabId('alice')).toBeNull()
+    expect(f.storage.tabGroups.alice).toEqual({
+      mainTabId: null,
+      allTabIds: [],
+      chromeGroupId: null,
+      staticIndicatorDismissed: false,
+    })
   })
 
   it('addTab puts tab in allTabIds but does NOT set mainTabId', async () => {

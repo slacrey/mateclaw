@@ -312,4 +312,21 @@ describe('DirectBridgeClient', () => {
     expect(states).toContain('connecting')
     expect(states).toContain('open')
   })
+
+  it('emits open again after HELLO_ACK so connected:true is observable', () => {
+    const c = newClient()
+    const states: Array<{ state: string; connected: boolean }> = []
+    c.onStateChange(s => states.push({ state: s, connected: c.connected }))
+    c.connect(URL, PAT)
+    const ws = MockWebSocket.last()
+
+    ws.fireOpen()
+    ws.fireMessage(helloAck('SID-STATE'))
+
+    expect(states).toEqual([
+      { state: 'connecting', connected: false },
+      { state: 'open', connected: false },
+      { state: 'open', connected: true },
+    ])
+  })
 })

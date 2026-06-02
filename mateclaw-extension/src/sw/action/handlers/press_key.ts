@@ -1,0 +1,70 @@
+import { SessionDetachedError, type DebuggerManager } from '../../debugger-manager'
+import { ActionFailureError, type ActionHandler } from '../ActionExecutor'
+import type { PressKeyParams } from '../types'
+import { describeKey, type KeyDescriptor } from './type'
+
+export interface PressKeyHandlerDeps {
+  debugger: DebuggerManager
+  clock?: () => number
+}
+
+export const pressKeyHandler = (deps: PressKeyHandlerDeps): ActionHandler<PressKeyParams> => {
+  const clock = deps.clock ?? Date.now
+
+  return async (tabId, params) => {
+    const startedAt = clock()
+    const key = normalizeKey(params.key)
+    const descriptor = describeKey(key)
+
+    try {
+      await deps.debugger.attach(tabId)
+      await dispatchPressKeyEvent(deps.debugger, tabId, 'rawKeyDown', descriptor)
+      await dispatchPressKeyEvent(deps.debugger, tabId, 'keyUp', descriptor)
+      return {
+        ok: true,
+        elapsed_ms: Math.max(0, clock() - startedAt),
+        payload: { key },
+      }
+    } catch (err) {
+      if (err instanceof SessionDetachedError) {
+        throw new ActionFailureError('SESSION_DETACHED', err.message, true)
+      }
+      throw err
+    }
+  }
+}
+
+function normalizeKey(raw: string): string {
+  const key = String(raw ?? '').trim()
+  if (!key) {
+    throw new ActionFailureError('HANDLER_ERROR', 'key is required', false)
+  }
+  if (key === 'Enter') return '\n'
+  if (key === 'Tab') return '\t'
+  if (key === 'Backspace') return '\b'
+  if (Array.from(key).length !== 1) {
+    throw new ActionFailureError('HANDLER_ERROR', `unsupported key '${key}'`, false)
+  }
+  return key
+}
+
+async function dispatchPressKeyEvent(
+  debug: DebuggerManager,
+  tabId: number,
+  type: 'rawKeyDown' | 'keyUp',
+  descriptor: KeyDescriptor,
+): Promise<void> {
+  // Use rawKeyDown for real keyboard shortcuts. Some rich sites bind shortcuts
+  // to the browser's raw key path and ignore synthetic text-oriented keyDown.
+  // Keep text empty so this never inserts "x" into a focused search/comment box.
+  await debug.send(tabId, 'Input.dispatchKeyEvent', {
+    type,
+    text: '',
+    unmodifiedText: '',
+    key: descriptor.key,
+    code: descriptor.code,
+    windowsVirtualKeyCode: descriptor.windowsVirtualKeyCode,
+    nativeVirtualKeyCode: descriptor.windowsVirtualKeyCode,
+    modifiers: 0,
+  })
+}

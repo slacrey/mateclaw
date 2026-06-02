@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public class ActionExecutionService {
 
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {};
+    private static final ObjectMapper WIRE_MAPPER = new ObjectMapper();
 
     private final BrowserSessionRegistry registry;
     private final ObjectMapper mapper;
@@ -260,9 +261,13 @@ public class ActionExecutionService {
                         // rejects the whole request (HANDLER_ERROR "malformed payload") when
                         // it's absent. Envelope msgId alone is not enough.
                         "msg_id", req.msgId(),
-                        "tab_ref", mapper.convertValue(req.tabRef(), Object.class),
+                        "tab_ref", WIRE_MAPPER.valueToTree(req.tabRef()),
                         "kind", req.kind().wire(),
-                        "params", mapper.convertValue(req.params(), MAP_TYPE),
+                        // Browser action protocol fields such as duration_ms and tab ids
+                        // must remain JSON numbers. The app-wide mapper stringifies Long
+                        // values to protect Snowflake IDs in API responses, so use a local
+                        // wire mapper for extension-bound protocol payloads.
+                        "params", WIRE_MAPPER.valueToTree(req.params()),
                         // int, not long: the global ObjectMapper stringifies Long/long
                         // (Snowflake-ID guard in JacksonConfig), but the extension's
                         // parseActionRequest requires deadline_ms to be a JSON *number*.

@@ -104,9 +104,13 @@ export function sendToExtension<T>(
  *
  * @example deriveWsUrl('https://mateclaw.example.com') === 'wss://mateclaw.example.com/api/v1/browser/edge'
  * @example deriveWsUrl('http://localhost:18088')       === 'ws://localhost:18088/api/v1/browser/edge'
+ * @example deriveWsUrl('http://localhost:5173')        === 'ws://localhost:18088/api/v1/browser/edge'
  */
 export function deriveWsUrl(origin: string = location.origin): string {
   const u = new URL(origin)
+  if (u.hostname === 'localhost' && u.port === '5173') {
+    u.port = '18088'
+  }
   u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:'
   u.pathname = '/api/v1/browser/edge'
   u.search = ''

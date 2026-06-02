@@ -8,6 +8,7 @@
 export { navigateHandler }   from './navigate'
 export { clickHandler }      from './click'
 export { typeHandler }       from './type'
+export { pressKeyHandler }   from './press_key'
 export { scrollHandler }     from './scroll'
 export { moveMouseHandler }  from './move_mouse'
 export { waitHandler }       from './wait'

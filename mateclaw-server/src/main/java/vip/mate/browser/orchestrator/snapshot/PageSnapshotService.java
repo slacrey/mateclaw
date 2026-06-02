@@ -80,7 +80,7 @@ public interface PageSnapshotService {
      * {@code (sessionId, resolvedTabId)} per the lifecycle table:
      * <ul>
      *   <li>{@link ActionKind#NAVIGATE} → {@link SnapshotState#STALE}</li>
-     *   <li>{@link ActionKind#CLICK}/{@link ActionKind#TYPE}/{@link ActionKind#SCROLL}
+ *   <li>{@link ActionKind#CLICK}/{@link ActionKind#TYPE}/{@link ActionKind#PRESS_KEY}/{@link ActionKind#SCROLL}
      *       → {@link SnapshotState#SUSPECT}</li>
      *   <li>{@link ActionKind#MOVE_MOUSE}/{@link ActionKind#WAIT}
      *       → no transition (page DOM not mutated)</li>

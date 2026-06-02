@@ -172,6 +172,10 @@ export class DirectBridgeClient {
         // Now that we have a session_id to stamp, start protocol heartbeats so
         // the server's reaper doesn't drop us after the stale-session window.
         this.startHeartbeat()
+        // The first OPEN state fires at the raw WebSocket level, before the
+        // server-issued session_id arrives. Emit OPEN again after HELLO_ACK so
+        // offscreen/SW status relays can report connected:true.
+        this.emitState('open')
       }
       this.messageCbs.forEach(cb => cb(m))
     }

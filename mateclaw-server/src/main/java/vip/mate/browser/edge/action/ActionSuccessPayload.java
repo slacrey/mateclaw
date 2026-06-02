@@ -13,18 +13,19 @@ import com.fasterxml.jackson.annotation.JsonSubTypes;
  * still works without the discriminator.
  *
  * <p>Wire names mirror {@link ActionKind} lowercase: {@code navigate,
- * click, type, scroll, move_mouse, wait}.
+ * click, type, press_key, scroll, move_mouse, wait}.
  */
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "kind")
 @JsonSubTypes({
         @JsonSubTypes.Type(value = NavigateSuccess.class,  name = "navigate"),
         @JsonSubTypes.Type(value = ClickSuccess.class,     name = "click"),
         @JsonSubTypes.Type(value = TypeSuccess.class,      name = "type"),
+        @JsonSubTypes.Type(value = PressKeySuccess.class,  name = "press_key"),
         @JsonSubTypes.Type(value = ScrollSuccess.class,    name = "scroll"),
         @JsonSubTypes.Type(value = MoveMouseSuccess.class, name = "move_mouse"),
         @JsonSubTypes.Type(value = WaitSuccess.class,      name = "wait")
 })
 public sealed interface ActionSuccessPayload
         permits NavigateSuccess, ClickSuccess, TypeSuccess,
-                ScrollSuccess, MoveMouseSuccess, WaitSuccess {
+                PressKeySuccess, ScrollSuccess, MoveMouseSuccess, WaitSuccess {
 }

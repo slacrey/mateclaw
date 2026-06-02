@@ -83,6 +83,7 @@ public record ActionRequest(
             case NAVIGATE   -> p instanceof NavigatePayload;
             case CLICK      -> p instanceof ClickPayload;
             case TYPE       -> p instanceof TypePayload;
+            case PRESS_KEY  -> p instanceof PressKeyPayload;
             case SCROLL     -> p instanceof ScrollPayload;
             case MOVE_MOUSE -> p instanceof MoveMousePayload;
             case WAIT       -> p instanceof WaitPayload;

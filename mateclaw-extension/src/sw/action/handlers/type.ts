@@ -19,7 +19,7 @@ export interface TypeHandlerDeps {
   clearFirst?: boolean
 }
 
-interface KeyDescriptor {
+export interface KeyDescriptor {
   readonly text: string
   readonly key: string
   readonly code?: string
@@ -117,7 +117,7 @@ export const typeHandler = (deps: TypeHandlerDeps): ActionHandler<TypeParams> =>
   }
 }
 
-async function dispatchKeyEvent(
+export async function dispatchKeyEvent(
   debug: DebuggerManager,
   tabId: number,
   type: 'keyDown' | 'char' | 'keyUp',
@@ -184,7 +184,7 @@ async function clearFocusedField(debug: DebuggerManager, tabId: number): Promise
   await send('keyUp', 'Delete', 'Delete', 46, 0)
 }
 
-function describeKey(char: string): KeyDescriptor {
+export function describeKey(char: string): KeyDescriptor {
   if (char === '\n') {
     return { text: char, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }
   }

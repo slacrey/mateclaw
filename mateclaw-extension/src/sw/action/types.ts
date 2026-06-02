@@ -36,6 +36,10 @@ export interface TypeParams {
   focus_target?: { x: number; y: number }
 }
 
+export interface PressKeyParams {
+  key: string
+}
+
 export interface ScrollParams {
   direction: 'up' | 'down' | 'left' | 'right'
   distance_px: number
@@ -59,12 +63,13 @@ export interface WaitParams {
 // ActionKind discriminated union
 // -----------------------------------------------------------------
 
-export type ActionKind = 'navigate' | 'click' | 'type' | 'scroll' | 'move_mouse' | 'wait'
+export type ActionKind = 'navigate' | 'click' | 'type' | 'press_key' | 'scroll' | 'move_mouse' | 'wait'
 
 export type ActionParams =
   | { kind: 'navigate';   params: NavigateParams }
   | { kind: 'click';      params: ClickParams }
   | { kind: 'type';       params: TypeParams }
+  | { kind: 'press_key';  params: PressKeyParams }
   | { kind: 'scroll';     params: ScrollParams }
   | { kind: 'move_mouse'; params: MoveMouseParams }
   | { kind: 'wait';       params: WaitParams }

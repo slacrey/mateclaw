@@ -54,6 +54,19 @@ class ActionResultTest {
     }
 
     @Test
+    void successDeserialise_dispatchesPressKeyPayload() throws Exception {
+        String json = """
+            {"ok":true,"elapsed_ms":25,"payload":{"kind":"press_key","key":"x"}}
+            """;
+
+        ActionResult result = mapper.readValue(json, ActionResult.class);
+
+        assertThat(result).isInstanceOf(ActionResult.Success.class);
+        ActionResult.Success success = (ActionResult.Success) result;
+        assertThat(success.payload()).isEqualTo(new PressKeySuccess("x"));
+    }
+
+    @Test
     void failureRetryableField() throws Exception {
         String json = """
             {"ok":false,"code":"DEADLINE_EXCEEDED","message":"deadline reached","retryable":true}

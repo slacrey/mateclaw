@@ -34,6 +34,8 @@ import vip.mate.channel.web.ChatStreamTracker;
 
 import java.util.*;
 import java.util.concurrent.CancellationException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static vip.mate.agent.graph.state.MateClawStateKeys.*;
 
@@ -139,6 +141,22 @@ public class ReasoningNode implements NodeAction {
             "Your previous turn was empty. If the task is not yet complete, continue now "
             + "with the next concrete step — call a tool or write the next part. If every "
             + "required step is already done, output the final answer to the user now.";
+
+    private static final String DOUYIN_FULL_COMMENTS_HARNESS =
+            "lead_browser_douyin_search_sort_open_first_video_comments";
+
+    private static final String DOUYIN_FULL_FIRST_COMMENT_DM_HARNESS =
+            "lead_browser_douyin_debug_full_first_comment_follow_open_dm";
+
+    private static final String DOUYIN_CURRENT_FIRST_COMMENT_DM_HARNESS =
+            "lead_browser_douyin_debug_first_comment_follow_open_dm";
+
+    private static final List<Pattern> DOUYIN_QUERY_PATTERNS = List.of(
+            Pattern.compile("搜索\\s*[\"“”'‘’]?([A-Za-z0-9_.\\-]+)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("关键词\\s*[\"“”'‘’]?([A-Za-z0-9_.\\-]+)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("query\\s*[:=]?\\s*[\"“”'‘’]?([A-Za-z0-9_.\\-]+)", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("search\\s+[\"“”'‘’]?([A-Za-z0-9_.\\-]+)", Pattern.CASE_INSENSITIVE)
+    );
 
     /**
      * A turn carrying no tool call, no content, and no thinking is not a usable
@@ -444,6 +462,31 @@ public class ReasoningNode implements NodeAction {
                 log.error("[ReasoningNode] Failed to deserialize forced_tool_call, falling through to normal LLM: {}",
                         e.getMessage());
             }
+        }
+
+        Optional<AssistantMessage.ToolCall> deterministicToolCall = deterministicBrowserHarnessCall(accessor);
+        if (deterministicToolCall.isPresent()) {
+            AssistantMessage.ToolCall toolCall = deterministicToolCall.get();
+            log.info("[ReasoningNode] Deterministic browser harness route: tool={}, conversationId={}",
+                    toolCall.name(), conversationId);
+            AssistantMessage syntheticMsg = AssistantMessage.builder()
+                    .content("")
+                    .toolCalls(List.of(toolCall))
+                    .build();
+
+            return reasonOutput()
+                    .needsToolCall(true)
+                    .shouldSummarize(false)
+                    .toolCalls(List.of(toolCall))
+                    .messages(List.of((Message) syntheticMsg))
+                    .iterationCount(accessor.iterationCount() + 1)
+                    .currentPhase("deterministic_harness_route")
+                    .contentStreamed(true)
+                    .thinkingStreamed(true)
+                    .events(List.of(GraphEventPublisher.phase("deterministic_harness_route", Map.of(
+                            "toolName", toolCall.name(),
+                            "iteration", accessor.iterationCount() + 1))))
+                    .build();
         }
 
         // ======= 构建 Prompt =======
@@ -920,6 +963,195 @@ public class ReasoningNode implements NodeAction {
             log.error("[ReasoningNode] Failed to deserialize forced_tool_call: {}", e.getMessage());
             throw new RuntimeException("无法反序列化 forced_tool_call: " + e.getMessage(), e);
         }
+    }
+
+    private Optional<AssistantMessage.ToolCall> deterministicBrowserHarnessCall(MateClawStateAccessor accessor) {
+        if (accessor.iterationCount() != 0 || accessor.toolCallCount() != 0) {
+            return Optional.empty();
+        }
+
+        String userMessage = accessor.userMessage() != null ? accessor.userMessage() : "";
+        String query = extractDouyinQuery(userMessage);
+
+        if (hasTool(DOUYIN_CURRENT_FIRST_COMMENT_DM_HARNESS)
+                && isCurrentDouyinFirstCommentFollowDmRequest(userMessage)) {
+            return deterministicToolCall(DOUYIN_CURRENT_FIRST_COMMENT_DM_HARNESS, Map.of());
+        }
+
+        if (hasTool(DOUYIN_FULL_FIRST_COMMENT_DM_HARNESS)
+                && isFullDouyinFirstCommentFollowDmRequest(userMessage)) {
+            if (query.isBlank()) {
+                log.warn("[ReasoningNode] Full Douyin first-comment DM route matched but no query could be extracted; falling back to LLM");
+                return Optional.empty();
+            }
+            return deterministicToolCall(DOUYIN_FULL_FIRST_COMMENT_DM_HARNESS, query);
+        }
+
+        if (hasTool(DOUYIN_FULL_COMMENTS_HARNESS)
+                && isFullDouyinSearchSortVideoCommentsRequest(userMessage)) {
+            if (query.isBlank()) {
+                log.warn("[ReasoningNode] Full Douyin route matched but no query could be extracted; falling back to LLM");
+                return Optional.empty();
+            }
+            return deterministicToolCall(DOUYIN_FULL_COMMENTS_HARNESS, query);
+        }
+
+        return Optional.empty();
+    }
+
+    private Optional<AssistantMessage.ToolCall> deterministicToolCall(String toolName, String query) {
+        return deterministicToolCall(toolName, Map.of("query", query));
+    }
+
+    private Optional<AssistantMessage.ToolCall> deterministicToolCall(String toolName, Map<String, ?> argumentsMap) {
+        try {
+            String arguments = OBJECT_MAPPER.writeValueAsString(argumentsMap);
+            return Optional.of(new AssistantMessage.ToolCall(
+                    "deterministic_" + UUID.randomUUID(),
+                    "function",
+                    toolName,
+                    arguments));
+        } catch (Exception e) {
+            log.warn("[ReasoningNode] Failed to build deterministic browser tool arguments: {}", e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    private boolean hasTool(String toolName) {
+        if (toolName == null || toolName.isBlank()) {
+            return false;
+        }
+        if (toolSet != null && toolSet.callbackByName().containsKey(toolName)) {
+            return true;
+        }
+        if (toolCallbacks == null) {
+            return false;
+        }
+        return toolCallbacks.stream()
+                .map(cb -> cb.getToolDefinition().name())
+                .anyMatch(toolName::equals);
+    }
+
+    static boolean isFullDouyinSearchSortVideoCommentsRequest(String text) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        String normalized = text.toLowerCase(Locale.ROOT);
+        boolean douyin = normalized.contains("抖音") || normalized.contains("douyin");
+        boolean search = normalized.contains("搜索") || normalized.contains("关键词") || normalized.contains("search");
+        boolean mostLiked = normalized.contains("最多点赞")
+                || normalized.contains("点赞排序")
+                || normalized.contains("按点赞")
+                || normalized.contains("most liked");
+        boolean firstVideo = normalized.contains("第一个视频")
+                || normalized.contains("第一个结果")
+                || normalized.contains("第一个作品")
+                || normalized.contains("点开第一个")
+                || normalized.contains("打开第一个")
+                || normalized.contains("open first");
+        boolean comments = normalized.contains("评论区")
+                || normalized.contains("打开评论")
+                || normalized.contains("展开评论")
+                || normalized.contains("comments");
+        return douyin && search && mostLiked && firstVideo && comments;
+    }
+
+    static boolean isFullDouyinFirstCommentFollowDmRequest(String text) {
+        if (!isFullDouyinSearchSortVideoCommentsRequest(text)) {
+            return false;
+        }
+        String normalized = text.toLowerCase(Locale.ROOT);
+        boolean firstCommentUser = normalized.contains("第一个评论")
+                || normalized.contains("第一条评论")
+                || normalized.contains("首条评论")
+                || Pattern.compile("第(一|1)(个|条)?[^，,。.;；:：\\n]{0,12}评论").matcher(normalized).find()
+                || normalized.contains("first comment");
+        boolean follow = normalized.contains("关注") || normalized.contains("follow");
+        boolean privateMessage = normalized.contains("私信")
+                || normalized.contains("发私信")
+                || normalized.contains("dm")
+                || normalized.contains("message");
+        boolean doNotSend = normalized.contains("不发送")
+                || normalized.contains("不要发送")
+                || normalized.contains("不用发送")
+                || normalized.contains("不发")
+                || normalized.contains("do not send")
+                || normalized.contains("don't send");
+        return firstCommentUser && follow && privateMessage && doNotSend;
+    }
+
+    static boolean isCurrentDouyinFirstCommentFollowDmRequest(String text) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        String normalized = text.toLowerCase(Locale.ROOT);
+        boolean douyinOrCommentContext = normalized.contains("抖音")
+                || normalized.contains("douyin")
+                || normalized.contains("评论区")
+                || normalized.contains("评论面板")
+                || normalized.contains("评论列表")
+                || normalized.contains("评论")
+                || normalized.contains("comments");
+        boolean currentContext = normalized.contains("已经打开")
+                || normalized.contains("已打开")
+                || normalized.contains("当前")
+                || normalized.contains("继续")
+                || normalized.contains("从当前")
+                || normalized.contains("现在")
+                || normalized.contains("already open")
+                || normalized.contains("current");
+        boolean firstCommentUser = normalized.contains("第一个评论")
+                || normalized.contains("第一条评论")
+                || normalized.contains("第一条可见评论")
+                || normalized.contains("首条评论")
+                || Pattern.compile("第(一|1)(个|条)?[^，,。.;；:：\\n]{0,12}评论").matcher(normalized).find()
+                || normalized.contains("first comment");
+        boolean profile = normalized.contains("主页")
+                || normalized.contains("用户")
+                || normalized.contains("作者")
+                || normalized.contains("头像")
+                || normalized.contains("profile")
+                || normalized.contains("author");
+        boolean follow = normalized.contains("关注") || normalized.contains("follow");
+        boolean privateMessage = normalized.contains("私信")
+                || normalized.contains("发私信")
+                || normalized.contains("dm")
+                || normalized.contains("message");
+        boolean doNotSend = normalized.contains("不发送")
+                || normalized.contains("不要发送")
+                || normalized.contains("不用发送")
+                || normalized.contains("不发")
+                || normalized.contains("do not send")
+                || normalized.contains("don't send");
+        return douyinOrCommentContext && currentContext && firstCommentUser
+                && profile && follow && privateMessage && doNotSend;
+    }
+
+    static String extractDouyinQuery(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        for (Pattern pattern : DOUYIN_QUERY_PATTERNS) {
+            Matcher matcher = pattern.matcher(text);
+            if (matcher.find()) {
+                String candidate = cleanupQueryCandidate(matcher.group(1));
+                if (!candidate.isBlank()) {
+                    return candidate;
+                }
+            }
+        }
+        Matcher bareKnownToken = Pattern.compile("\\b(openclaw)\\b", Pattern.CASE_INSENSITIVE).matcher(text);
+        if (bareKnownToken.find()) {
+            return bareKnownToken.group(1);
+        }
+        return "";
+    }
+
+    private static String cleanupQueryCandidate(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        return raw.replaceAll("^[\"“”'‘’\\s]+|[\"“”'‘’，,。.;；:：\\s]+$", "").trim();
     }
 
     /**

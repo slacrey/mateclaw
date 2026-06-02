@@ -83,7 +83,20 @@ export class TabGroupManager {
    */
   async getMainTabId(subject: string): Promise<number | null> {
     const groups = await this.#loadGroups()
-    return groups[subject]?.mainTabId ?? null
+    const tabId = groups[subject]?.mainTabId ?? null
+    if (typeof tabId !== 'number') return null
+    if (typeof this.chrome.tabs?.get !== 'function') return tabId
+
+    try {
+      await this.chrome.tabs.get(tabId)
+      return tabId
+    } catch {
+      // The service worker can miss tabs.onRemoved while suspended, leaving a
+      // stale mainTabId in storage. Repair it lazily so the next navigate can
+      // provision a fresh visible MateClaw tab instead of failing NO_TARGET_TAB.
+      await this.#removeTrackedTab(subject, tabId)
+      return null
+    }
   }
 
   /**
@@ -300,6 +313,20 @@ export class TabGroupManager {
         mainTabId: group.mainTabId,
         allTabIds: group.allTabIds,
         chromeGroupId,
+        staticIndicatorDismissed: group.staticIndicatorDismissed,
+      }
+    })
+  }
+
+  async #removeTrackedTab(subject: string, tabId: number): Promise<void> {
+    await this.#mutateGroups(groups => {
+      const group = groups[subject]
+      if (!group) return
+      const nextTabIds = group.allTabIds.filter(id => id !== tabId)
+      groups[subject] = {
+        mainTabId: group.mainTabId === tabId ? null : group.mainTabId,
+        allTabIds: nextTabIds,
+        chromeGroupId: nextTabIds.length === 0 ? null : group.chromeGroupId,
         staticIndicatorDismissed: group.staticIndicatorDismissed,
       }
     })

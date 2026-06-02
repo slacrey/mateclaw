@@ -35,6 +35,7 @@ import { VisualCoordinator } from './visual-coordinator'
 import { navigateHandler } from './action/handlers/navigate'
 import { clickHandler } from './action/handlers/click'
 import { typeHandler } from './action/handlers/type'
+import { pressKeyHandler } from './action/handlers/press_key'
 import { scrollHandler } from './action/handlers/scroll'
 import { moveMouseHandler, viewportCenterFromDebugger } from './action/handlers/move_mouse'
 import { waitHandler } from './action/handlers/wait'
@@ -221,6 +222,7 @@ const resolver = new TabRefResolver({
 //   navigate   — chrome.tabs.update + webNavigation race
 //   click      — CDP Input.dispatchMouseEvent press/release with hold
 //   type       — CDP Input.dispatchKeyEvent keyDown+char+keyUp per char
+//   press_key  — CDP Input.dispatchKeyEvent keyDown+keyUp for shortcuts
 //   scroll     — CDP Input.dispatchMouseWheelEvent segmented
 //   move_mouse — WindMouse waypoints over CDP Input.dispatchMouseEvent
 //   wait       — three strategies (time / load_state / network_idle)
@@ -235,6 +237,7 @@ const handlers: ActionHandlers = {
   navigate:   navigateHandler(chrome),
   click:      clickHandler({ debugger: debuggerManager }),
   type:       typeHandler({ debugger: debuggerManager, clearFirst: true }),
+  press_key:  pressKeyHandler({ debugger: debuggerManager }),
   scroll:     scrollHandler({ debugger: debuggerManager }),
   move_mouse: moveMouseHandler({
     debugger: debuggerManager,

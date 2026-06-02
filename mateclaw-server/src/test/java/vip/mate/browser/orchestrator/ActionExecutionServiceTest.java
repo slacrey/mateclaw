@@ -11,10 +11,12 @@ import vip.mate.browser.edge.action.ActionResult;
 import vip.mate.browser.edge.action.ClickPayload;
 import vip.mate.browser.edge.action.ClickSuccess;
 import vip.mate.browser.edge.action.TabRef;
+import vip.mate.browser.edge.action.WaitPayload;
 import vip.mate.browser.edge.protocol.EdgeMessage;
 import vip.mate.browser.edge.protocol.EdgeMessageKind;
 import vip.mate.browser.edge.session.BrowserSession;
 import vip.mate.browser.edge.session.BrowserSessionRegistry;
+import vip.mate.config.JacksonConfig;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -93,6 +95,31 @@ class ActionExecutionServiceTest {
         assertThat(sent.getPayload())
                 .containsKeys("msg_id", "tab_ref", "kind", "params", "deadline_ms");
         assertThat(sent.getPayload().get("msg_id")).isEqualTo("m-payload");
+    }
+
+    @Test
+    void actionExecutePayload_keepsProtocolLongsAsNumbersWithSnowflakeMapper() throws Exception {
+        ObjectMapper apiMapper = new ObjectMapper();
+        var builder = new org.springframework.http.converter.json.Jackson2ObjectMapperBuilder();
+        new JacksonConfig().longToStringCustomizer().customize(builder);
+        builder.configure(apiMapper);
+        service = new ActionExecutionService(registry, apiMapper, clock, deadlines);
+        ActionRequest req = new ActionRequest(
+                "m-wait",
+                new TabRef.Explicit(123L),
+                ActionKind.WAIT,
+                new WaitPayload("time", 450L, null, null),
+                5_000L);
+
+        service.execute(session, req);
+
+        com.fasterxml.jackson.databind.JsonNode root = new ObjectMapper()
+                .readTree(ws.sent().get(0).getPayload());
+        com.fasterxml.jackson.databind.JsonNode payload = root.path("payload");
+        assertThat(payload.path("tab_ref").isNumber()).isTrue();
+        assertThat(payload.path("deadline_ms").isNumber()).isTrue();
+        assertThat(payload.path("params").path("duration_ms").isNumber()).isTrue();
+        assertThat(payload.path("params").path("duration_ms").asLong()).isEqualTo(450L);
     }
 
     @Test

@@ -32,6 +32,12 @@ describe('deriveWsUrl', () => {
       'wss://host:5173/api/v1/browser/edge',
     )
   })
+
+  it('maps the Vite dev server to the backend edge endpoint', () => {
+    expect(deriveWsUrl('http://localhost:5173/settings/browser')).toBe(
+      'ws://localhost:18088/api/v1/browser/edge',
+    )
+  })
 })
 
 // ---------------------------------------------------------------------------

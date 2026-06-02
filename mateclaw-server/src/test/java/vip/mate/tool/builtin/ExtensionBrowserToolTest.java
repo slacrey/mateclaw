@@ -12,6 +12,8 @@ import vip.mate.browser.edge.action.ClickPayload;
 import vip.mate.browser.edge.action.ClickSuccess;
 import vip.mate.browser.edge.action.MoveMousePayload;
 import vip.mate.browser.edge.action.NavigateSuccess;
+import vip.mate.browser.edge.action.PressKeyPayload;
+import vip.mate.browser.edge.action.PressKeySuccess;
 import vip.mate.browser.edge.action.TabRef;
 import vip.mate.browser.edge.action.TypePayload;
 import vip.mate.browser.edge.action.TypeSuccess;
@@ -269,6 +271,27 @@ class ExtensionBrowserToolTest {
     }
 
     @Test
+    void browserPressKey_dispatchesPressKeyRequestForHarnesses() throws Exception {
+        when(planExec.execute(any(), any())).thenReturn(Mono.just((PlanResult)
+                new PlanResult.Success(List.of(
+                        new ActionResult.Success(11L, new PressKeySuccess("x"))))));
+
+        String out = tool.extension_browser_press_key("x", null);
+
+        JsonNode j = mapper.readTree(out);
+        assertThat(j.get("results").get(0).get("payload").get("key").asText())
+                .isEqualTo("x");
+
+        var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(planExec).execute(any(), captor.capture());
+        @SuppressWarnings("unchecked")
+        List<ActionRequest> sent = (List<ActionRequest>) captor.getValue();
+        assertThat(sent.get(0).kind()).isEqualTo(ActionKind.PRESS_KEY);
+        var payload = (PressKeyPayload) sent.get(0).params();
+        assertThat(payload.key()).isEqualTo("x");
+    }
+
+    @Test
     void browserClickAt_dispatchesMoveAndClickRequestsForHarnesses() throws Exception {
         when(planExec.execute(any(), any())).thenReturn(Mono.just((PlanResult)
                 new PlanResult.Success(List.of(
@@ -289,6 +312,25 @@ class ExtensionBrowserToolTest {
         assertThat(move.y()).isEqualTo(41.0);
         assertThat(click.x()).isEqualTo(1065.0);
         assertThat(click.y()).isEqualTo(41.0);
+    }
+
+    @Test
+    void browserClickAtActive_dispatchesRequestsToActiveTabForHarnesses() throws Exception {
+        when(planExec.execute(any(), any())).thenReturn(Mono.just((PlanResult)
+                new PlanResult.Success(List.of(
+                        new ActionResult.Success(11L, new ClickSuccess())))));
+
+        tool.extension_browser_click_at_active(1065.0, 41.0, null);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(planExec).execute(any(), captor.capture());
+        @SuppressWarnings("unchecked")
+        List<ActionRequest> sent = (List<ActionRequest>) captor.getValue();
+        assertThat(sent).hasSize(2);
+        assertThat(sent.get(0).tabRef()).isEqualTo(new TabRef.Active());
+        assertThat(sent.get(1).tabRef()).isEqualTo(new TabRef.Active());
+        assertThat(sent.get(0).kind()).isEqualTo(ActionKind.MOVE_MOUSE);
+        assertThat(sent.get(1).kind()).isEqualTo(ActionKind.CLICK);
     }
 
     @Test
@@ -367,6 +409,25 @@ class ExtensionBrowserToolTest {
         // the LLM can detect navigation between observes (the search-loop fix).
         assertThat(j.get("url").asText()).isEqualTo("https://example.com/page");
         assertThat(j.get("title").asText()).isEqualTo("Example page");
+    }
+
+    @Test
+    void browserObserveActive_readsActiveTabForHarnesses() throws Exception {
+        var snap = new PageSnapshot("snap-1", 1L, 42L,
+                "Button[ref=ref_1]: Follow @{100,200 80x32}",
+                new Viewport(1280, 800),
+                "https://www.douyin.com/user/abc",
+                "主页");
+        when(snapshotService.requestFresh(any(), any(), any())).thenReturn(Mono.just(snap));
+
+        String out = tool.extension_browser_observe_active("all", null);
+
+        JsonNode j = mapper.readTree(out);
+        assertThat(j.get("ok").asBoolean()).isTrue();
+        assertThat(j.get("url").asText()).contains("/user/");
+        var tabCaptor = org.mockito.ArgumentCaptor.forClass(TabRef.class);
+        verify(snapshotService).requestFresh(any(), tabCaptor.capture(), any());
+        assertThat(tabCaptor.getValue()).isEqualTo(new TabRef.Active());
     }
 
     @Test

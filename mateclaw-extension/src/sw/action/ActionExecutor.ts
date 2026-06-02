@@ -5,6 +5,7 @@ import type {
   NavigateParams,
   ClickParams,
   TypeParams,
+  PressKeyParams,
   ScrollParams,
   MoveMouseParams,
   WaitParams,
@@ -27,6 +28,7 @@ export interface ActionHandlers {
   navigate:   ActionHandler<NavigateParams>
   click:      ActionHandler<ClickParams>
   type:       ActionHandler<TypeParams>
+  press_key:  ActionHandler<PressKeyParams>
   scroll:     ActionHandler<ScrollParams>
   move_mouse: ActionHandler<MoveMouseParams>
   wait:       ActionHandler<WaitParams>

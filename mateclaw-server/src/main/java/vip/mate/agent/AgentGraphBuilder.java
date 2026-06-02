@@ -1456,6 +1456,28 @@ public class AgentGraphBuilder {
         return """
 
                 ## Browser work — compose reusable lead workflows
+                HARD ROUTING RULE: task-level `lead_browser_*` harnesses are real Chrome
+                browser operations. They are NOT browser_use and they are preferred over
+                hand-composed `extension_browser_*` primitives whenever an exact harness matches.
+                For the exact Douyin full chain "搜索关键词 + 筛选/最多点赞 + 打开第一个视频 +
+                打开/展开评论区", the FIRST action MUST be
+                `lead_browser_douyin_search_sort_open_first_video_comments(query)`. Do not claim
+                the video or comments are open unless that tool returns `status =
+                DONE_COMMENTS_OPENED`.
+
+                For any request whose first goal is "open a site in my browser, search a keyword,
+                then click/filter/sort/select an option", you MUST call
+                `lead_browser_site_search_select_option(...)` first when the site can be expressed
+                as homeUrl + query + triggerText + optionText. For the exact Douyin "搜索 + 筛选 +
+                最多点赞" task without opening video/comments, call
+                `lead_browser_douyin_search_sort_most_liked` first. Do not decompose matching
+                harness tasks into repeated
+                `extension_browser_*` clicks before trying the harness, and do not guess URL
+                parameters such as `sort_type`. If a matching harness returns a clear failure,
+                report its exact status/message/attempts and STOP this bounded step. Continue
+                with primitives only when the user explicitly asks for new browser work after
+                the failed bounded step.
+
                 Preferred first choice for common site search + filter/sort tasks:
                 call `lead_browser_site_search_select_option(homeUrl, query, triggerText,
                 optionText, siteName)`. Use it for sites that fit:
@@ -1471,9 +1493,10 @@ public class AgentGraphBuilder {
                 the generic search + select-option pattern; do not generalize from it by
                 inventing hard-coded URL params or platform-specific one-off loops.
 
-                For ALL interactive or multi-step browser tasks (open a site, search, then
-                filter / sort / open a result / read comments / fill a form / page through),
-                use the `extension_browser_*` primitives and let the page tell you what to do:
+                For interactive or multi-step browser tasks that do NOT have a matching
+                `lead_browser_*` harness (open a site, search, then filter / sort / open a
+                result / read comments / fill a form / page through), use the
+                `extension_browser_*` primitives and let the page tell you what to do:
                   navigate → observe (read the tree + `url`/`title`) → click / type (by role +
                   the visible text you saw in the tree) → observe again to confirm the page
                   changed → repeat until the goal is met.
@@ -1567,6 +1590,25 @@ public class AgentGraphBuilder {
                 - `lead_browser_douyin_search_sort_most_liked(query)` — open Douyin in the
                   user's browser, search the query, open 筛选, and select 最多点赞; this is a
                   convenience preset, not the only path.
+                - `lead_browser_douyin_search_sort_open_first_video_comments(query)` — FIRST
+                  CHOICE when the user asks the full Douyin chain: search keyword, sort by
+                  最多点赞, open the first/highest-liked video, and open the comment area. Do
+                  not split that request into manual extension_browser_click/icon/JS steps; if
+                  this helper returns COMMENTS_NOT_OPENED, report that exact status instead of
+                  retrying random coordinates.
+                - `lead_browser_douyin_open_first_video_comments()` — when already on a
+                  Douyin search results page and the requested next step is ONLY to click the
+                  first video/result and open its comment area, use this helper first. It
+                  verifies the video opened before touching 评论, and verifies the comment area
+                  opened before reporting success. Do not continue to comment matching if this
+                  returns VIDEO_OPEN_FAILED or COMMENTS_NOT_OPENED.
+                - `lead_browser_douyin_open_first_video_match_comment_user(targetComment,
+                  maxScrolls)` — when already on a Douyin search results page, open the first
+                  visible video/result, read comments, match a similar comment, and open that
+                  commenter's profile. It intentionally STOPS before 关注/私信; if it returns
+                  DONE_PROFILE_OPENED, ask for approval for that exact candidate and then call
+                  `extension_browser_click("关注", "button")` so Tool Guard can gate the
+                  outbound contact action. Never replace this with coordinate-clicking 关注.
                 - `lead_browser_snapshot_for_leads(goal, maxLines)` — read the CURRENT page once
                   into compact lead-candidate lines.
                 - `lead_browser_douyin_search_for_leads(query, goal, maxLines)` — ONLY when the

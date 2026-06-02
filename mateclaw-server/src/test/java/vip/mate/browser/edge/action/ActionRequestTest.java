@@ -68,6 +68,24 @@ class ActionRequestTest {
         assertThat(back).isEqualTo(req);
     }
 
+    @Test
+    void pressKey_roundTrips() throws Exception {
+        ActionRequest req = new ActionRequest(
+                "msg-press",
+                new TabRef.Main(),
+                ActionKind.PRESS_KEY,
+                new PressKeyPayload("x"),
+                5_000L);
+
+        String json = mapper.writeValueAsString(req);
+        ActionRequest back = mapper.readValue(json, ActionRequest.class);
+
+        assertThat(json)
+                .contains("\"kind\":\"press_key\"")
+                .contains("\"key\":\"x\"");
+        assertThat(back).isEqualTo(req);
+    }
+
     // -----------------------------------------------------------------
     // Construction-time validation — the record's compact constructor
     // enforces that the outer ActionKind matches the payload subtype.

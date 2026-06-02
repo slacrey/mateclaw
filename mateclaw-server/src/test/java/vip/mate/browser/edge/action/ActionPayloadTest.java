@@ -49,6 +49,17 @@ class ActionPayloadTest {
     }
 
     @Test
+    void pressKeyPayload_roundTrip() throws Exception {
+        var press = new PressKeyPayload("x");
+
+        String json = mapper.writeValueAsString(press);
+        PressKeyPayload back = mapper.readValue(json, PressKeyPayload.class);
+
+        assertThat(json).contains("\"key\":\"x\"");
+        assertThat(back).isEqualTo(press);
+    }
+
+    @Test
     void scrollPayload_roundTrip() throws Exception {
         var scroll = new ScrollPayload("down", 600, 3);
 
@@ -131,6 +142,12 @@ class ActionPayloadTest {
     }
 
     @Test
+    void pressKeyPayload_blankKey_throws() {
+        assertThatThrownBy(() -> new PressKeyPayload(" "))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void waitPayload_invalidStrategy_throws() {
         assertThatThrownBy(() -> new WaitPayload("paint", null, null, null))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -164,6 +181,16 @@ class ActionPayloadTest {
         ActionPayload p = mapper.readValue(json, ActionPayload.class);
 
         assertThat(p).isInstanceOf(MoveMousePayload.class);
+    }
+
+    @Test
+    void abstractInterfaceDispatch_pressKey() throws Exception {
+        String json = "{\"kind\":\"press_key\",\"key\":\"x\"}";
+
+        ActionPayload p = mapper.readValue(json, ActionPayload.class);
+
+        assertThat(p).isInstanceOf(PressKeyPayload.class);
+        assertThat(((PressKeyPayload) p).key()).isEqualTo("x");
     }
 
     @Test

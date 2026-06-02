@@ -7,6 +7,7 @@ public enum ActionKind {
     NAVIGATE("navigate"),
     CLICK("click"),
     TYPE("type"),
+    PRESS_KEY("press_key"),
     SCROLL("scroll"),
     MOVE_MOUSE("move_mouse"),
     WAIT("wait");
