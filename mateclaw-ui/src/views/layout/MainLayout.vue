@@ -617,10 +617,10 @@ const navGroups = computed(() => [
     label: t('nav.core'),
     items: filterNav([
       {
-        path: '/dashboard',
-        label: t('nav.dashboard', 'Dashboard'),
-        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`,
-        requiredCapability: 'view:dashboard',
+        path: '/home',
+        label: t('nav.home', 'Home'),
+        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10.5V20h14v-9.5"/><path d="M9 20v-6h6v6"/></svg>`,
+        requiredCapability: 'chat',
       },
       {
         path: '/chat',

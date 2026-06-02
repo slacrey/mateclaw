@@ -402,6 +402,7 @@ export default {
     timeHoursAgo: '{n} 小时前',
   },
   nav: {
+    home: '首页',
     dashboard: '仪表盘',
     chat: '对话',
     control: '控制台',
@@ -3634,6 +3635,44 @@ export default {
       click: '点击',
       type: '输入',
       screenshot: '截图',
+    },
+  },
+  home: {
+    banner: {
+      eyebrow: '首页',
+      title: '让数字员工开始工作',
+      subtitle: '选择合适的员工进入对话，或查看最近的自动任务执行。',
+      watchDemo: '查看演示效果',
+      openFeature: '查看功能提示',
+    },
+    market: {
+      title: '数字员工市场',
+      subtitle: '推荐可直接开始协作的数字员工。',
+      defaultRole: '数字员工',
+      defaultGoal: '协助完成任务',
+      defaultDesc: '选择后即可进入对话并开始协作。',
+      startChat: '开始对话',
+      empty: '暂无可用数字员工',
+    },
+    runs: {
+      title: '最近定时任务执行',
+      subtitle: '查看自动任务最近的执行状态。',
+      empty: '暂无执行记录',
+      columns: {
+        time: '时间',
+        job: '任务',
+        status: '状态',
+        trigger: '触发方式',
+        duration: '耗时',
+      },
+    },
+    prompt: {
+      webTitle: '需要下载客户端',
+      webDesc: '此功能需下载客户端才可使用。',
+      clientTitle: '检查浏览器插件',
+      clientDesc: '请确保已安装浏览器插件。',
+      downloadClient: '下载客户端',
+      downloadPlugin: '下载浏览器插件',
     },
   },
   dashboard: {
