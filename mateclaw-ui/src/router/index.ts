@@ -18,9 +18,15 @@ const router = createRouter({
     {
       path: '/',
       component: () => import('@/views/layout/MainLayout.vue'),
-      redirect: '/chat',
+      redirect: '/home',
       children: [
         // ==================== Core ====================
+        {
+          path: 'home',
+          name: 'Home',
+          component: () => import('@/views/Home/index.vue'),
+          meta: { title: 'Home', requiredCapability: 'chat' },
+        },
         {
           path: 'chat',
           name: 'Chat',

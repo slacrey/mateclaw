@@ -163,14 +163,15 @@ async function finishAuth(data: LoginResponse, fallbackUsername: string) {
     localStorage.setItem('mc-workspace-id', String(data.currentWorkspaceId))
     workspaceStore.currentWorkspaceId = String(data.currentWorkspaceId)
   }
-  // Resolve capabilities before deciding the landing route so a viewer
-  // lands on /chat (their only capability) and member+ on /dashboard.
+  // Resolve capabilities before deciding the landing route. Users with chat
+  // access enter the recommendation-oriented home page; restricted accounts
+  // still fall back to chat through the router guard.
   try {
     await workspaceStore.fetchWorkspaces()
   } catch {
     /* default-deny is fine; router guard will still steer */
   }
-  const target = workspaceStore.can('view:dashboard') ? '/dashboard' : '/chat'
+  const target = workspaceStore.can('chat') ? '/home' : '/chat'
   router.push(target)
 }
 

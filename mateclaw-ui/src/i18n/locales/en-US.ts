@@ -402,6 +402,7 @@ export default {
     timeHoursAgo: '{n}h ago',
   },
   nav: {
+    home: 'Home',
     dashboard: 'Dashboard',
     chat: 'Chat',
     control: 'Control',
@@ -3542,6 +3543,44 @@ export default {
       click: 'click',
       type: 'type',
       screenshot: 'screenshot',
+    },
+  },
+  home: {
+    banner: {
+      eyebrow: 'Home',
+      title: 'Put digital employees to work',
+      subtitle: 'Pick an employee to start a chat, or review recent automated task runs.',
+      watchDemo: 'Watch demo',
+      openFeature: 'View feature prompt',
+    },
+    market: {
+      title: 'Digital Employee Market',
+      subtitle: 'Recommended employees ready to collaborate.',
+      defaultRole: 'Employee',
+      defaultGoal: 'Help with tasks',
+      defaultDesc: 'Select one to start a new conversation.',
+      startChat: 'Start chat',
+      empty: 'No available digital employees',
+    },
+    runs: {
+      title: 'Recent Scheduled Runs',
+      subtitle: 'Review the latest automated task execution status.',
+      empty: 'No run records yet',
+      columns: {
+        time: 'Time',
+        job: 'Job',
+        status: 'Status',
+        trigger: 'Trigger',
+        duration: 'Duration',
+      },
+    },
+    prompt: {
+      webTitle: 'Client required',
+      webDesc: 'This feature requires the desktop client.',
+      clientTitle: 'Check browser plugin',
+      clientDesc: 'Please make sure the browser plugin is installed.',
+      downloadClient: 'Download client',
+      downloadPlugin: 'Download browser plugin',
     },
   },
   dashboard: {
