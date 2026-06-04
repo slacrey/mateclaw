@@ -95,6 +95,17 @@ class EdgeMessageTest {
     }
 
     @Test
+    void v2_browserRuntimeKinds_haveExactWireStrings() {
+        assertThat(EdgeMessageKind.BROWSER_ACTION_REQUEST.wire()).isEqualTo("browser.action.request");
+        assertThat(EdgeMessageKind.BROWSER_ACTION_RESULT.wire()).isEqualTo("browser.action.result");
+        assertThat(EdgeMessageKind.BROWSER_OBSERVATION_CAPTURE.wire()).isEqualTo("browser.observation.capture");
+        assertThat(EdgeMessageKind.BROWSER_OBSERVATION_RESULT.wire()).isEqualTo("browser.observation.result");
+        assertThat(EdgeMessageKind.BROWSER_ARTIFACT_UPLOAD_CHUNK.wire()).isEqualTo("browser.artifact.upload_chunk");
+        assertThat(EdgeMessageKind.BROWSER_TELEMETRY_BATCH.wire()).isEqualTo("browser.telemetry.batch");
+        assertThat(EdgeMessageKind.BROWSER_HUMAN_TAKEOVER.wire()).isEqualTo("browser.human.takeover");
+    }
+
+    @Test
     void v11_eventKinds_haveExactWireStrings() {
         assertThat(EdgeMessageKind.EVENT_PAGE_NAVIGATED.wire()).isEqualTo("event.page.navigated");
         assertThat(EdgeMessageKind.EVENT_TAB_CLOSED.wire()).isEqualTo("event.tab.closed");

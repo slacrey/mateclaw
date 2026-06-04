@@ -4,11 +4,12 @@ import type { TabGroupManager } from '../tab-group-manager'
 
 /**
  * Build a minimal fake TabGroupManager that only implements the surface
- * area the resolver depends on (getMainTabId / setMainTabId / joinChromeGroup).
+ * area the resolver depends on (getMainTabId / setMainTabId / joinChromeGroup / getActiveTabId).
  */
-function fakeTabGroupManager(mainTabId: number | null): TabGroupManager {
+function fakeTabGroupManager(mainTabId: number | null, activeTabId: number | null = null): TabGroupManager {
   return {
     getMainTabId: vi.fn(async () => mainTabId),
+    getActiveTabId: vi.fn(async () => activeTabId),
     setMainTabId: vi.fn(async () => {}),
     joinChromeGroup: vi.fn(async () => 7001),
   } as unknown as TabGroupManager
@@ -91,26 +92,26 @@ describe('TabRefResolver', () => {
   // "active" resolution
   // -----------------------------------------------------------------
 
-  it('resolves "active" via chrome.tabs.query({active:true, lastFocusedWindow:true})', async () => {
+  it('resolves "active" via the subject managed active tab', async () => {
     const chrome = fakeChrome(7)
+    const tgm = fakeTabGroupManager(42, 43)
     const resolver = new TabRefResolver({
-      tabGroupManager: fakeTabGroupManager(42),  // not used
+      tabGroupManager: tgm,
       chrome,
       subject: 'alice',
     })
 
     const tabId = await resolver.resolve('active')
 
-    expect(tabId).toBe(7)
-    expect(chrome.tabs.query).toHaveBeenCalledExactlyOnceWith({
-      active: true,
-      lastFocusedWindow: true,
-    })
+    expect(tabId).toBe(43)
+    expect(tgm.getActiveTabId).toHaveBeenCalledExactlyOnceWith('alice')
+    expect(chrome.tabs.query).not.toHaveBeenCalled()
   })
 
-  it('"active" with no focused window returns null', async () => {
+  it('"active" with no managed active tab returns null', async () => {
+    const tgm = fakeTabGroupManager(42, null)
     const resolver = new TabRefResolver({
-      tabGroupManager: fakeTabGroupManager(42),
+      tabGroupManager: tgm,
       chrome: fakeChrome(null),
       subject: 'alice',
     })
@@ -118,17 +119,18 @@ describe('TabRefResolver', () => {
     const tabId = await resolver.resolve('active')
 
     expect(tabId).toBeNull()
+    expect(tgm.getActiveTabId).toHaveBeenCalledExactlyOnceWith('alice')
   })
 
-  it('"active" returns null when chrome.tabs.query returns an entry missing an id', async () => {
+  it('"active" never falls through to the browser-global active tab', async () => {
     const chrome = {
       tabs: {
-        // chrome.tabs.Tab.id can legitimately be undefined for dev-tools / non-page tabs
-        query: vi.fn(async () => [{ id: undefined }]),
+        query: vi.fn(async () => [{ id: 99 }]),
       },
     } as unknown as typeof globalThis.chrome
+    const tgm = fakeTabGroupManager(42, null)
     const resolver = new TabRefResolver({
-      tabGroupManager: fakeTabGroupManager(42),
+      tabGroupManager: tgm,
       chrome,
       subject: 'alice',
     })
@@ -136,6 +138,7 @@ describe('TabRefResolver', () => {
     const tabId = await resolver.resolve('active')
 
     expect(tabId).toBeNull()
+    expect(chrome.tabs.query).not.toHaveBeenCalled()
   })
 
   // -----------------------------------------------------------------
@@ -185,9 +188,9 @@ describe('TabRefResolver', () => {
         subject: 'alice',
       })
 
-      const tabId = await resolver.resolve('active')
+      const tabId = await resolver.resolve('main')
 
-      expect(tabId).toBe(55)
+      expect(tabId).toBe(42)
     } finally {
       ;(globalThis as { chrome?: unknown }).chrome = originalChrome
     }

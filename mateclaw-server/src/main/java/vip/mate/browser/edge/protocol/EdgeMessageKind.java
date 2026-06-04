@@ -61,6 +61,19 @@ public enum EdgeMessageKind {
     SCREENSHOT_CAPTURE_RESPONSE("screenshot.capture.response"),
 
     // -----------------------------------------------------------------
+    // Protocol v2 — Browser Runtime structured action/observation/artifact
+    // envelopes. These are declared now so Control Plane, Native Host, and
+    // Extension can migrate without scattering raw strings.
+    // -----------------------------------------------------------------
+    BROWSER_ACTION_REQUEST("browser.action.request"),
+    BROWSER_ACTION_RESULT("browser.action.result"),
+    BROWSER_OBSERVATION_CAPTURE("browser.observation.capture"),
+    BROWSER_OBSERVATION_RESULT("browser.observation.result"),
+    BROWSER_ARTIFACT_UPLOAD_CHUNK("browser.artifact.upload_chunk"),
+    BROWSER_TELEMETRY_BATCH("browser.telemetry.batch"),
+    BROWSER_HUMAN_TAKEOVER("browser.human.takeover"),
+
+    // -----------------------------------------------------------------
     // Protocol v1.1 — unsolicited page-lifecycle events from Ext → CP
     // -----------------------------------------------------------------
     EVENT_PAGE_NAVIGATED("event.page.navigated"),

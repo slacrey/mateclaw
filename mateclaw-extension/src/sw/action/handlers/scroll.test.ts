@@ -5,7 +5,7 @@ import type { DebuggerManager } from '../../debugger-manager'
 import type { CDP } from '../../cdp-types'
 import { scrollHandler } from './scroll'
 
-type WheelParams = CDP['Input.dispatchMouseWheelEvent']['params']
+type WheelParams = CDP['Input.dispatchMouseEvent']['params']
 
 function makeDebugger() {
   return {
@@ -32,6 +32,8 @@ describe('scroll handler', () => {
     expect(result.ok).toBe(true)
     expect(debuggerManager.attach).toHaveBeenCalledExactlyOnceWith(42)
     expect(debuggerManager.send).toHaveBeenCalledTimes(5)
+    expect(vi.mocked(debuggerManager.send).mock.calls.map(call => call[1]))
+      .toEqual(Array.from({ length: 5 }, () => 'Input.dispatchMouseEvent'))
     expect(sentWheelParams(debuggerManager)).toEqual(Array.from({ length: 5 }, () => ({
       type: 'mouseWheel',
       x: 640,
@@ -80,6 +82,20 @@ describe('scroll handler', () => {
 
     expect(debuggerManager.send).toHaveBeenCalledTimes(5)
     expect(sentWheelParams(debuggerManager).map(params => params.deltaY)).toEqual([25, 25, 25, 25, 25])
+  })
+
+  it('uses explicit wheel coordinates when provided', async () => {
+    const debuggerManager = makeDebugger()
+    const handler = scrollHandler({ debugger: debuggerManager as DebuggerManager, segmentIntervalMs: () => 0 })
+
+    await handler(42, { direction: 'down', distance_px: 100, segments: 1, x: 980, y: 360 }, 5000)
+
+    expect(sentWheelParams(debuggerManager)[0]).toMatchObject({
+      x: 980,
+      y: 360,
+      deltaX: 0,
+      deltaY: 100,
+    })
   })
 
   it('uses injected clock + random for deterministic segment timing', async () => {

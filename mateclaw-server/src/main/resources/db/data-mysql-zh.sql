@@ -209,7 +209,7 @@ VALUES
 (1000000101, 'Qwen3 Max', 'dashscope', 'qwen3-max', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000102, 'Qwen3 235B A22B Thinking', 'dashscope', 'qwen3-235b-a22b-thinking-2507', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000103, 'DeepSeek-V3.2', 'dashscope', 'deepseek-v3.2', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
--- 注意: qwen3-plus / qwen3.5-plus / qwen3.5-max / qwen3.6-* 等带点号的版本只在 OpenAI 兼容端点上线。
+-- 注意: qwen3-plus / qwen3.5-plus / qwen3.5-max / qwen3.6-* / qwen3.7-* 等带点号的版本只在 OpenAI 兼容端点上线。
 -- DashScope native（text-generation/generation）调用会返回 400 InvalidParameter。
 -- 这些模型挂在 dashscope-compat provider 下，复用同一把 sk- key 但走 compatible-mode/v1 端点。
 (1000000173, 'Qwen Long', 'dashscope', 'qwen-long', '长文本模型，支持超长上下文', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
@@ -218,6 +218,7 @@ VALUES
 (1000000176, 'Qwen Turbo (latest)', 'dashscope', 'qwen-turbo-latest', '通义千问 Turbo 最新稳定快照，低延迟、高并发', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 -- DashScope 兼容模式专属模型（点号版本号系列）—— 与 dashscope provider 共用同一把 sk- key。
 -- 仅收录在通用账号上确实可调通的 -plus 版本；-max / -vl-max 在 model market 可见但 API 返回 404。
+(1000000607, 'Qwen3.7 Plus',  'dashscope-compat', 'qwen3.7-plus',  '通义千问 3.7 Plus 旗舰，支持文本、图像与视频输入（兼容模式专属）',     0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000601, 'Qwen3.6 Plus',  'dashscope-compat', 'qwen3.6-plus',  '通义千问 3.6 Plus 旗舰，平衡推理与速度（兼容模式专属）',          0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000603, 'Qwen3.5 Plus',  'dashscope-compat', 'qwen3.5-plus',  '通义千问 3.5 Plus（兼容模式专属）',                                0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000605, 'Qwen3 VL Plus', 'dashscope-compat', 'qwen3-vl-plus', '通义千问 3 视觉理解 Plus，支持图像、视频输入（兼容模式专属）',     0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),

@@ -37,9 +37,12 @@ import { clickHandler } from './action/handlers/click'
 import { typeHandler } from './action/handlers/type'
 import { pressKeyHandler } from './action/handlers/press_key'
 import { scrollHandler } from './action/handlers/scroll'
+import { scrollRegionHandler } from './action/handlers/scroll_region'
 import { moveMouseHandler, viewportCenterFromDebugger } from './action/handlers/move_mouse'
 import { waitHandler } from './action/handlers/wait'
 import type { Point } from '../lib/windmouse'
+import { RegionRegistry } from '../runtime/region-registry'
+import { parseRegionClearMessage, parseRegionRegistrationMessage } from '../runtime/messages'
 
 /** Canonical NM host name — must match com.mateclaw.browser_bridge manifest. */
 const HOST = 'com.mateclaw.browser_bridge'
@@ -223,7 +226,7 @@ const resolver = new TabRefResolver({
 //   click      — CDP Input.dispatchMouseEvent press/release with hold
 //   type       — CDP Input.dispatchKeyEvent keyDown+char+keyUp per char
 //   press_key  — CDP Input.dispatchKeyEvent keyDown+keyUp for shortcuts
-//   scroll     — CDP Input.dispatchMouseWheelEvent segmented
+//   scroll     — CDP Input.dispatchMouseEvent(type=mouseWheel) segmented
 //   move_mouse — WindMouse waypoints over CDP Input.dispatchMouseEvent
 //   wait       — three strategies (time / load_state / network_idle)
 //
@@ -232,13 +235,16 @@ const resolver = new TabRefResolver({
 // -----------------------------------------------------------------
 
 const cursorState = new Map<number, Point>()
+const regionRegistry = new RegionRegistry()
+const baseScrollHandler = scrollHandler({ debugger: debuggerManager })
 
 const handlers: ActionHandlers = {
   navigate:   navigateHandler(chrome),
   click:      clickHandler({ debugger: debuggerManager }),
   type:       typeHandler({ debugger: debuggerManager, clearFirst: true }),
   press_key:  pressKeyHandler({ debugger: debuggerManager }),
-  scroll:     scrollHandler({ debugger: debuggerManager }),
+  scroll:     baseScrollHandler,
+  scroll_region: scrollRegionHandler({ regions: regionRegistry, scroll: baseScrollHandler }),
   move_mouse: moveMouseHandler({
     debugger: debuggerManager,
     cursorState,
@@ -555,6 +561,37 @@ chrome.runtime.onMessage.addListener(
           )
           .catch(e => sendResponse({ connected: false, error: String(e) }))
         return true
+      case 'runtime.region.register': {
+        const registration = parseRegionRegistrationMessage(req)
+        if (!registration) {
+          sendResponse({ ok: false, error: 'runtime.region.register payload was malformed' })
+          return true
+        }
+        try {
+          const region = regionRegistry.register(registration)
+          sendResponse({ ok: true, regionKey: region.key })
+        } catch (e) {
+          sendResponse({ ok: false, error: String(e) })
+        }
+        return true
+      }
+      case 'runtime.region.clear': {
+        const payload = parseRegionClearMessage(req)
+        if (!payload) {
+          sendResponse({ ok: false, error: 'runtime.region.clear payload was malformed' })
+          return true
+        }
+        if (typeof payload.tabId === 'number' && typeof payload.regionKey === 'string') {
+          sendResponse({ ok: regionRegistry.delete(payload.tabId, payload.regionKey) })
+        } else if (typeof payload.tabId === 'number') {
+          regionRegistry.clearTab(payload.tabId)
+          sendResponse({ ok: true })
+        } else {
+          regionRegistry.clear()
+          sendResponse({ ok: true })
+        }
+        return true
+      }
       default:
         break
     }

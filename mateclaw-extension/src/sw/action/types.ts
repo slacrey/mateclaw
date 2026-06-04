@@ -44,6 +44,20 @@ export interface ScrollParams {
   direction: 'up' | 'down' | 'left' | 'right'
   distance_px: number
   segments?: number
+  x?: number
+  y?: number
+}
+
+export interface ScrollRegionParams {
+  regionKey: string
+  direction: 'up' | 'down' | 'left' | 'right'
+  amount: number
+  stopWhen?: {
+    type: 'edge' | 'selector_visible' | 'text_visible'
+    selector?: string
+    text?: string
+  }
+  segments?: number
 }
 
 export interface MoveMouseParams {
@@ -63,7 +77,7 @@ export interface WaitParams {
 // ActionKind discriminated union
 // -----------------------------------------------------------------
 
-export type ActionKind = 'navigate' | 'click' | 'type' | 'press_key' | 'scroll' | 'move_mouse' | 'wait'
+export type ActionKind = 'navigate' | 'click' | 'type' | 'press_key' | 'scroll' | 'scroll_region' | 'move_mouse' | 'wait'
 
 export type ActionParams =
   | { kind: 'navigate';   params: NavigateParams }
@@ -71,6 +85,7 @@ export type ActionParams =
   | { kind: 'type';       params: TypeParams }
   | { kind: 'press_key';  params: PressKeyParams }
   | { kind: 'scroll';     params: ScrollParams }
+  | { kind: 'scroll_region'; params: ScrollRegionParams }
   | { kind: 'move_mouse'; params: MoveMouseParams }
   | { kind: 'wait';       params: WaitParams }
 

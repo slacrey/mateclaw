@@ -39,6 +39,14 @@ export const EdgeMessageKind = {
   // v1.2 — screenshot capture (Phase 3 T3.2)
   ScreenshotCaptureRequest: 'screenshot.capture.request',
   ScreenshotCaptureResponse: 'screenshot.capture.response',
+  // v2 — Browser Runtime structured envelopes
+  BrowserActionRequest: 'browser.action.request',
+  BrowserActionResult: 'browser.action.result',
+  BrowserObservationCapture: 'browser.observation.capture',
+  BrowserObservationResult: 'browser.observation.result',
+  BrowserArtifactUploadChunk: 'browser.artifact.upload_chunk',
+  BrowserTelemetryBatch: 'browser.telemetry.batch',
+  BrowserHumanTakeover: 'browser.human.takeover',
   // v1.1 — unsolicited page-lifecycle events
   EventPageNavigated: 'event.page.navigated',
   EventTabClosed: 'event.tab.closed',

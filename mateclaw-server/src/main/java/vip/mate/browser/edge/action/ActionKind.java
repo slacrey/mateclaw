@@ -9,6 +9,7 @@ public enum ActionKind {
     TYPE("type"),
     PRESS_KEY("press_key"),
     SCROLL("scroll"),
+    SCROLL_REGION("scroll_region"),
     MOVE_MOUSE("move_mouse"),
     WAIT("wait");
 

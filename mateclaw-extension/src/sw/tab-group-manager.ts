@@ -68,6 +68,7 @@ export class TabGroupManager {
     private readonly sendUp: (msg: EdgeMessage) => void,
   ) {
     this.chrome.tabs.onRemoved.addListener(this.#onTabRemoved)
+    this.chrome.tabs.onCreated?.addListener?.(this.#onTabCreated)
     this.chrome.webNavigation.onCompleted.addListener(this.#onPageLoaded)
   }
 
@@ -137,6 +138,49 @@ export class TabGroupManager {
   async getChromeGroupId(subject: string): Promise<number | null> {
     const groups = await this.#loadGroups()
     return groups[subject]?.chromeGroupId ?? null
+  }
+
+  /**
+   * Resolve the active Chrome tab only if it is already owned by this subject.
+   * This keeps "active" actions inside the visible MateClaw tab group instead
+   * of hijacking the admin/chat tab the user may be looking at.
+   */
+  async getActiveTabId(subject: string): Promise<number | null> {
+    const group = (await this.#loadGroups())[subject]
+    if (!group || group.allTabIds.length === 0) return null
+    if (typeof this.chrome.tabs?.query !== 'function') return null
+
+    let candidates: chrome.tabs.Tab[] = []
+    if (typeof group.chromeGroupId === 'number') {
+      try {
+        candidates = await this.chrome.tabs.query({
+          active: true,
+          groupId: group.chromeGroupId,
+        })
+      } catch {
+        candidates = []
+      }
+    }
+    try {
+      if (candidates.length === 0) candidates = await this.chrome.tabs.query({ active: true })
+    } catch {
+      return null
+    }
+
+    const tracked = new Set(group.allTabIds)
+    const first = candidates.find(tab => typeof tab.id === 'number' && tracked.has(tab.id))
+    if (typeof first?.id === 'number') return first.id
+
+    const openedByManagedTab = candidates.find(tab =>
+      typeof tab.id === 'number' &&
+      typeof tab.openerTabId === 'number' &&
+      tracked.has(tab.openerTabId)
+    )
+    if (typeof openedByManagedTab?.id !== 'number') return null
+
+    await this.addTab(subject, openedByManagedTab.id)
+    await this.joinChromeGroup(subject, openedByManagedTab.id)
+    return openedByManagedTab.id
   }
 
   /**
@@ -366,6 +410,15 @@ export class TabGroupManager {
         payload: { tab_ref: tabId },
       }))
     }
+  }
+
+  #onTabCreated = async (tab: chrome.tabs.Tab) => {
+    if (typeof tab.id !== 'number' || typeof tab.openerTabId !== 'number') return
+    const subject = await this.findSubjectByTab(tab.openerTabId)
+    if (!subject) return
+
+    await this.addTab(subject, tab.id)
+    await this.joinChromeGroup(subject, tab.id)
   }
 
   #onPageLoaded = async (details: chrome.webNavigation.WebNavigationFramedCallbackDetails) => {

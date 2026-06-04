@@ -9,10 +9,16 @@ import java.util.Set;
 public record ScrollPayload(
         String direction,
         @JsonProperty("distance_px") int distancePx,
-        Integer segments
+        Integer segments,
+        Double x,
+        Double y
 ) implements ActionPayload {
 
     private static final Set<String> DIRECTION_VALUES = Set.of("down", "up", "left", "right");
+
+    public ScrollPayload(String direction, int distancePx, Integer segments) {
+        this(direction, distancePx, segments, null, null);
+    }
 
     public ScrollPayload {
         if (direction == null) {
@@ -23,6 +29,9 @@ public record ScrollPayload(
         }
         if (segments == null) {
             segments = 5;
+        }
+        if ((x == null) != (y == null)) {
+            throw new IllegalArgumentException("x and y must be provided together");
         }
     }
 }

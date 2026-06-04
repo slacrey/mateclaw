@@ -1,0 +1,75 @@
+id: douyin.lead_acquisition
+package_version: v2
+version: 0.1.0
+name: Douyin Lead Acquisition
+description: Lead discovery, qualification, outreach drafting, and follow-up planning for Douyin business development.
+category: growth
+tags:
+  - douyin
+  - lead-acquisition
+  - sales
+capabilities:
+  - id: discover_leads
+    title: Discover leads
+    description: Find candidate Douyin accounts and videos that match an ICP.
+    input_schemas:
+      - schemas/lead-search-request.schema.json
+    output_schemas:
+      - schemas/lead-record.schema.json
+    tools:
+      - browser
+      - web_search
+    metadata:
+      risk_level: low
+  - id: qualify_leads
+    title: Qualify leads
+    description: Score discovered leads and explain fit, urgency, and outreach angle.
+    input_schemas:
+      - schemas/lead-record.schema.json
+    output_schemas:
+      - schemas/lead-record.schema.json
+    tools:
+      - llm
+    metadata:
+      risk_level: low
+  - id: draft_outreach
+    title: Draft outreach
+    description: Produce compliant first-touch copy and follow-up tasks.
+    input_schemas:
+      - schemas/lead-record.schema.json
+    output_schemas:
+      - schemas/outreach-plan.schema.json
+    tools:
+      - llm
+    metadata:
+      risk_level: medium
+adapters:
+  - id: douyin-research
+    kind: browser_research
+    path: adapters/douyin-research.yaml
+    capabilities:
+      - discover_leads
+      - qualify_leads
+  - id: crm-export
+    kind: file_export
+    path: adapters/crm-export.yaml
+    capabilities:
+      - draft_outreach
+assets:
+  schemas:
+    - schemas/lead-search-request.schema.json
+    - schemas/lead-record.schema.json
+    - schemas/outreach-plan.schema.json
+  prompts:
+    - prompts/research-system.md
+    - prompts/qualification-user.md
+    - prompts/outreach-user.md
+  templates:
+    - templates/lead-report.md
+  evals:
+    - evals/lead-quality.eval.yaml
+config:
+  default_locale: zh-CN
+  compliance:
+    avoid_sensitive_personal_data: true
+    require_public_source: true

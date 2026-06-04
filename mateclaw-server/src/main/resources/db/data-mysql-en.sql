@@ -210,7 +210,7 @@ VALUES
 (1000000101, 'Qwen3 Max', 'dashscope', 'qwen3-max', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000102, 'Qwen3 235B A22B Thinking', 'dashscope', 'qwen3-235b-a22b-thinking-2507', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000103, 'DeepSeek-V3.2', 'dashscope', 'deepseek-v3.2', '', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
--- Note: dotted Qwen3 versions (qwen3-plus / qwen3.5-plus / qwen3.5-max / qwen3.6-*) only ship on the
+-- Note: dotted Qwen3 versions (qwen3-plus / qwen3.5-plus / qwen3.5-max / qwen3.6-* / qwen3.7-*) only ship on the
 -- OpenAI-compatible endpoint. Calling them through DashScope native (text-generation/generation)
 -- returns 400 InvalidParameter. They are registered under the dashscope-compat provider, which shares
 -- the same sk- key but routes to compatible-mode/v1.
@@ -221,6 +221,7 @@ VALUES
 -- DashScope OpenAI-compat exclusive models (dot-versioned families) — share the same sk- key.
 -- Only the -plus variants are seeded; -max / -vl-max are visible in the model market but return
 -- 404 for general accounts. Users on a whitelist can add them via Settings → Models manually.
+(1000000607, 'Qwen3.7 Plus',  'dashscope-compat', 'qwen3.7-plus',  'Qwen3.7 Plus flagship — accepts text / image / video input (compat-mode only)',  0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000601, 'Qwen3.6 Plus',  'dashscope-compat', 'qwen3.6-plus',  'Qwen3.6 Plus flagship — balanced reasoning and speed (compat-mode only)',     0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000603, 'Qwen3.5 Plus',  'dashscope-compat', 'qwen3.5-plus',  'Qwen3.5 Plus (compat-mode only)',                                              0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),
 (1000000605, 'Qwen3 VL Plus', 'dashscope-compat', 'qwen3-vl-plus', 'Qwen3 vision-language Plus — accepts image / video input (compat-mode only)', 0.7, 4096, 0.8, TRUE, TRUE, FALSE, NOW(), NOW(), 0),

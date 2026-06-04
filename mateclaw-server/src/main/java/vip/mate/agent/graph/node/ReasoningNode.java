@@ -145,11 +145,14 @@ public class ReasoningNode implements NodeAction {
     private static final String DOUYIN_FULL_COMMENTS_HARNESS =
             "lead_browser_douyin_search_sort_open_first_video_comments";
 
-    private static final String DOUYIN_FULL_FIRST_COMMENT_DM_HARNESS =
-            "lead_browser_douyin_debug_full_first_comment_follow_open_dm";
+    private static final String DOUYIN_COLLECT_COMMENTS_ACROSS_VIDEOS_HARNESS =
+            "lead_browser_douyin_collect_comments_across_videos";
 
-    private static final String DOUYIN_CURRENT_FIRST_COMMENT_DM_HARNESS =
-            "lead_browser_douyin_debug_first_comment_follow_open_dm";
+    private static final String DOUYIN_COLLECT_FIRST_VIDEO_COMMENTS_HARNESS =
+            "lead_browser_douyin_collect_first_video_comments";
+
+    private static final String DOUYIN_FULL_SEMANTIC_COMMENT_DM_HARNESS =
+            "lead_browser_douyin_search_sort_first_video_match_comment_follow_open_dm_type_draft";
 
     private static final List<Pattern> DOUYIN_QUERY_PATTERNS = List.of(
             Pattern.compile("搜索\\s*[\"“”'‘’]?([A-Za-z0-9_.\\-]+)", Pattern.CASE_INSENSITIVE),
@@ -973,18 +976,42 @@ public class ReasoningNode implements NodeAction {
         String userMessage = accessor.userMessage() != null ? accessor.userMessage() : "";
         String query = extractDouyinQuery(userMessage);
 
-        if (hasTool(DOUYIN_CURRENT_FIRST_COMMENT_DM_HARNESS)
-                && isCurrentDouyinFirstCommentFollowDmRequest(userMessage)) {
-            return deterministicToolCall(DOUYIN_CURRENT_FIRST_COMMENT_DM_HARNESS, Map.of());
-        }
-
-        if (hasTool(DOUYIN_FULL_FIRST_COMMENT_DM_HARNESS)
-                && isFullDouyinFirstCommentFollowDmRequest(userMessage)) {
+        if (hasTool(DOUYIN_FULL_SEMANTIC_COMMENT_DM_HARNESS)
+                && isFullDouyinSemanticCommentFollowDmRequest(userMessage)) {
             if (query.isBlank()) {
-                log.warn("[ReasoningNode] Full Douyin first-comment DM route matched but no query could be extracted; falling back to LLM");
+                log.warn("[ReasoningNode] Full Douyin semantic comment DM route matched but no query could be extracted; falling back to LLM");
                 return Optional.empty();
             }
-            return deterministicToolCall(DOUYIN_FULL_FIRST_COMMENT_DM_HARNESS, query);
+            String commentQuery = extractDouyinCommentQuery(userMessage);
+            if (commentQuery.isBlank()) {
+                log.warn("[ReasoningNode] Full Douyin semantic comment DM route matched but no comment query could be extracted; falling back to LLM");
+                return Optional.empty();
+            }
+            return deterministicToolCall(DOUYIN_FULL_SEMANTIC_COMMENT_DM_HARNESS, Map.of(
+                    "query", query,
+                    "commentQuery", commentQuery,
+                    "authorHint", extractDouyinAuthorHint(userMessage),
+                    "dmDraft", extractDmDraft(userMessage)));
+        }
+
+        if (hasTool(DOUYIN_COLLECT_COMMENTS_ACROSS_VIDEOS_HARNESS)
+                && isDouyinCollectCommentsAcrossVideosRequest(userMessage)) {
+            if (query.isBlank()) {
+                log.warn("[ReasoningNode] Douyin collect-comments route matched but no query could be extracted; falling back to LLM");
+                return Optional.empty();
+            }
+            return deterministicToolCall(DOUYIN_COLLECT_COMMENTS_ACROSS_VIDEOS_HARNESS, Map.of(
+                    "query", query,
+                    "maxVideos", extractRequestedVideoCount(userMessage, 3)));
+        }
+
+        if (hasTool(DOUYIN_COLLECT_FIRST_VIDEO_COMMENTS_HARNESS)
+                && isDouyinCollectFirstVideoCommentsRequest(userMessage)) {
+            if (query.isBlank()) {
+                log.warn("[ReasoningNode] Douyin first-video collect-comments route matched but no query could be extracted; falling back to LLM");
+                return Optional.empty();
+            }
+            return deterministicToolCall(DOUYIN_COLLECT_FIRST_VIDEO_COMMENTS_HARNESS, query);
         }
 
         if (hasTool(DOUYIN_FULL_COMMENTS_HARNESS)
@@ -1056,16 +1083,17 @@ public class ReasoningNode implements NodeAction {
         return douyin && search && mostLiked && firstVideo && comments;
     }
 
-    static boolean isFullDouyinFirstCommentFollowDmRequest(String text) {
+    static boolean isFullDouyinSemanticCommentFollowDmRequest(String text) {
         if (!isFullDouyinSearchSortVideoCommentsRequest(text)) {
             return false;
         }
         String normalized = text.toLowerCase(Locale.ROOT);
-        boolean firstCommentUser = normalized.contains("第一个评论")
-                || normalized.contains("第一条评论")
-                || normalized.contains("首条评论")
-                || Pattern.compile("第(一|1)(个|条)?[^，,。.;；:：\\n]{0,12}评论").matcher(normalized).find()
-                || normalized.contains("first comment");
+        boolean commentMatch = normalized.contains("匹配")
+                || normalized.contains("相似")
+                || normalized.contains("语义")
+                || normalized.contains("评论查询")
+                || normalized.contains("comment_query")
+                || normalized.contains("target comment");
         boolean follow = normalized.contains("关注") || normalized.contains("follow");
         boolean privateMessage = normalized.contains("私信")
                 || normalized.contains("发私信")
@@ -1077,54 +1105,57 @@ public class ReasoningNode implements NodeAction {
                 || normalized.contains("不发")
                 || normalized.contains("do not send")
                 || normalized.contains("don't send");
-        return firstCommentUser && follow && privateMessage && doNotSend;
+        return commentMatch && follow && privateMessage && doNotSend;
     }
 
-    static boolean isCurrentDouyinFirstCommentFollowDmRequest(String text) {
+    static boolean isDouyinCollectCommentsAcrossVideosRequest(String text) {
         if (text == null || text.isBlank()) {
             return false;
         }
         String normalized = text.toLowerCase(Locale.ROOT);
-        boolean douyinOrCommentContext = normalized.contains("抖音")
-                || normalized.contains("douyin")
-                || normalized.contains("评论区")
-                || normalized.contains("评论面板")
-                || normalized.contains("评论列表")
-                || normalized.contains("评论")
-                || normalized.contains("comments");
-        boolean currentContext = normalized.contains("已经打开")
-                || normalized.contains("已打开")
-                || normalized.contains("当前")
-                || normalized.contains("继续")
-                || normalized.contains("从当前")
-                || normalized.contains("现在")
-                || normalized.contains("already open")
-                || normalized.contains("current");
-        boolean firstCommentUser = normalized.contains("第一个评论")
-                || normalized.contains("第一条评论")
-                || normalized.contains("第一条可见评论")
-                || normalized.contains("首条评论")
-                || Pattern.compile("第(一|1)(个|条)?[^，,。.;；:：\\n]{0,12}评论").matcher(normalized).find()
-                || normalized.contains("first comment");
-        boolean profile = normalized.contains("主页")
-                || normalized.contains("用户")
-                || normalized.contains("作者")
-                || normalized.contains("头像")
-                || normalized.contains("profile")
-                || normalized.contains("author");
-        boolean follow = normalized.contains("关注") || normalized.contains("follow");
-        boolean privateMessage = normalized.contains("私信")
-                || normalized.contains("发私信")
-                || normalized.contains("dm")
-                || normalized.contains("message");
-        boolean doNotSend = normalized.contains("不发送")
-                || normalized.contains("不要发送")
-                || normalized.contains("不用发送")
-                || normalized.contains("不发")
-                || normalized.contains("do not send")
-                || normalized.contains("don't send");
-        return douyinOrCommentContext && currentContext && firstCommentUser
-                && profile && follow && privateMessage && doNotSend;
+        boolean douyin = normalized.contains("抖音") || normalized.contains("douyin");
+        boolean search = normalized.contains("搜索") || normalized.contains("关键词") || normalized.contains("search");
+        boolean mostLiked = normalized.contains("最多点赞")
+                || normalized.contains("点赞排序")
+                || normalized.contains("按点赞")
+                || normalized.contains("most liked");
+        boolean multiVideo = normalized.contains("逐个")
+                || normalized.contains("前")
+                || normalized.contains("多个视频")
+                || normalized.contains("每个视频")
+                || normalized.contains("下一个")
+                || normalized.contains("next video");
+        boolean collectAllComments = (normalized.contains("全部评论") || normalized.contains("所有评论")
+                || normalized.contains("完整评论") || normalized.contains("全量")
+                || normalized.contains("all comments"))
+                && (normalized.contains("采集") || normalized.contains("爬取")
+                || normalized.contains("获取") || normalized.contains("读取")
+                || normalized.contains("collect") || normalized.contains("scrape"));
+        return douyin && search && mostLiked && multiVideo && collectAllComments;
+    }
+
+    static boolean isDouyinCollectFirstVideoCommentsRequest(String text) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        String normalized = text.toLowerCase(Locale.ROOT);
+        boolean douyin = normalized.contains("抖音") || normalized.contains("douyin");
+        boolean search = normalized.contains("搜索") || normalized.contains("关键词") || normalized.contains("search");
+        boolean firstOrSingleVideo = normalized.contains("第一个视频")
+                || normalized.contains("第一个作品")
+                || normalized.contains("第一个结果")
+                || normalized.contains("首个视频")
+                || normalized.contains("一个视频")
+                || normalized.contains("单个视频")
+                || normalized.contains("first video");
+        boolean collectAllComments = (normalized.contains("全部评论") || normalized.contains("所有评论")
+                || normalized.contains("完整评论") || normalized.contains("全量")
+                || normalized.contains("all comments"))
+                && (normalized.contains("采集") || normalized.contains("爬取")
+                || normalized.contains("获取") || normalized.contains("读取")
+                || normalized.contains("收集") || normalized.contains("collect")
+                || normalized.contains("scrape"));
+        return douyin && search && firstOrSingleVideo && collectAllComments;
     }
 
     static String extractDouyinQuery(String text) {
@@ -1147,7 +1178,133 @@ public class ReasoningNode implements NodeAction {
         return "";
     }
 
+    static String extractDouyinCommentQuery(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        Matcher explicitQuoted = Pattern.compile("匹配(?:的词语|评论|评论语义)?\\s*[\"“”'‘’]([^\"“”'‘’\\n]{4,120})[\"“”'‘’]",
+                Pattern.CASE_INSENSITIVE).matcher(text);
+        if (explicitQuoted.find()) {
+            return cleanupFreeTextCandidate(explicitQuoted.group(1));
+        }
+        for (Pattern pattern : List.of(
+                Pattern.compile("(?:匹配(?:的词语|评论|评论语义)?|评论查询|comment_query|target comment)\\s*(?:是|为|:|：)?\\s*[\"“”'‘’]?([^\"“”'‘’\\n，,。；;]+[。.!！?？]?)",
+                        Pattern.CASE_INSENSITIVE),
+                Pattern.compile("评论语义[\"“”'‘’]?([^\"“”'‘’\\n，,。；;]+[。.!！?？]?)",
+                        Pattern.CASE_INSENSITIVE))) {
+            Matcher matcher = pattern.matcher(text);
+            if (matcher.find()) {
+                String candidate = cleanupFreeTextCandidate(matcher.group(1));
+                if (!candidate.isBlank()) {
+                    return candidate;
+                }
+            }
+        }
+
+        Matcher quoted = Pattern.compile("[\"“”'‘’]([^\"“”'‘’\\n]{4,120})[\"“”'‘’]").matcher(text);
+        while (quoted.find()) {
+            String candidate = cleanupFreeTextCandidate(quoted.group(1));
+            if (!candidate.isBlank() && !candidate.equalsIgnoreCase(extractDouyinQuery(text))) {
+                return candidate;
+            }
+        }
+        return "";
+    }
+
+    static String extractDouyinAuthorHint(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        Matcher matcher = Pattern.compile("(?:他叫|作者(?:是|叫)?|用户(?:是|叫)?|author_hint\\s*[:=]?)\\s*[\"“”'‘’]?([^\"“”'‘’，,。；;\\n]{1,24})",
+                Pattern.CASE_INSENSITIVE).matcher(text);
+        if (matcher.find()) {
+            return cleanupFreeTextCandidate(matcher.group(1));
+        }
+        return "";
+    }
+
+    static String extractDmDraft(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        Matcher quoted = Pattern.compile("(?:私信(?:输入|内容|话术)?|dm_draft|输入框里输入)\\s*(?:是|为|:|：)?\\s*[\"“”'‘’]([^\"“”'‘’\\n]{1,120})[\"“”'‘’]",
+                Pattern.CASE_INSENSITIVE).matcher(text);
+        if (quoted.find()) {
+            return cleanupFreeTextCandidate(quoted.group(1));
+        }
+        Matcher matcher = Pattern.compile("(?:私信(?:输入|内容|话术)?|dm_draft|输入框里输入)\\s*(?:是|为|:|：)?\\s*[\"“”'‘’]?([^\"“”'‘’，,。；;\\n]{1,120})",
+                Pattern.CASE_INSENSITIVE).matcher(text);
+        if (matcher.find()) {
+            String candidate = cleanupFreeTextCandidate(matcher.group(1));
+            if (!candidate.isBlank()
+                    && !candidate.contains("不发送")
+                    && !candidate.contains("不要发送")
+                    && !candidate.contains("不用发送")) {
+                return candidate;
+            }
+        }
+        if (text.contains("你好")) {
+            return "你好";
+        }
+        return "";
+    }
+
+    static int extractRequestedVideoCount(String text, int fallback) {
+        if (text == null || text.isBlank()) {
+            return fallback;
+        }
+        String normalized = text.toLowerCase(Locale.ROOT);
+        Matcher arabic = Pattern.compile("前\\s*(\\d{1,2})\\s*个?视频").matcher(normalized);
+        if (arabic.find()) {
+            return clampStatic(parseIntOrDefault(arabic.group(1), fallback), 1, 10);
+        }
+        Matcher english = Pattern.compile("(?:top|first)\\s*(\\d{1,2})\\s*(?:videos?|posts?)").matcher(normalized);
+        if (english.find()) {
+            return clampStatic(parseIntOrDefault(english.group(1), fallback), 1, 10);
+        }
+        Matcher chinese = Pattern.compile("前\\s*([一二三四五六七八九十])\\s*个?视频").matcher(normalized);
+        if (chinese.find()) {
+            return clampStatic(chineseNumberOneToTen(chinese.group(1)), 1, 10);
+        }
+        return fallback;
+    }
+
+    private static int parseIntOrDefault(String raw, int fallback) {
+        try {
+            return Integer.parseInt(raw);
+        } catch (Exception ignored) {
+            return fallback;
+        }
+    }
+
+    private static int chineseNumberOneToTen(String raw) {
+        return switch (raw) {
+            case "一" -> 1;
+            case "二" -> 2;
+            case "三" -> 3;
+            case "四" -> 4;
+            case "五" -> 5;
+            case "六" -> 6;
+            case "七" -> 7;
+            case "八" -> 8;
+            case "九" -> 9;
+            case "十" -> 10;
+            default -> 3;
+        };
+    }
+
+    private static int clampStatic(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
     private static String cleanupQueryCandidate(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        return raw.replaceAll("^[\"“”'‘’\\s]+|[\"“”'‘’，,。.;；:：\\s]+$", "").trim();
+    }
+
+    private static String cleanupFreeTextCandidate(String raw) {
         if (raw == null) {
             return "";
         }

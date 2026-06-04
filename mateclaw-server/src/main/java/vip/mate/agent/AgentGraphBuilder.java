@@ -1571,12 +1571,13 @@ public class AgentGraphBuilder {
                    and return a candidate queue with evidence: platform, post, username/profile,
                    matched comment, similarity reason, and confidence.
                 3. Draft: generate personalized follow/private-message copy for each candidate
-                   using the user's product pitch, but keep it as a draft until approved.
-                4. Act with approval: do NOT bulk follow users, bulk send DMs, or send promotional
-                   messages automatically. Before any external action that follows a user, opens
-                   a DM composer, or sends a promotional message, ask for explicit confirmation
-                   for that specific candidate/message. After approval, execute at most the
-                   approved single action, then report the result.
+                   using the user's product pitch, but keep it as an unsent draft.
+                4. Act within the user's requested scope: following a matched commenter and
+                   opening/typing into a DM composer may be automated when the user explicitly
+                   requested that workflow. Never click Send or transmit promotional content
+                   unless the user explicitly requests sending and any Tool Guard approval is
+                   resolved. Do not report success unless the tool confirms the exact browser
+                   state (profile opened, follow confirmed, DM opened, draft typed).
 
                 This boundary is part of the product behavior, not a temporary limitation:
                 the agent may automate navigation, extraction, similarity ranking, and draft
@@ -1586,7 +1587,8 @@ public class AgentGraphBuilder {
                 one matches the whole task; otherwise fall back to the primitives:
                 - `lead_browser_site_search_select_option(homeUrl, query, triggerText, optionText,
                   siteName)` — generic cross-site helper for homepage search + filter/sort option
-                  selection, including Douyin/Xiaohongshu-style pages.
+                  selection. For Douyin use the dedicated `lead_browser_douyin_*` harnesses
+                  instead of generic hover/click sorting.
                 - `lead_browser_douyin_search_sort_most_liked(query)` — open Douyin in the
                   user's browser, search the query, open 筛选, and select 最多点赞; this is a
                   convenience preset, not the only path.
@@ -1596,6 +1598,28 @@ public class AgentGraphBuilder {
                   not split that request into manual extension_browser_click/icon/JS steps; if
                   this helper returns COMMENTS_NOT_OPENED, report that exact status instead of
                   retrying random coordinates.
+                - `lead_browser_douyin_search_sort_first_video_match_comment_follow_open_dm_type_draft(
+                  query, commentQuery, authorHint, dmDraft, maxScrolls)` — FIRST CHOICE for the
+                  full Douyin comment lead workflow: search/sort/open first video/comments,
+                  semantically match the requested comment, open THAT comment author's profile
+                  (including a new active tab), click 关注, open 私信, and type the draft WITHOUT
+                  sending. Do not use any "first visible comment" shortcut for lead acquisition.
+                  `authorHint` is weak context only; `commentQuery` is the primary match.
+                  Omit `maxScrolls` for normal lead matching; only provide it when the user
+                  explicitly asks for a debug safety limit. Do not invent a default scroll cap.
+                - `lead_browser_douyin_collect_comments_across_videos(query, maxVideos)` —
+                  FIRST CHOICE when the user asks to collect/scrape ALL comments from the top N
+                  Douyin videos and automatically advance video-by-video. Treat `status =
+                  DONE_COLLECTED` / `collection_complete = true` as the only full-success state.
+                  If it returns `PARTIAL_COLLECTED`, explicitly say which video stop_reason failed
+                  and use the returned `lead_candidates[]` as an import/filter queue; do not
+                  describe it as "全部评论已采集".
+                - `lead_browser_douyin_collect_first_video_comments(query)` — FIRST CHOICE when
+                  the user is debugging or explicitly asks to collect ALL comments from only the
+                  first / one Douyin video. Do not switch to the second video after this tool. If
+                  it returns `PARTIAL_COLLECTED`, report the `stop_reason`, `declared_comment_count`,
+                  `comment_count`, and relevant scroll attempts so the single-video scroll can be
+                  fixed before any multi-video loop is attempted.
                 - `lead_browser_douyin_open_first_video_comments()` — when already on a
                   Douyin search results page and the requested next step is ONLY to click the
                   first video/result and open its comment area, use this helper first. It
@@ -1603,12 +1627,11 @@ public class AgentGraphBuilder {
                   opened before reporting success. Do not continue to comment matching if this
                   returns VIDEO_OPEN_FAILED or COMMENTS_NOT_OPENED.
                 - `lead_browser_douyin_open_first_video_match_comment_user(targetComment,
-                  maxScrolls)` — when already on a Douyin search results page, open the first
-                  visible video/result, read comments, match a similar comment, and open that
-                  commenter's profile. It intentionally STOPS before 关注/私信; if it returns
-                  DONE_PROFILE_OPENED, ask for approval for that exact candidate and then call
-                  `extension_browser_click("关注", "button")` so Tool Guard can gate the
-                  outbound contact action. Never replace this with coordinate-clicking 关注.
+                  maxScrolls)` — LEGACY/DEBUG ONLY for stopping at a matched profile. Do not
+                  use it for the current lead workflow because it has a bounded debug scroll
+                  budget and does not follow/open DM/type drafts. Use the full semantic
+                  `lead_browser_douyin_search_sort_first_video_match_comment_follow_open_dm_type_draft`
+                  harness for comment matching + follow + DM draft tasks.
                 - `lead_browser_snapshot_for_leads(goal, maxLines)` — read the CURRENT page once
                   into compact lead-candidate lines.
                 - `lead_browser_douyin_search_for_leads(query, goal, maxLines)` — ONLY when the

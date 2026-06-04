@@ -79,6 +79,16 @@ describe('edge-protocol', () => {
     expect(EdgeMessageKind.ScreenshotCaptureResponse).toBe('screenshot.capture.response')
   })
 
+  it('v2 browser runtime kinds have exact wire strings', () => {
+    expect(EdgeMessageKind.BrowserActionRequest).toBe('browser.action.request')
+    expect(EdgeMessageKind.BrowserActionResult).toBe('browser.action.result')
+    expect(EdgeMessageKind.BrowserObservationCapture).toBe('browser.observation.capture')
+    expect(EdgeMessageKind.BrowserObservationResult).toBe('browser.observation.result')
+    expect(EdgeMessageKind.BrowserArtifactUploadChunk).toBe('browser.artifact.upload_chunk')
+    expect(EdgeMessageKind.BrowserTelemetryBatch).toBe('browser.telemetry.batch')
+    expect(EdgeMessageKind.BrowserHumanTakeover).toBe('browser.human.takeover')
+  })
+
   it('v1.1 action.execute round-trips with tab_ref payload', () => {
     const m = makeEdgeMessage({
       kind: EdgeMessageKind.ActionExecute,

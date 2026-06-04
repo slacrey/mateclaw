@@ -1,0 +1,25 @@
+{
+  "id": "douyin.lead_acquisition.workflow",
+  "version": "0.1.0",
+  "entry": "discover",
+  "steps": [
+    {
+      "id": "discover",
+      "capability": "discover_leads",
+      "adapter": "douyin-research",
+      "next": "qualify"
+    },
+    {
+      "id": "qualify",
+      "capability": "qualify_leads",
+      "adapter": "douyin-research",
+      "next": "draft_outreach"
+    },
+    {
+      "id": "draft_outreach",
+      "capability": "draft_outreach",
+      "adapter": "crm-export",
+      "next": null
+    }
+  ]
+}

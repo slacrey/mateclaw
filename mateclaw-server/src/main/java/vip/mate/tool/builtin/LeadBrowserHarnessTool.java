@@ -46,6 +46,16 @@ public class LeadBrowserHarnessTool {
     private static final long FILTER_PANEL_SETTLE_DELAY_MS = 600L;
     private static final int PROFILE_OPEN_OBSERVE_ATTEMPTS = 4;
     private static final int MIN_SEARCH_CANDIDATE_SCORE = 70;
+    /** Full-collection scroll knobs. Stop early when the comment list stops
+     *  growing for {@link #COMMENT_NO_GROWTH_LIMIT} consecutive scrolls or the
+     *  end-of-list marker appears; the scroll/comment caps are runaway guards. */
+    private static final int COMMENT_SCROLL_STEP_PX = 650;
+    private static final int COMMENT_NO_GROWTH_LIMIT = 2;
+    private static final int COMMENT_MAX_SCROLLS_PER_VIDEO = 40;
+    private static final int COMMENT_MAX_PER_VIDEO = 300;
+    private static final int COMMENT_SCROLL_RETRY_POINTS = 3;
+    private static final int COMMENT_REPLY_EXPAND_LIMIT_PER_PASS = 4;
+    private static final Set<String> COMPLETE_COMMENT_STOP_REASONS = Set.of("END_OF_LIST", "DECLARED_COUNT_REACHED");
     private static final List<String> DOUYIN_LIKE_SORT_LABELS = List.of("最多点赞", "点赞最多", "按点赞", "点赞量");
     private static final Pattern TREE_LINE_PATTERN = Pattern.compile(
             "^\\s*([A-Za-z][\\w-]*)\\s*\\[ref=[^\\]]+\\]\\s*(?::\\s*(.*?))?\\s*"
@@ -228,48 +238,6 @@ public class LeadBrowserHarnessTool {
     }
 
     @Tool(description = """
-            FULL debug lead-acquisition harness for Douyin from scratch:
-              open Douyin → search <query> → 筛选/最多点赞 → open the highest-liked first
-              video → open comments → read visible comments → click the first visible
-              comment author's profile → click 关注 → click 私信, but DO NOT type or send.
-
-            Use this when testing the complete post-comment lead path end-to-end. It is a
-            one-shot harness so the agent does not stitch together multiple brittle low-level
-            browser clicks. It returns visible candidate_comments and the selected first
-            comment/author for inspection.
-            """)
-    public String lead_browser_douyin_debug_full_first_comment_follow_open_dm(
-            @ToolParam(description = "Search keyword, e.g. openclaw") String query,
-            @Nullable ToolContext ctx) {
-        String normalizedQuery = normalizeQuery(query);
-        if (normalizedQuery.isBlank()) {
-            return json(Map.of(
-                    "ok", false,
-                    "status", "INVALID_QUERY",
-                    "message", "query is required"));
-        }
-
-        FirstCommentEngagementRun run = runDouyinDebugFullFirstCommentFollowOpenDm(normalizedQuery, ctx);
-        Map<String, Object> out = new LinkedHashMap<>();
-        out.put("ok", run.done());
-        out.put("status", run.status());
-        if (!run.message().isBlank()) {
-            out.put("message", run.message());
-        }
-        out.put("query", normalizedQuery);
-        out.put("url", run.snapshot().url());
-        out.put("title", run.snapshot().title());
-        out.put("first_comment", run.firstComment() == null ? "" : run.firstComment().comment().name());
-        out.put("first_author", run.author() == null ? "" : run.author().name());
-        out.put("profile_url", run.profileUrl());
-        out.put("follow_clicked", run.followClicked());
-        out.put("dm_opened", run.dmOpened());
-        out.put("candidate_comments", run.candidateComments());
-        out.put("attempts", run.attempts());
-        return json(out);
-    }
-
-    @Tool(description = """
             Generic lead-acquisition browser harness: open a site's homepage in the USER'S OWN
             visible Chrome window, search a keyword through the visible on-page search box,
             open a filter/sort/menu trigger, and select a target option.
@@ -280,8 +248,13 @@ public class LeadBrowserHarnessTool {
             Examples:
               home_url="https://www.xiaohongshu.com", query="openclaw",
               trigger_text="筛选", option_text="最多点赞"
-              home_url="https://www.douyin.com", query="openclaw",
-              trigger_text="筛选", option_text="最多点赞"
+
+            Do NOT use the generic path for Douyin/TikTok-family lead tasks. Douyin's
+            search/sort/video/comment UI is intentionally handled by the dedicated
+            lead_browser_douyin_* harnesses, because generic hover/click/vision fallback
+            is brittle there. If home_url is douyin.com this tool delegates to
+            lead_browser_douyin_search_sort_most_liked for "最多点赞" instead of running
+            the generic flow.
 
             This tool is intentionally bounded and reusable: it uses visible controls, tries
             hover first (for hover menus), falls back to click only after observing that the
@@ -323,6 +296,53 @@ public class LeadBrowserHarnessTool {
         }
         if (normalizedOption.isBlank()) {
             return json(Map.of("ok", false, "status", "INVALID_OPTION", "message", "option_text is required"));
+        }
+        if (isDouyinUrl(normalizedUrl)) {
+            if (containsAnyLabel(normalizedOption, DOUYIN_LIKE_SORT_LABELS)) {
+                SearchRun search = runDouyinSearch(normalizedQuery, ctx);
+                if (!search.done()) {
+                    return json(Map.of(
+                            "ok", false,
+                            "status", search.status(),
+                            "message", search.message(),
+                            "site", "抖音",
+                            "query", normalizedQuery,
+                            "url", search.snapshot().url(),
+                            "title", search.snapshot().title(),
+                            "attempts", search.attempts()));
+                }
+                SortRun sort = runDouyinMostLikedSort(normalizedQuery, search.snapshot(), search.attempts(), ctx);
+                if (sort.done()) {
+                    return json(Map.of(
+                            "ok", true,
+                            "status", "DONE",
+                            "site", "抖音",
+                            "query", normalizedQuery,
+                            "selected_option", sort.sortLabel(),
+                            "delegated_tool", "lead_browser_douyin_search_sort_most_liked",
+                            "url", sort.snapshot().url(),
+                            "title", sort.snapshot().title(),
+                            "attempts", sort.attempts()));
+                }
+                return json(Map.of(
+                        "ok", false,
+                        "status", sort.status(),
+                        "message", sort.message(),
+                        "site", "抖音",
+                        "query", normalizedQuery,
+                        "delegated_tool", "lead_browser_douyin_search_sort_most_liked",
+                        "url", sort.snapshot().url(),
+                        "title", sort.snapshot().title(),
+                        "attempts", sort.attempts()));
+            }
+            return json(Map.of(
+                    "ok", false,
+                    "status", "DOUYIN_DEDICATED_HARNESS_REQUIRED",
+                    "message", "抖音任务必须使用 lead_browser_douyin_* 专用 harness；通用站点筛选工具不会在抖音上执行低层 hover/click。",
+                    "site", "抖音",
+                    "query", normalizedQuery,
+                    "requested_option", normalizedOption,
+                    "recommended_tool", "lead_browser_douyin_search_sort_most_liked"));
         }
 
         SearchRun search = runSiteSearch(normalizedSite, normalizedUrl, normalizedQuery, ctx);
@@ -416,17 +436,16 @@ public class LeadBrowserHarnessTool {
     }
 
     @Tool(description = """
-            Lead-acquisition browser harness for Douyin comment-section prospecting.
+            LEGACY/DEBUG Douyin helper for stopping at a matched commenter's profile.
 
-            Use after the browser is already on a Douyin search results page, ideally after
-            sorting/filtering. It opens the first visible video/result, opens or reveals the
-            comment area, searches visible comments for text similar to target_comment, clicks
-            the matched commenter's profile/user link, and then STOPS.
+            Do NOT use this for the current end-to-end lead workflow. It has a bounded
+            debug scroll budget, opens only one matched profile, and intentionally does
+            not click 关注, open 私信, or type a draft. For real comment lead acquisition,
+            use lead_browser_douyin_search_sort_first_video_match_comment_follow_open_dm_type_draft
+            or lead_browser_douyin_match_comment_follow_open_dm_type_draft.
 
-            Safety boundary: this tool never clicks 关注, 私信, or sends any message. If it
-            opens a matching user's profile, it returns next_action telling the agent to call
-            extension_browser_click("关注", "button", ...) so the existing Tool Guard approval
-            flow can handle the outbound contact action.
+            Use this only when the user explicitly asks to debug "open the matched
+            profile and stop".
 
             Returns JSON with:
               status DONE_PROFILE_OPENED | NO_VIDEO_RESULT | COMMENTS_NOT_FOUND |
@@ -466,37 +485,162 @@ public class LeadBrowserHarnessTool {
         out.put("attempts", run.attempts());
         if (run.done()) {
             out.put("next_action",
-                    "Call extension_browser_click(hintText=\"关注\", role=\"button\") after the user approves this specific candidate. Do not coordinate-click 关注.");
+                    "Debug stop reached. For follow/DM/draft actions, rerun the full semantic Douyin lead harness rather than stitching low-level browser clicks.");
         }
         return json(out);
     }
 
     @Tool(description = """
-            DEBUG lead-acquisition harness for the current Douyin video/comments page.
+            Lead-acquisition harness for the CURRENT opened Douyin video/comments page:
+            semantically match a visible or scroll-loaded comment by dynamic user-provided
+            criteria, then open that comment author's profile, click 关注, open 私信, and type
+            a draft message WITHOUT sending it.
 
-            Use when the browser is already on an opened Douyin video and the comments panel
-            is visible. It reads the currently visible comment rows, clicks the first visible
-            comment author's profile, clicks 关注 if present, then clicks 私信 / 发私信 /
-            message entry if present. It intentionally does NOT type or send any message.
+            Inputs are runtime criteria, NOT hard-coded site rules:
+              - author_hint: optional weak commenter/user hint, e.g. "木马";
+                when comment_query is present, this is only a tie-break/bonus and never
+                rejects a comment whose text semantically matches;
+              - comment_query: semantic description or exact-ish target comment, e.g.
+                "对于99%的人用豆包就行了";
+              - dm_draft: text to type into the DM box for debugging, e.g. "你好";
+              - max_scrolls: optional debug safety limit for comment-panel scrolls.
+                Omit it for normal lead matching; the harness will scan until the
+                comment panel reaches a real terminal condition.
 
-            This is for debugging the post-comment lead path only. It returns candidate_comments
-            so the caller can inspect what the harness read from the comments panel.
+            Use this after comments are already open, or after a collection/open-comments
+            harness has left the browser on the comments panel. It does not click Send.
+            It processes every matched comment it finds while scrolling, not just the first
+            visible comment, and returns engagement_results so the caller can audit each
+            matched author/profile/follow/DM attempt.
             """)
-    public String lead_browser_douyin_debug_first_comment_follow_open_dm(@Nullable ToolContext ctx) {
-        FirstCommentEngagementRun run = runDouyinDebugFirstCommentFollowOpenDm(ctx);
+    public String lead_browser_douyin_match_comment_follow_open_dm_type_draft(
+            @ToolParam(description = "Optional weak commenter/author hint, e.g. 木马. With comment_query present, this only adds a bonus; it is not required to match.",
+                    required = false)
+            String authorHint,
+            @ToolParam(description = "Semantic target comment/query to match. Do not hard-code; pass the user's requested meaning.")
+            String commentQuery,
+            @ToolParam(description = "Draft DM text to type after opening private message. It will NOT be sent.",
+                    required = false)
+            String dmDraft,
+            @ToolParam(description = "Optional debug safety limit for comment-panel scroll attempts. Omit for normal matching; scanning stops on real comment-list terminal conditions.",
+                    required = false)
+            Integer maxScrolls,
+            @Nullable ToolContext ctx) {
+        String normalizedAuthor = normalizeQuery(authorHint);
+        String normalizedComment = normalizeQuery(commentQuery);
+        String draft = blankFallback(dmDraft, "");
+        if (normalizedAuthor.isBlank() && normalizedComment.isBlank()) {
+            return json(Map.of(
+                    "ok", false,
+                    "status", "INVALID_MATCH_CRITERIA",
+                    "message", "author_hint or comment_query is required"));
+        }
+        Integer scrollLimit = semanticMatchScrollLimit(maxScrolls);
+        MatchedCommentEngagementRun run = runDouyinMatchCommentFollowOpenDmTypeDraft(
+                normalizedAuthor, normalizedComment, draft, scrollLimit, ctx);
+
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("ok", run.done());
         out.put("status", run.status());
         if (!run.message().isBlank()) {
             out.put("message", run.message());
         }
+        out.put("author_hint", normalizedAuthor);
+        out.put("comment_query", normalizedComment);
+        out.put("dm_draft_typed", run.draftTyped());
+        out.put("follow_attempted", run.followAttempted());
+        out.put("follow_clicked", run.followClicked());
+        out.put("follow_confirmed", run.followClicked());
+        out.put("dm_opened", run.dmOpened());
+        out.put("matched_comment", run.match() == null ? "" : run.match().comment().name());
+        out.put("matched_author", run.author() == null ? "" : stripAvatarSuffix(run.author().name()));
+        out.put("match_score", run.match() == null ? 0 : run.match().score());
+        out.put("profile_url", run.profileUrl());
+        out.put("engagement_count", run.engagementResults().size());
+        out.put("engagement_results", run.engagementResults());
+        out.put("scan_complete", run.scanComplete());
+        out.put("scan_stop_reason", run.scanStopReason());
+        out.put("scanned_comment_count", run.scannedCommentCount());
+        out.put("declared_comment_count", run.declaredCommentCount());
         out.put("url", run.snapshot().url());
         out.put("title", run.snapshot().title());
-        out.put("first_comment", run.firstComment() == null ? "" : run.firstComment().comment().name());
-        out.put("first_author", run.author() == null ? "" : run.author().name());
-        out.put("profile_url", run.profileUrl());
+        out.put("candidate_comments", run.candidateComments());
+        out.put("attempts", run.attempts());
+        return json(out);
+    }
+
+    @Tool(description = """
+            FIRST-CHOICE end-to-end Douyin comment lead harness for:
+              search <query> → 筛选/最多点赞 → open the first/highest-liked video →
+              open comments → semantically match a target comment → open that comment
+              author's profile (including new active tab) → click 关注 → open 私信 →
+              type a draft message WITHOUT sending it.
+
+            This is the correct harness for comment lead acquisition. It never selects
+            "the first visible comment" as a shortcut. Matching is based on comment_query;
+            author_hint is optional weak context only. By default it does not stop at a
+            fixed scroll budget; it scans until the comment panel reaches a real terminal
+            condition so a near match does not prevent finding a later exact comment. It returns matched_comment,
+            matched_author, match_score, candidate_comments, follow_clicked, dm_opened,
+            dm_draft_typed, and engagement_results so the caller can audit each candidate.
+            """)
+    public String lead_browser_douyin_search_sort_first_video_match_comment_follow_open_dm_type_draft(
+            @ToolParam(description = "Search keyword, e.g. openclaw")
+            String query,
+            @ToolParam(description = "Semantic target comment/query to match, e.g. 对于99%的人用豆包就行了。")
+            String commentQuery,
+            @ToolParam(description = "Optional weak commenter/author hint. With comment_query present, this only adds a bonus; it is not required to match.",
+                    required = false)
+            String authorHint,
+            @ToolParam(description = "Draft DM text to type after opening private message. It will NOT be sent.",
+                    required = false)
+            String dmDraft,
+            @ToolParam(description = "Optional debug safety limit for comment-panel scroll attempts. Omit for normal matching; scanning stops on real comment-list terminal conditions.",
+                    required = false)
+            Integer maxScrolls,
+            @Nullable ToolContext ctx) {
+        String normalizedQuery = normalizeQuery(query);
+        String normalizedComment = normalizeQuery(commentQuery);
+        String normalizedAuthor = normalizeQuery(authorHint);
+        String draft = blankFallback(dmDraft, "");
+        if (normalizedQuery.isBlank()) {
+            return json(Map.of("ok", false, "status", "INVALID_QUERY", "message", "query is required"));
+        }
+        if (normalizedComment.isBlank() && normalizedAuthor.isBlank()) {
+            return json(Map.of("ok", false, "status", "INVALID_MATCH_CRITERIA",
+                    "message", "comment_query or author_hint is required"));
+        }
+
+        Integer scrollLimit = semanticMatchScrollLimit(maxScrolls);
+        MatchedCommentEngagementRun run = runDouyinFullSemanticCommentFollowOpenDmTypeDraft(
+                normalizedQuery, normalizedAuthor, normalizedComment, draft, scrollLimit, ctx);
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("ok", run.done());
+        out.put("status", run.status());
+        if (!run.message().isBlank()) {
+            out.put("message", run.message());
+        }
+        out.put("query", normalizedQuery);
+        out.put("author_hint", normalizedAuthor);
+        out.put("comment_query", normalizedComment);
+        out.put("dm_draft_typed", run.draftTyped());
+        out.put("follow_attempted", run.followAttempted());
         out.put("follow_clicked", run.followClicked());
+        out.put("follow_confirmed", run.followClicked());
         out.put("dm_opened", run.dmOpened());
+        out.put("matched_comment", run.match() == null ? "" : run.match().comment().name());
+        out.put("matched_author", run.author() == null ? "" : stripAvatarSuffix(run.author().name()));
+        out.put("match_score", run.match() == null ? 0 : run.match().score());
+        out.put("profile_url", run.profileUrl());
+        out.put("engagement_count", run.engagementResults().size());
+        out.put("engagement_results", run.engagementResults());
+        out.put("scan_complete", run.scanComplete());
+        out.put("scan_stop_reason", run.scanStopReason());
+        out.put("scanned_comment_count", run.scannedCommentCount());
+        out.put("declared_comment_count", run.declaredCommentCount());
+        out.put("url", run.snapshot().url());
+        out.put("title", run.snapshot().title());
         out.put("candidate_comments", run.candidateComments());
         out.put("attempts", run.attempts());
         return json(out);
@@ -839,6 +983,12 @@ public class LeadBrowserHarnessTool {
 
         JsonNode hover = hoverAtLine("hover_filter_trigger", filter, attempts, ctx);
         if (!ok(hover)) {
+            if (hoverClickToggleSensitiveSite(siteName)) {
+                return clickOptionByVisibleText(siteName, optionLabels, current, attempts, ctx,
+                        "fallback_click_option_by_visible_text_after_hover_failure",
+                        "wait_after_hover_failure_text_sort_select",
+                        "verify_hover_failure_text_sort_select");
+            }
             return sortFail("hover_filter_trigger", hover, attempts);
         }
 
@@ -912,7 +1062,8 @@ public class LeadBrowserHarnessTool {
                             current, best, null, "", candidateComments, attempts);
                 }
 
-                JsonNode openProfile = clickAtLine("click_matched_comment_author", author, attempts, ctx);
+                parkMouseInCommentPanel("park_before_matched_comment_author_click", current, attempts, ctx);
+                JsonNode openProfile = clickAtLineLinear("click_matched_comment_author", author, attempts, ctx);
                 if (!ok(openProfile)) {
                     return commentLeadFail("PROFILE_OPEN_FAILED",
                             "已找到相似评论和作者，但点击作者主页失败："
@@ -940,8 +1091,7 @@ public class LeadBrowserHarnessTool {
                 break;
             }
 
-            JsonNode scroll = callBrowser("scroll_comments_" + (read + 1), attempts,
-                    () -> browser.extension_browser_scroll("down", 650, ctx));
+            JsonNode scroll = scrollCommentPanel("scroll_comments_" + (read + 1), current, read, attempts, ctx);
             if (!ok(scroll)) {
                 break;
             }
@@ -968,98 +1118,972 @@ public class LeadBrowserHarnessTool {
                 current, bestSeen, null, "", candidateComments, attempts);
     }
 
-    private FirstCommentEngagementRun runDouyinDebugFirstCommentFollowOpenDm(ToolContext ctx) {
-        List<Map<String, Object>> attempts = new ArrayList<>();
-        ObserveResult initial = observe("observe_current_douyin_comments_for_first_author", attempts, ctx);
-        if (!initial.ok()) {
-            return firstCommentEngagementFail(
-                    initial.raw().path("code").asText(initial.raw().path("status").asText("OBSERVE_FAILED")),
-                    initial.raw().path("message").asText("Unable to observe current Douyin comments page"),
-                    Snapshot.empty(), null, null, "", false, false, List.of(), attempts);
-        }
+    @Tool(description = """
+            Lead-acquisition harness: walk the TOP videos for a query and collect ALL
+            comments per video (full collection + auto-advance to the next video).
 
-        return engageFirstVisibleCommentAuthor(initial.snapshot(), attempts, ctx);
+            Use for: "搜索 <query>，按最多点赞排序,逐个视频把评论全部采集下来".
+            For each of the top `max_videos` videos it:
+              1. (re)opens the sorted-by-most-liked results through the visible search box;
+              2. picks the highest-liked video NOT yet processed;
+              3. opens it + its comment area;
+              4. scrolls the comment list to the END (stops on the end-of-list marker,
+                 or when no new comments load, or a runaway cap), de-duplicating comments;
+              5. records the video + its comments, then advances to the NEXT video.
+
+            Returns JSON: status DONE_COLLECTED | PARTIAL_COLLECTED | NO_VIDEO_RESULT |
+            LOGIN_REQUIRED | <search/sort error>; videos_processed, total_comments,
+            collection_complete, lead_candidates[], and
+            videos[]={video_index,title,url,comment_count,declared_comment_count,complete,stop_reason,comments[]}.
+            Each comment and lead candidate carries stable indexes / candidate_id so a later
+            filtering + follow/DM workflow can act on a precise row instead of reparsing prose.
+            It does NOT open profiles, follow, comment, or message — collection only.
+            """)
+    public String lead_browser_douyin_collect_comments_across_videos(
+            @ToolParam(description = "Search keyword, e.g. openclaw") String query,
+            @ToolParam(description = "How many top videos to walk. Default 3, max 10.", required = false)
+            Integer maxVideos,
+            @Nullable ToolContext ctx) {
+        String normalizedQuery = normalizeQuery(query);
+        if (normalizedQuery.isBlank()) {
+            return json(Map.of("ok", false, "status", "INVALID_QUERY", "message", "query is required"));
+        }
+        int videos = clamp(maxVideos == null ? 3 : maxVideos, 1, 10);
+        CollectRun run = runDouyinCollectCommentsAcrossVideos(
+                normalizedQuery, videos, COMMENT_MAX_SCROLLS_PER_VIDEO, COMMENT_MAX_PER_VIDEO, ctx);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("ok", run.done());
+        out.put("status", run.status());
+        if (!run.message().isBlank()) {
+            out.put("message", run.message());
+        }
+        out.put("query", normalizedQuery);
+        out.put("videos_processed", run.videos().size());
+        out.put("total_comments", run.totalComments());
+        out.put("collection_complete", run.collectionComplete());
+        out.put("videos", run.videos());
+        out.put("lead_candidates", run.leadCandidates());
+        out.put("url", run.snapshot().url());
+        out.put("attempts", run.attempts());
+        return json(out);
     }
 
-    private FirstCommentEngagementRun runDouyinDebugFullFirstCommentFollowOpenDm(String query, ToolContext ctx) {
+    @Tool(description = """
+            Lead-acquisition harness: collect comments from ONE Douyin video only.
+
+            Use now when debugging the core requirement: search <query>, sort by most liked,
+            open the highest-liked first video, open comments, then scroll the comment panel
+            until the single video's comments are fully collected or a clear stop_reason is
+            observed. It intentionally does NOT advance to the second video.
+
+            Returns JSON: status DONE_COLLECTED | PARTIAL_COLLECTED | NO_VIDEO_RESULT |
+            LOGIN_REQUIRED | <search/sort/open error>; collection_complete, declared_comment_count,
+            comment_count, comments[], lead_candidates[], and attempts.
+            If Douyin declares e.g. 151 comments but the visible list ends at fewer rows, it
+            returns PARTIAL_COLLECTED with stop_reason=END_BEFORE_DECLARED_COUNT.
+            """)
+    public String lead_browser_douyin_collect_first_video_comments(
+            @ToolParam(description = "Search keyword, e.g. openclaw") String query,
+            @Nullable ToolContext ctx) {
+        String normalizedQuery = normalizeQuery(query);
+        if (normalizedQuery.isBlank()) {
+            return json(Map.of("ok", false, "status", "INVALID_QUERY", "message", "query is required"));
+        }
+
+        CollectRun run = runDouyinCollectCommentsAcrossVideos(
+                normalizedQuery, 1, COMMENT_MAX_SCROLLS_PER_VIDEO, COMMENT_MAX_PER_VIDEO, ctx);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("ok", run.done());
+        out.put("status", run.status());
+        if (!run.message().isBlank()) {
+            out.put("message", run.message());
+        }
+        out.put("query", normalizedQuery);
+        out.put("collection_complete", run.collectionComplete());
+        out.put("videos_processed", run.videos().size());
+        out.put("total_comments", run.totalComments());
+        Map<String, Object> first = run.videos().isEmpty() ? Map.of() : run.videos().get(0);
+        out.put("video", first);
+        out.put("declared_comment_count", first.getOrDefault("declared_comment_count", 0));
+        out.put("comment_count", first.getOrDefault("comment_count", 0));
+        out.put("stop_reason", first.getOrDefault("stop_reason", run.status()));
+        out.put("comments", first.getOrDefault("comments", List.of()));
+        out.put("lead_candidates", run.leadCandidates());
+        out.put("url", run.snapshot().url());
+        out.put("attempts", run.attempts());
+        return json(out);
+    }
+
+    /**
+     * Walk the top videos for a query and full-collect each one's comments.
+     *
+     * <p>"Return to results / next video" is done by RE-running the proven
+     * search+sort harness (deterministic) rather than relying on a browser-back
+     * primitive (which the extension does not expose) — slower but robust. The
+     * next video is the highest-liked one whose title is not yet in {@code processed}.
+     * Partial progress is preserved: a mid-run search/sort failure returns what was
+     * already collected instead of discarding it.
+     */
+    private CollectRun runDouyinCollectCommentsAcrossVideos(String query, int maxVideos,
+                                                            int maxScrollsPerVideo, int maxCommentsPerVideo,
+                                                            ToolContext ctx) {
+        List<Map<String, Object>> attempts = new ArrayList<>();
+        Set<String> processed = new HashSet<>();
+        List<Map<String, Object>> perVideo = new ArrayList<>();
+        List<Map<String, Object>> leadCandidates = new ArrayList<>();
+        int totalComments = 0;
+        Snapshot last = Snapshot.empty();
+
+        for (int v = 0; v < maxVideos; v++) {
+            SearchRun search = runDouyinSearch(query, ctx);
+            if (!search.done()) {
+                if (!perVideo.isEmpty()) {
+                    break; // keep what we already collected
+                }
+                return new CollectRun(false, search.status(),
+                        "重新打开搜索结果页失败:" + search.message(), search.snapshot(),
+                        perVideo, leadCandidates, totalComments, false, new ArrayList<>(search.attempts()));
+            }
+            SortRun sort = runDouyinMostLikedSort(query, search.snapshot(), search.attempts(), ctx);
+            attempts.addAll(sort.attempts()); // sort.attempts() already includes search.attempts()
+            if (!sort.done()) {
+                if (!perVideo.isEmpty()) {
+                    break;
+                }
+                return new CollectRun(false, sort.status(),
+                        "按最多点赞排序失败:" + sort.message(), sort.snapshot(),
+                        perVideo, leadCandidates, totalComments, false, attempts);
+            }
+            Snapshot results = sort.snapshot();
+
+            VideoResultTarget target = nextDouyinVideoTarget(results, processed);
+            if (target == null) {
+                JsonNode more = callBrowser("scroll_results_for_more_videos_" + (v + 1), attempts,
+                        () -> browser.extension_browser_scroll("down", 700, ctx));
+                if (ok(more)) {
+                    localWait("wait_after_results_more_scroll_" + (v + 1), attempts, FILTER_PANEL_SETTLE_DELAY_MS);
+                    ObserveResult refreshed = observe("observe_results_more_videos_" + (v + 1), attempts, ctx);
+                    if (refreshed.ok()) {
+                        results = refreshed.snapshot();
+                        target = nextDouyinVideoTarget(results, processed);
+                    }
+                }
+            }
+            if (target == null) {
+                if (perVideo.isEmpty()) {
+                    return new CollectRun(false, "NO_VIDEO_RESULT",
+                            "没有找到可处理的视频结果。", results, perVideo, leadCandidates, totalComments, false, attempts);
+                }
+                break; // no more unprocessed videos
+            }
+            String title = target.evidenceLine().name().trim();
+            processed.add(title);
+
+            VideoOpenAttempt open = openDouyinVideoTarget(target, results, attempts, ctx);
+            Snapshot vid = open.snapshot();
+            if (isLoginWall(vid)) {
+                return new CollectRun(false, "LOGIN_REQUIRED",
+                        "抖音需要登录。请先在这个浏览器里登录账号后重试。", vid, perVideo, leadCandidates, totalComments, false, attempts);
+            }
+            if (!isDouyinVideoOpen(vid)) {
+                perVideo.add(videoRecord(perVideo.size() + 1, title, vid.url(), 0, List.of(), "VIDEO_OPEN_FAILED"));
+                last = vid;
+                continue;
+            }
+
+            CommentReveal reveal = revealDouyinComments(vid, attempts, ctx);
+            Snapshot comm = reveal.snapshot();
+            if (isLoginWall(comm)) {
+                return new CollectRun(false, "LOGIN_REQUIRED",
+                        "抖音评论区需要登录。请先登录后重试。", comm, perVideo, leadCandidates, totalComments, false, attempts);
+            }
+            int expectedCommentCount = Math.max(declaredCommentCountFromActionBar(vid),
+                    declaredCommentCountFromCommentPanel(comm));
+            CommentCollection cc = collectAllVideoComments(
+                    comm, expectedCommentCount, maxScrollsPerVideo, maxCommentsPerVideo, attempts, ctx);
+            int videoIndex = perVideo.size() + 1;
+            perVideo.add(videoRecord(videoIndex, title, cc.snapshot().url(),
+                    cc.declaredCommentCount(), cc.comments(), cc.reason()));
+            appendLeadCandidates(leadCandidates, videoIndex, title, cc.snapshot().url(), cc.comments());
+            totalComments += cc.comments().size();
+            last = cc.snapshot();
+        }
+
+        boolean complete = !perVideo.isEmpty()
+                && perVideo.size() >= maxVideos
+                && perVideo.stream().allMatch(video -> Boolean.TRUE.equals(video.get("complete")));
+        String status = complete ? "DONE_COLLECTED" : "PARTIAL_COLLECTED";
+        String message = complete ? "" : "已保留已采集评论，但至少一个视频未确认滚动到底；不要把结果当作全量评论。";
+        return new CollectRun(complete, status, message, last, perVideo, leadCandidates, totalComments, complete, attempts);
+    }
+
+    private Map<String, Object> videoRecord(int videoIndex,
+                                            String title,
+                                            String url,
+                                            int declaredCommentCount,
+                                            List<CommentItem> comments,
+                                            String stopReason) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("video_index", videoIndex);
+        m.put("title", title);
+        m.put("url", url);
+        m.put("declared_comment_count", declaredCommentCount);
+        m.put("comment_count", comments.size());
+        m.put("stop_reason", stopReason);
+        m.put("complete", isCompleteCommentStopReason(stopReason));
+        m.put("comments", commentRows(videoIndex, comments));
+        return m;
+    }
+
+    /**
+     * Scroll the comment list of the CURRENT video to the end, de-duplicating
+     * comment text. Stops when: the end-of-list marker appears, the de-duped set
+     * stops growing for {@link #COMMENT_NO_GROWTH_LIMIT} consecutive scrolls, a
+     * scroll/observe fails, a login wall appears, or the scroll/comment caps hit.
+     */
+    private CommentCollection collectAllVideoComments(Snapshot start,
+                                                      int expectedCommentCount,
+                                                      int maxScrolls,
+                                                      int maxComments,
+                                                      List<Map<String, Object>> attempts, ToolContext ctx) {
+        LinkedHashMap<String, CommentItem> seen = new LinkedHashMap<>();
+        Snapshot current = start;
+        CommentPanelLock panelLock = commentPanelLock(current);
+        parkMouseInCommentPanel("park_before_collect_comments", current, panelLock, attempts, ctx);
+        int noGrowth = 0;
+        int declaredCommentCount = Math.max(expectedCommentCount, declaredCommentCountFromCommentPanel(current));
+        String reason = "MAX_SCROLLS";
+        for (int i = 0; i <= maxScrolls; i++) {
+            ReplyExpansion expansion = expandVisibleCommentReplies(current, panelLock, attempts, ctx);
+            if (expansion.clicked() > 0) {
+                current = expansion.snapshot();
+            }
+            int before = seen.size();
+            for (CommentItem item : visibleCommentItems(current)) {
+                seen.putIfAbsent(commentIdentity(item), item);
+            }
+            declaredCommentCount = Math.max(declaredCommentCount, declaredCommentCountFromCommentPanel(current));
+            if (declaredCommentCount > 0 && seen.size() >= declaredCommentCount) {
+                reason = "DECLARED_COUNT_REACHED";
+                break;
+            }
+            boolean grew = seen.size() > before;
+            if (commentsReachedEnd(current)) {
+                reason = declaredCommentCount > 0 && seen.size() < declaredCommentCount
+                        ? "END_BEFORE_DECLARED_COUNT"
+                        : "END_OF_LIST";
+                break;
+            }
+            if (seen.size() >= maxComments) {
+                reason = "MAX_COMMENTS";
+                break;
+            }
+            noGrowth = grew ? 0 : noGrowth + 1;
+            if (noGrowth >= COMMENT_NO_GROWTH_LIMIT) {
+                reason = "NO_MORE_LOADED";
+                break;
+            }
+            if (i == maxScrolls) {
+                reason = "MAX_SCROLLS";
+                break;
+            }
+            JsonNode scroll = scrollCommentPanel("collect_scroll_comments_" + (i + 1),
+                    current, i, panelLock, attempts, ctx);
+            if (!ok(scroll)) {
+                reason = "SCROLL_FAILED";
+                break;
+            }
+            localWait("wait_after_collect_scroll_" + (i + 1), attempts, FILTER_PANEL_SETTLE_DELAY_MS);
+            ObserveResult after = observe("observe_comments_collect_" + (i + 1), attempts, ctx);
+            if (!after.ok()) {
+                reason = "OBSERVE_FAILED";
+                break;
+            }
+            current = after.snapshot();
+            if (isLoginWall(current)) {
+                reason = "LOGIN_REQUIRED";
+                break;
+            }
+        }
+        return new CommentCollection(new ArrayList<>(seen.values()), reason, current, declaredCommentCount);
+    }
+
+    private JsonNode scrollCommentPanel(String step,
+                                        Snapshot snap,
+                                        int scrollIndex,
+                                        List<Map<String, Object>> attempts,
+                                        ToolContext ctx) {
+        return scrollCommentPanel(step, snap, scrollIndex, commentPanelLock(snap), attempts, ctx);
+    }
+
+    private JsonNode scrollCommentPanel(String step,
+                                        Snapshot snap,
+                                        int scrollIndex,
+                                        CommentPanelLock panelLock,
+                                        List<Map<String, Object>> attempts,
+                                        ToolContext ctx) {
+        List<ClickPoint> points = rotatedCommentPanelScrollPoints(snap, scrollIndex, panelLock);
+        JsonNode last = mapper.createObjectNode()
+                .put("ok", false)
+                .put("code", "NO_SCROLL_POINT")
+                .put("message", "No comment-panel scroll point available");
+        for (int i = 0; i < Math.min(COMMENT_SCROLL_RETRY_POINTS, points.size()); i++) {
+            ClickPoint point = points.get(i);
+            String suffix = i == 0 ? "" : "_point_" + (i + 1);
+            JsonNode move = callBrowser(step + suffix + "_hover_panel", attempts,
+                    () -> browser.extension_browser_hover_at_linear(point.x(), point.y(), ctx));
+            if (!ok(move)) {
+                last = move;
+                continue;
+            }
+            JsonNode scroll = callBrowser(step + suffix, attempts,
+                    () -> browser.extension_browser_scroll_at(
+                            "down",
+                            COMMENT_SCROLL_STEP_PX,
+                            point.x(),
+                            point.y(),
+                            ctx));
+            if (ok(scroll)) {
+                return scroll;
+            }
+            last = scroll;
+        }
+        return last;
+    }
+
+    private ReplyExpansion expandVisibleCommentReplies(Snapshot start,
+                                                       List<Map<String, Object>> attempts,
+                                                       ToolContext ctx) {
+        return expandVisibleCommentReplies(start, commentPanelLock(start), attempts, ctx);
+    }
+
+    private ReplyExpansion expandVisibleCommentReplies(Snapshot start,
+                                                       CommentPanelLock panelLock,
+                                                       List<Map<String, Object>> attempts,
+                                                       ToolContext ctx) {
+        Snapshot current = start;
+        int clicked = 0;
+        Set<String> clickedKeys = new HashSet<>();
+        for (int pass = 0; pass < COMMENT_REPLY_EXPAND_LIMIT_PER_PASS; pass++) {
+            List<TreeLine> expanders = visibleCommentReplyExpanders(current, panelLock);
+            TreeLine target = expanders.stream()
+                    .filter(line -> clickedKeys.add(line.x() + ":" + line.y() + ":" + normalizeQuery(line.name())))
+                    .findFirst()
+                    .orElse(null);
+            if (target == null) {
+                break;
+            }
+            JsonNode click = clickAtLineLinear("expand_visible_comment_replies_" + (clicked + 1),
+                    target, attempts, ctx);
+            if (!ok(click)) {
+                break;
+            }
+            clicked += 1;
+            localWait("wait_after_expand_comment_replies_" + clicked, attempts, FILTER_PANEL_SETTLE_DELAY_MS);
+            ObserveResult observed = observe("observe_after_expand_comment_replies_" + clicked, attempts, ctx);
+            if (!observed.ok()) {
+                break;
+            }
+            current = observed.snapshot();
+            parkMouseInCommentPanel("park_after_expand_comment_replies_" + clicked, current, panelLock, attempts, ctx);
+        }
+        return new ReplyExpansion(current, clicked);
+    }
+
+    private List<CommentItem> visibleCommentItems(Snapshot snap) {
+        return visiblePanelCommentMatches(snap).stream()
+                .map(match -> toCommentItem(snap, match))
+                .filter(item -> !item.text().isBlank())
+                .toList();
+    }
+
+    private List<TreeLine> visibleCommentReplyExpanders(Snapshot snap) {
+        return visibleCommentReplyExpanders(snap, commentPanelLock(snap));
+    }
+
+    private List<TreeLine> visibleCommentReplyExpanders(Snapshot snap, CommentPanelLock panelLock) {
+        int panelMinX = panelLock.minX();
+        return parseTreeLines(snap.tree()).stream()
+                .filter(line -> line.x() >= panelMinX)
+                .filter(line -> centerX(line) >= panelMinX + 40)
+                .filter(line -> centerX(line) <= viewportW(snap) - 24)
+                .filter(line -> isVisibleInViewport(line, snap))
+                .filter(line -> line.y() >= 100)
+                .filter(line -> line.w() <= Math.max(commentPanelMinInteractiveWidth(snap), viewportW(snap) - panelMinX))
+                .filter(line -> isReplyExpanderText(line.name()))
+                .sorted(Comparator.comparingInt(TreeLine::y))
+                .toList();
+    }
+
+    private CommentItem toCommentItem(Snapshot snap, CommentMatch match) {
+        TreeLine author = commentAuthorNearMatch(snap.tree(), match.comment());
+        return new CommentItem(
+                author == null ? "" : stripAvatarSuffix(author.name()),
+                match.comment().name().trim(),
+                author != null,
+                match.score());
+    }
+
+    private String stripAvatarSuffix(String name) {
+        String trimmed = normalizeQuery(name);
+        return trimmed.replaceAll("头像$", "").trim();
+    }
+
+    private String commentIdentity(CommentItem item) {
+        return normalizeForSimilarity(item.author()) + "\n" + normalizeForSimilarity(item.text());
+    }
+
+    private List<Map<String, Object>> commentRows(int videoIndex, List<CommentItem> comments) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (int i = 0; i < comments.size(); i++) {
+            CommentItem comment = comments.get(i);
+            int commentIndex = i + 1;
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("candidate_id", candidateId(videoIndex, commentIndex));
+            row.put("platform", "douyin");
+            row.put("video_index", videoIndex);
+            row.put("comment_index", commentIndex);
+            row.put("author", comment.author());
+            row.put("comment", comment.text());
+            row.put("author_clickable", comment.authorClickable());
+            row.put("score", comment.score());
+            row.put("next_action", comment.authorClickable()
+                    ? "filter/import this candidate first, then open the exact candidate profile in a follow/DM workflow"
+                    : "author profile was not clickable in the observed comment row");
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    private void appendLeadCandidates(List<Map<String, Object>> out,
+                                      int videoIndex,
+                                      String videoTitle,
+                                      String videoUrl,
+                                      List<CommentItem> comments) {
+        for (int i = 0; i < comments.size(); i++) {
+            CommentItem comment = comments.get(i);
+            int commentIndex = i + 1;
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("candidate_id", candidateId(videoIndex, commentIndex));
+            row.put("platform", "douyin");
+            row.put("video_index", videoIndex);
+            row.put("comment_index", commentIndex);
+            row.put("video_title", videoTitle);
+            row.put("video_url", videoUrl);
+            row.put("author", comment.author());
+            row.put("comment", comment.text());
+            row.put("author_clickable", comment.authorClickable());
+            row.put("profile_pending", comment.authorClickable());
+            out.add(row);
+        }
+    }
+
+    private String candidateId(int videoIndex, int commentIndex) {
+        return "v" + videoIndex + "-c" + commentIndex;
+    }
+
+    private boolean isCompleteCommentStopReason(String reason) {
+        return COMPLETE_COMMENT_STOP_REASONS.contains(reason);
+    }
+
+    private List<ClickPoint> commentPanelScrollPoints(Snapshot snap) {
+        return commentPanelScrollPoints(snap, commentPanelLock(snap));
+    }
+
+    private List<ClickPoint> commentPanelScrollPoints(Snapshot snap, CommentPanelLock panelLock) {
+        double w = viewportW(snap);
+        double h = viewportH(snap);
+        int panelMinX = panelLock.interactionMinX();
+        double minSafeX = Math.min(w - 80.0, panelMinX + 120.0);
+        double maxSafeX = commentPanelInteractionMaxSafeX(snap, panelMinX, minSafeX);
+        double baseX = clampDouble(panelLock.anchorX(), minSafeX, maxSafeX);
+        double baseY = clampDouble(h * 0.62, Math.max(180.0, h * 0.28), h - 72.0);
+        List<ClickPoint> points = new ArrayList<>();
+        addClickPoint(points, new ClickPoint(baseX, baseY), snap);
+        addClickPoint(points, new ClickPoint(
+                clampDouble(baseX, minSafeX, maxSafeX), h * 0.74), snap);
+        addClickPoint(points, new ClickPoint(
+                clampDouble(baseX, minSafeX, maxSafeX), h * 0.50), snap);
+        addClickPoint(points, new ClickPoint(
+                clampDouble(baseX, minSafeX, maxSafeX), h * 0.84), snap);
+        return points;
+    }
+
+    private double clampDouble(double value, double min, double max) {
+        if (max < min) {
+            return min;
+        }
+        return Math.max(min, Math.min(value, max));
+    }
+
+    private List<ClickPoint> rotatedCommentPanelScrollPoints(Snapshot snap, int scrollIndex) {
+        return rotatedCommentPanelScrollPoints(snap, scrollIndex, commentPanelLock(snap));
+    }
+
+    private List<ClickPoint> rotatedCommentPanelScrollPoints(Snapshot snap,
+                                                             int scrollIndex,
+                                                             CommentPanelLock panelLock) {
+        List<ClickPoint> points = commentPanelScrollPoints(snap, panelLock);
+        if (points.size() <= 1) {
+            return points;
+        }
+        int offset = Math.floorMod(scrollIndex, points.size());
+        List<ClickPoint> rotated = new ArrayList<>(points.size());
+        rotated.addAll(points.subList(offset, points.size()));
+        rotated.addAll(points.subList(0, offset));
+        return rotated;
+    }
+
+    private int declaredCommentCountFromActionBar(Snapshot snap) {
+        return inferredActionBarCommentCount(snap, parseTreeLines(snap.tree()));
+    }
+
+    private int declaredCommentCountFromCommentPanel(Snapshot snap) {
+        int best = 0;
+        List<TreeLine> lines = parseTreeLines(snap.tree());
+        int panelMinX = commentPanelMinX(snap);
+        int headerMaxY = Math.max(260, (int) Math.round(viewportH(snap) * 0.45));
+        for (TreeLine line : lines) {
+            if (line.x() < panelMinX || !isVisibleInViewport(line, snap) || line.y() > headerMaxY) {
+                continue;
+            }
+            String name = normalizeQuery(line.name());
+            if (name.isBlank()) {
+                continue;
+            }
+            Matcher commentHeader = Pattern.compile("(?:全部评论|评论)\\s*[（(]?\\s*(\\d+(?:\\.\\d+)?)\\s*([万wW])?\\s*[）)]?")
+                    .matcher(name);
+            if (commentHeader.find()) {
+                best = Math.max(best, parseCountValue(commentHeader.group(1), commentHeader.group(2)));
+                continue;
+            }
+            Matcher commentSuffix = Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*([万wW])?\\s*条评论").matcher(name);
+            if (commentSuffix.find()) {
+                best = Math.max(best, parseCountValue(commentSuffix.group(1), commentSuffix.group(2)));
+            }
+        }
+        return best;
+    }
+
+    private int inferredActionBarCommentCount(Snapshot snap, List<TreeLine> lines) {
+        TreeLine trigger = inferredCommentTriggerFromActionBar(snap, lines);
+        if (trigger == null) {
+            return inferredNumericActionBarCommentCount(snap, lines);
+        }
+        Matcher numeric = Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*([万wW])?").matcher(normalizeQuery(trigger.name()));
+        if (!numeric.find()) {
+            return inferredNumericActionBarCommentCount(snap, lines);
+        }
+        int count = parseCountValue(numeric.group(1), numeric.group(2));
+        return count >= 0 && count <= 100_000 ? count : 0;
+    }
+
+    private int inferredNumericActionBarCommentCount(Snapshot snap, List<TreeLine> lines) {
+        int minX = sideActionMinX(snap);
+        List<TreeLine> numericActionLines = lines.stream()
+                .filter(line -> line.x() >= minX)
+                .filter(line -> line.y() >= 120)
+                .filter(line -> line.w() <= 180 && line.h() <= 80)
+                .filter(line -> normalizeQuery(line.name()).matches("^\\d+(?:\\.\\d+)?\\s*([万wW])?$"))
+                .sorted(Comparator.comparingInt(TreeLine::y))
+                .toList();
+        if (numericActionLines.size() < 3) {
+            return 0;
+        }
+
+        for (int i = 1; i < numericActionLines.size() - 1; i++) {
+            TreeLine candidate = numericActionLines.get(i);
+            String name = normalizeQuery(candidate.name());
+            Matcher count = Pattern.compile("^(\\d+(?:\\.\\d+)?)\\s*([万wW])?$").matcher(name);
+            if (!count.matches()) {
+                continue;
+            }
+            TreeLine above = numericActionLines.get(i - 1);
+            TreeLine below = numericActionLines.get(i + 1);
+            boolean sameColumn = Math.abs(centerX(candidate) - centerX(above)) <= 80
+                    && Math.abs(centerX(candidate) - centerX(below)) <= 80;
+            boolean plausibleSpacing = candidate.y() - above.y() <= 140
+                    && below.y() - candidate.y() <= 140;
+            if (sameColumn && plausibleSpacing) {
+                return parseCountValue(count.group(1), count.group(2));
+            }
+        }
+        return 0;
+    }
+
+    private int parseCountValue(String rawNumber, @Nullable String unit) {
+        try {
+            double value = Double.parseDouble(rawNumber);
+            if (unit != null && (unit.equalsIgnoreCase("w") || unit.equals("万"))) {
+                value *= 10_000.0;
+            }
+            if (value < 0 || value > 100_000_000) {
+                return 0;
+            }
+            return (int) Math.round(value);
+        } catch (Exception ignored) {
+            return 0;
+        }
+    }
+
+    /** True when the comment list shows an end-of-list marker. */
+    private boolean commentsReachedEnd(Snapshot snap) {
+        int panelMinX = commentPanelMinX(snap);
+        return parseTreeLines(snap.tree()).stream()
+                .filter(line -> line.x() >= panelMinX)
+                .filter(line -> isVisibleInViewport(line, snap))
+                .map(line -> normalizeQuery(line.name()))
+                .anyMatch(name -> name.contains("暂时没有更多")
+                        || name.contains("没有更多评论")
+                        || name.contains("已经到底")
+                        || name.contains("到底了")
+                        || name.contains("暂无更多")
+                        || name.contains("没有更多了"));
+    }
+
+    /**
+     * The highest-liked video result whose title is NOT in {@code excludeTitles}.
+     * Same ranking as {@link #firstDouyinVideoTarget} with an exclusion filter so
+     * the multi-video walk advances instead of re-opening the same top video.
+     */
+    @Nullable
+    private VideoResultTarget nextDouyinVideoTarget(Snapshot snap, Set<String> excludeTitles) {
+        List<TreeLine> lines = parseTreeLines(snap.tree());
+        return lines.stream()
+                .filter(this::isPossibleVideoResult)
+                .map(line -> new VideoResultTarget(
+                        bestClickableLineForVideoResult(line, lines),
+                        line,
+                        nearbyLikeCount(line, lines),
+                        scoreVideoResult(line, lines)))
+                .filter(candidate -> candidate.score() >= 60)
+                .filter(candidate -> !excludeTitles.contains(candidate.evidenceLine().name().trim()))
+                .max(Comparator.comparingDouble(VideoResultTarget::likeCount)
+                        .thenComparingInt(VideoResultTarget::score)
+                        .thenComparing(candidate -> -candidate.evidenceLine().y()))
+                .orElse(null);
+    }
+
+    private MatchedCommentEngagementRun runDouyinFullSemanticCommentFollowOpenDmTypeDraft(String query,
+                                                                                         String authorHint,
+                                                                                         String commentQuery,
+                                                                                         String dmDraft,
+                                                                                         @Nullable Integer maxScrolls,
+                                                                                         ToolContext ctx) {
         SearchRun search = runDouyinSearch(query, ctx);
         if (!search.done()) {
-            return firstCommentEngagementFail(search.status(), search.message(), search.snapshot(),
-                    null, null, "", false, false, List.of(), search.attempts());
+            return matchedCommentEngagementFail(search.status(), search.message(), search.snapshot(),
+                    null, null, "", false, false, false, false, List.of(), search.attempts());
         }
 
         SortRun sort = runDouyinMostLikedSort(query, search.snapshot(), search.attempts(), ctx);
         if (!sort.done()) {
-            return firstCommentEngagementFail(sort.status(), sort.message(), sort.snapshot(),
-                    null, null, "", false, false, List.of(), sort.attempts());
+            return matchedCommentEngagementFail(sort.status(), sort.message(), sort.snapshot(),
+                    null, null, "", false, false, false, false, List.of(), sort.attempts());
         }
 
         VideoCommentsRun comments = runDouyinOpenFirstVideoCommentsFrom(sort.snapshot(), sort.attempts(), ctx);
         if (!comments.done()) {
-            return firstCommentEngagementFail(comments.status(), comments.message(), comments.snapshot(),
-                    null, null, "", false, false, List.of(), comments.attempts());
+            return matchedCommentEngagementFail(comments.status(), comments.message(), comments.snapshot(),
+                    null, null, "", false, false, false, false, List.of(), comments.attempts());
         }
 
-        return engageFirstVisibleCommentAuthor(comments.snapshot(), new ArrayList<>(comments.attempts()), ctx);
+        return engageMatchedCommentAuthor(comments.snapshot(), new ArrayList<>(comments.attempts()),
+                authorHint, commentQuery, dmDraft, maxScrolls, ctx);
     }
 
-    private FirstCommentEngagementRun engageFirstVisibleCommentAuthor(Snapshot current,
-                                                                      List<Map<String, Object>> attempts,
-                                                                      ToolContext ctx) {
+    private MatchedCommentEngagementRun runDouyinMatchCommentFollowOpenDmTypeDraft(String authorHint,
+                                                                                  String commentQuery,
+                                                                                  String dmDraft,
+                                                                                  @Nullable Integer maxScrolls,
+                                                                                  ToolContext ctx) {
+        List<Map<String, Object>> attempts = new ArrayList<>();
+        ObserveResult initial = observe("observe_current_douyin_comments_for_match", attempts, ctx);
+        if (!initial.ok()) {
+            return matchedCommentEngagementFail(
+                    initial.raw().path("code").asText(initial.raw().path("status").asText("OBSERVE_FAILED")),
+                    initial.raw().path("message").asText("Unable to observe current Douyin comments page"),
+                    Snapshot.empty(), null, null, "", false, false, false, false, List.of(), attempts);
+        }
+
+        Snapshot current = initial.snapshot();
         if (isLoginWall(current)) {
-            return firstCommentEngagementFail("LOGIN_REQUIRED",
+            return matchedCommentEngagementFail("LOGIN_REQUIRED",
                     "抖音页面需要登录。请先在这个浏览器里登录账号，然后重新发起任务。",
-                    current, null, null, "", false, false, List.of(), attempts);
+                    current, null, null, "", false, false, false, false, List.of(), attempts);
         }
         if (!hasVisibleCommentPanel(current)) {
-            return firstCommentEngagementFail("COMMENTS_NOT_OPENED",
-                    "当前页没有确认看到已展开的评论区，请先打开评论区后再执行这个调试工具。",
-                    current, null, null, "", false, false, List.of(), attempts);
+            return matchedCommentEngagementFail("COMMENTS_NOT_OPENED",
+                    "当前页没有确认看到已展开的评论区，请先打开评论区后再执行匹配关注/私信工具。",
+                    current, null, null, "", false, false, false, false, List.of(), attempts);
         }
 
-        List<CommentMatch> matches = visiblePanelCommentMatches(current);
+        return engageMatchedCommentAuthor(current, attempts, authorHint, commentQuery, dmDraft, maxScrolls, ctx);
+    }
+
+    private MatchedCommentEngagementRun engageMatchedCommentAuthor(Snapshot current,
+                                                                   List<Map<String, Object>> attempts,
+                                                                   String authorHint,
+                                                                   String commentQuery,
+                                                                   String dmDraft,
+                                                                   @Nullable Integer maxScrolls,
+                                                                   ToolContext ctx) {
+        if (isLoginWall(current)) {
+            return matchedCommentEngagementFail("LOGIN_REQUIRED",
+                    "抖音页面需要登录。请先在这个浏览器里登录账号，然后重新发起任务。",
+                    current, null, null, "", false, false, false, false, List.of(), attempts);
+        }
+        if (!hasVisibleCommentPanel(current)) {
+            return matchedCommentEngagementFail("COMMENTS_NOT_OPENED",
+                    "当前页没有确认看到已展开的评论区，请先打开评论区后再执行匹配关注/私信工具。",
+                    current, null, null, "", false, false, false, false, List.of(), attempts);
+        }
+
         List<String> candidateComments = new ArrayList<>();
-        appendCandidateComments(candidateComments, matches, 20);
-        CommentMatch first = matches.stream()
-                .filter(match -> commentAuthorNearMatch(current.tree(), match.comment()) != null)
-                .min(Comparator.comparingInt(match -> match.comment().y()))
-                .orElse(null);
-        if (first == null) {
-            return firstCommentEngagementFail("COMMENTS_NOT_FOUND",
-                    "已看到评论区，但没有定位到可点击作者的可见评论。",
-                    current, null, null, "", false, false, candidateComments, attempts);
+        List<Map<String, Object>> engagementResults = new ArrayList<>();
+        Set<String> processedCandidates = new HashSet<>();
+        CommentMatch bestSeen = null;
+        TreeLine bestSeenAuthor = null;
+        CommentMatch firstEngagedMatch = null;
+        TreeLine firstEngagedAuthor = null;
+        String firstProfileUrl = "";
+        Snapshot finalSnap = current;
+        LinkedHashMap<String, CommentItem> scannedComments = new LinkedHashMap<>();
+        int declaredCommentCount = declaredCommentCountFromCommentPanel(current);
+        String scanStopReason = "";
+        boolean scanComplete = false;
+        int noGrowth = 0;
+        int read = 0;
+        boolean anyProfileConfirmed = false;
+        boolean anyFollowAttempted = false;
+        boolean anyFollowClicked = false;
+        boolean anyDmOpened = false;
+        boolean anyDraftTyped = false;
+        CommentPanelLock panelLock = commentPanelLock(current);
+        parkMouseInCommentPanel("park_before_match_comment_scan", current, panelLock, attempts, ctx);
+        while (true) {
+            ReplyExpansion expansion = expandVisibleCommentReplies(current, panelLock, attempts, ctx);
+            if (expansion.clicked() > 0) {
+                current = expansion.snapshot();
+                panelLock = commentPanelLock(current);
+            }
+            Snapshot scanSnapshot = current;
+            List<CommentItem> visibleItems = visibleCommentItems(scanSnapshot);
+            int beforeScanned = scannedComments.size();
+            for (CommentItem item : visibleItems) {
+                scannedComments.putIfAbsent(commentIdentity(item), item);
+            }
+            List<CommentMatch> matches = visiblePanelCommentMatches(scanSnapshot).stream()
+                    .map(match -> scoreCommentLeadCandidate(scanSnapshot, match.comment(), authorHint, commentQuery))
+                    .sorted(Comparator.comparingInt(CommentMatch::score).reversed()
+                            .thenComparing(match -> match.comment().y()))
+                    .toList();
+            declaredCommentCount = Math.max(declaredCommentCount, declaredCommentCountFromCommentPanel(scanSnapshot));
+            boolean grew = scannedComments.size() > beforeScanned;
+            noGrowth = grew ? 0 : noGrowth + 1;
+            appendCandidateComments(candidateComments, matches, scanSnapshot, 30);
+
+            CommentMatch best = matches.stream()
+                    .filter(match -> match.score() >= matchedCommentThreshold(authorHint, commentQuery))
+                    .findFirst()
+                    .orElse(null);
+            if (best != null) {
+                boolean engagedThisPass = false;
+                for (CommentMatch matched : matches.stream()
+                        .filter(match -> match.score() >= matchedCommentThreshold(authorHint, commentQuery))
+                        .toList()) {
+                    TreeLine author = commentAuthorNearMatch(scanSnapshot.tree(), matched.comment());
+                    String candidateKey = engagementCandidateKey(matched, author);
+                    if (!processedCandidates.add(candidateKey)) {
+                        continue;
+                    }
+                    engagedThisPass = true;
+                    if (firstEngagedMatch == null) {
+                        firstEngagedMatch = matched;
+                        firstEngagedAuthor = author;
+                    }
+
+                    String resultStep = "matched_comment_engagement_" + (engagementResults.size() + 1);
+                    if (author == null) {
+                        engagementResults.add(engagementResult("PROFILE_OPEN_FAILED",
+                                "已找到匹配评论，但没有定位到这条评论附近可点击的用户主页/作者名称。",
+                                scanSnapshot, matched, null, BrowserTarget.MAIN,
+                                false, false, false, false, ""));
+                        continue;
+                    }
+
+                    parkMouseInCommentPanel("park_before_" + resultStep + "_author_click",
+                            scanSnapshot, panelLock, attempts, ctx);
+                    JsonNode openProfile = clickAtLineLinear("click_" + resultStep + "_author",
+                            author, BrowserTarget.MAIN, attempts, ctx);
+                    if (!ok(openProfile)) {
+                        engagementResults.add(engagementResult("PROFILE_OPEN_FAILED",
+                                "已找到匹配评论和作者，但点击作者主页失败："
+                                        + openProfile.path("message").asText("unknown"),
+                                scanSnapshot, matched, author, BrowserTarget.MAIN,
+                                false, false, false, false, ""));
+                        continue;
+                    }
+                    localWait("wait_after_" + resultStep + "_author_click", attempts, PAGE_SETTLE_DELAY_MS);
+
+                    ProfileOpenResult profile = observeProfileAfterAuthorClick(scanSnapshot,
+                            "observe_" + resultStep + "_author_profile", attempts, ctx);
+                    Snapshot profileSnap = profile.snapshot();
+                    if (!profile.ok()) {
+                        finalSnap = profileSnap;
+                        engagementResults.add(engagementResult("PROFILE_OPEN_FAILED",
+                                "已点击匹配评论附近的作者，但没有确认进入用户主页。",
+                                profileSnap, matched, author, profile.target(),
+                                false, false, false, false, profileSnap.url()));
+                        continue;
+                    }
+
+                    anyProfileConfirmed = true;
+                    String profileUrl = profileSnap.url();
+                    if (firstProfileUrl.isBlank()) {
+                        firstProfileUrl = profileUrl;
+                    }
+                    FollowDmResult engagement = clickFollowAndOpenDm(profileSnap, profile.target(), attempts, ctx);
+                    boolean draftTyped = false;
+                    finalSnap = engagement.snapshot();
+                    if (engagement.dmOpened() && !dmDraft.isBlank()) {
+                        JsonNode typed = typePrivateMessageDraft("type_" + resultStep + "_private_message_draft",
+                                dmDraft, finalSnap, engagement.target(), attempts, ctx);
+                        if (ok(typed)) {
+                            draftTyped = true;
+                            localWait("wait_after_" + resultStep + "_private_message_draft_type",
+                                    attempts, FILTER_PANEL_SETTLE_DELAY_MS);
+                            ObserveResult afterType = observeForTarget("observe_after_"
+                                            + resultStep + "_private_message_draft_type",
+                                    engagement.target(), attempts, ctx);
+                            if (afterType.ok()) {
+                                finalSnap = afterType.snapshot();
+                            }
+                        }
+                    }
+
+                    anyFollowAttempted = anyFollowAttempted || engagement.followAttempted();
+                    anyFollowClicked = anyFollowClicked || engagement.followConfirmed();
+                    anyDmOpened = anyDmOpened || engagement.dmOpened();
+                    anyDraftTyped = anyDraftTyped || draftTyped;
+                    String engagementStatus = engagementStatus(engagement.dmOpened(), draftTyped, dmDraft);
+                    engagementResults.add(engagementResult(
+                            engagementStatus,
+                            engagement.dmOpened() ? "" : "已进入主页并尝试关注，但没有确认打开私信入口。",
+                            finalSnap, matched, author, engagement.target(),
+                            engagement.followAttempted(), engagement.followConfirmed(),
+                            engagement.dmOpened(), draftTyped, profileUrl));
+                }
+                if (engagedThisPass && (maxScrolls == null || read < maxScrolls)
+                        && !commentsReachedEnd(scanSnapshot)) {
+                    ObserveResult afterEngagement = observeForTarget(
+                            "observe_comments_after_matched_comment_engagements",
+                            BrowserTarget.MAIN, attempts, ctx);
+                    if (afterEngagement.ok() && hasVisibleCommentPanel(afterEngagement.snapshot())) {
+                        current = afterEngagement.snapshot();
+                        panelLock = commentPanelLock(current);
+                        continue;
+                    }
+                }
+            }
+
+            if (!engagementResults.isEmpty()) {
+                finalSnap = finalSnap == null ? current : finalSnap;
+            }
+
+            CommentMatch top = matches.stream().findFirst().orElse(null);
+            if (top != null && (bestSeen == null || top.score() > bestSeen.score())) {
+                bestSeen = top;
+                bestSeenAuthor = commentAuthorNearMatch(current.tree(), top.comment());
+            }
+            if (declaredCommentCount > 0 && scannedComments.size() >= declaredCommentCount) {
+                scanStopReason = "DECLARED_COUNT_REACHED";
+                scanComplete = true;
+                break;
+            }
+            if (commentsReachedEnd(current)) {
+                scanStopReason = declaredCommentCount > 0 && scannedComments.size() < declaredCommentCount
+                        ? "END_BEFORE_DECLARED_COUNT"
+                        : "END_OF_LIST";
+                scanComplete = "END_OF_LIST".equals(scanStopReason);
+                break;
+            }
+            if (noGrowth >= COMMENT_NO_GROWTH_LIMIT) {
+                scanStopReason = "NO_MORE_LOADED";
+                scanComplete = false;
+                break;
+            }
+            if (maxScrolls != null && read >= maxScrolls) {
+                scanStopReason = "MAX_SCROLLS";
+                scanComplete = false;
+                break;
+            }
+
+            JsonNode scroll = scrollCommentPanel("scroll_match_comments_" + (read + 1),
+                    current, read, panelLock, attempts, ctx);
+            if (!ok(scroll)) {
+                scanStopReason = "SCROLL_FAILED";
+                break;
+            }
+            localWait("wait_after_match_comment_scroll_" + (read + 1), attempts, FILTER_PANEL_SETTLE_DELAY_MS);
+            ObserveResult after = observeForTarget("observe_match_comments_after_scroll_" + (read + 1),
+                    BrowserTarget.MAIN, attempts, ctx);
+            if (!after.ok()) {
+                scanStopReason = "OBSERVE_FAILED";
+                break;
+            }
+            current = after.snapshot();
+            declaredCommentCount = Math.max(declaredCommentCount, declaredCommentCountFromCommentPanel(current));
+            if (isLoginWall(current)) {
+                return matchedCommentEngagementFail("LOGIN_REQUIRED",
+                        "抖音评论区需要登录。请先在这个浏览器里登录账号，然后重新发起任务。",
+                        current, bestSeen, bestSeenAuthor, "", false, false, false, false,
+                        candidateComments, attempts);
+            }
+            read += 1;
         }
 
-        TreeLine author = commentAuthorNearMatch(current.tree(), first.comment());
-        if (author == null) {
-            return firstCommentEngagementFail("PROFILE_OPEN_FAILED",
-                    "已找到第一条评论，但没有定位到这条评论附近的用户主页入口。",
-                    current, first, null, "", false, false, candidateComments, attempts);
+        if (!engagementResults.isEmpty()) {
+            boolean done = dmDraft.isBlank() ? anyDmOpened : anyDraftTyped;
+            String status = anyDraftTyped
+                    ? "DONE_DM_DRAFT_TYPED"
+                    : anyDmOpened && dmDraft.isBlank()
+                    ? "DONE_DM_OPENED"
+                    : anyDmOpened
+                    ? "PARTIAL_DM_OPENED_DRAFT_NOT_TYPED"
+                    : anyProfileConfirmed || anyFollowAttempted || anyFollowClicked
+                    ? "PARTIAL_PROFILE_FOLLOW_ATTEMPTED"
+                    : "PROFILE_OPEN_FAILED";
+            String message = "";
+            if (!done) {
+                if (!anyProfileConfirmed) {
+                    message = "已找到匹配评论，但没有成功进入任何匹配用户主页。";
+                } else if (!anyDmOpened) {
+                    message = "已处理匹配评论并尝试关注，但没有确认打开私信入口。";
+                } else if (!dmDraft.isBlank() && !anyDraftTyped) {
+                    message = "已打开至少一个私信入口，但没有确认输入私信草稿。";
+                }
+            }
+            return new MatchedCommentEngagementRun(done,
+                    status,
+                    message,
+                    finalSnap,
+                    firstEngagedMatch == null ? bestSeen : firstEngagedMatch,
+                    firstEngagedAuthor == null ? bestSeenAuthor : firstEngagedAuthor,
+                    firstProfileUrl,
+                    anyFollowAttempted, anyFollowClicked, anyDmOpened, anyDraftTyped,
+                    List.copyOf(candidateComments), List.copyOf(engagementResults),
+                    scanComplete, scanStopReason, scannedComments.size(), declaredCommentCount,
+                    attempts);
         }
 
-        JsonNode openProfile = clickAtLine("click_first_comment_author", author, attempts, ctx);
-        if (!ok(openProfile)) {
-            return firstCommentEngagementFail("PROFILE_OPEN_FAILED",
-                    "点击第一条评论作者失败：" + openProfile.path("message").asText("unknown"),
-                    current, first, author, "", false, false, candidateComments, attempts);
-        }
-        localWait("wait_after_first_comment_author_click", attempts, PAGE_SETTLE_DELAY_MS);
-
-        ProfileOpenResult profile = observeProfileAfterAuthorClick(current,
-                "observe_first_comment_author_profile", attempts, ctx);
-        Snapshot profileSnap = profile.snapshot();
-        if (!profile.ok()) {
-            return firstCommentEngagementFail("PROFILE_OPEN_FAILED",
-                    "已点击第一条评论作者，但没有确认进入用户主页。",
-                    profileSnap, first, author, profileSnap.url(), false, false, candidateComments, attempts);
-        }
-
-        FollowDmResult engagement = clickFollowAndOpenDm(profileSnap, profile.target(), attempts, ctx);
-        return new FirstCommentEngagementRun(true,
-                engagement.dmOpened() ? "DONE_DM_OPENED" : "DONE_PROFILE_FOLLOW_ATTEMPTED",
-                engagement.dmOpened() ? "" : "已进入主页并尝试关注，但没有确认打开私信入口。",
-                engagement.snapshot(), first, author, engagement.snapshot().url(),
-                engagement.followClicked(), engagement.dmOpened(), List.copyOf(candidateComments), attempts);
+        return matchedCommentEngagementFail("COMMENT_MATCH_NOT_FOUND",
+                (scanComplete
+                        ? "已读取并滚动到评论区末尾，但没有找到满足评论语义的候选；作者线索只作为弱提示，不会阻止评论语义命中。"
+                        : "已读取并滚动评论区，但尚未确认读完全部评论；当前滚动预算/页面加载内没有找到满足评论语义的候选。"),
+                current, bestSeen, bestSeenAuthor, "", false, false, false, false, candidateComments,
+                scanComplete, scanStopReason, scannedComments.size(), declaredCommentCount,
+                attempts);
     }
 
     private VideoCommentsRun runDouyinOpenFirstVideoComments(ToolContext ctx) {
@@ -1157,6 +2181,9 @@ public class LeadBrowserHarnessTool {
     private CommentReveal revealDouyinComments(Snapshot current,
                                                List<Map<String, Object>> attempts,
                                                ToolContext ctx) {
+        if (hasVisibleCommentPanel(current)) {
+            return new CommentReveal(current, true);
+        }
         boolean clicked = false;
 
         // 1) Douyin video pages have native keyboard shortcuts for comments.
@@ -1175,7 +2202,7 @@ public class LeadBrowserHarnessTool {
         // 2) Tree trigger — a comment entry that surfaced in the a11y tree with a
         //    usable bbox (a labeled "评论 N" button/icon). Cheap + deterministic;
         //    handles the common case where the comment control IS named.
-        TreeLine trigger = bestCommentTrigger(current.tree());
+        TreeLine trigger = bestCommentTrigger(current);
         if (trigger != null) {
             CommentReveal triggerClick = clickCommentTrigger(trigger, current, attempts, ctx);
             clicked = triggerClick.opened();
@@ -1304,7 +2331,7 @@ public class LeadBrowserHarnessTool {
                                               Snapshot current,
                                               List<Map<String, Object>> attempts,
                                               ToolContext ctx) {
-        List<ClickPoint> points = commentClickPoints(trigger);
+        List<ClickPoint> points = commentClickPoints(current, trigger);
         boolean clicked = false;
         for (int i = 0; i < points.size(); i++) {
             ClickPoint point = points.get(i);
@@ -1330,11 +2357,11 @@ public class LeadBrowserHarnessTool {
                                                        List<Map<String, Object>> attempts,
                                                        ToolContext ctx) {
         for (String key : List.of("x", "k")) {
-            ClickPoint focus = douyinVideoFocusPoint(current);
-            JsonNode focusMove = clickAtPoint("focus_video_before_comments_shortcut_" + key,
+            ClickPoint focus = douyinShortcutFocusPoint(current);
+            JsonNode focusMove = clickAtPoint("focus_before_comments_shortcut_" + key,
                     focus.x(), focus.y(), attempts, ctx);
             if (ok(focusMove)) {
-                localWait("wait_after_video_focus_before_shortcut_" + key, attempts, 250L);
+                localWait("wait_after_focus_before_shortcut_" + key, attempts, 250L);
             }
 
             JsonNode press = callBrowser("press_douyin_comments_shortcut_" + key, attempts,
@@ -1378,6 +2405,13 @@ public class LeadBrowserHarnessTool {
                 || message.toLowerCase(Locale.ROOT).contains("no handler registered");
     }
 
+    private ClickPoint douyinShortcutFocusPoint(Snapshot current) {
+        if (hasVisibleCommentPanel(current) || hasVisibleCommentPanelShell(current)) {
+            return commentPanelSafePoint(current);
+        }
+        return douyinVideoFocusPoint(current);
+    }
+
     private ClickPoint douyinVideoFocusPoint(Snapshot current) {
         int viewportW = current.viewportW();
         int viewportH = current.viewportH();
@@ -1399,23 +2433,40 @@ public class LeadBrowserHarnessTool {
                 });
     }
 
-    private List<ClickPoint> commentClickPoints(TreeLine trigger) {
+    private ClickPoint commentPanelSafePoint(Snapshot snap) {
+        return commentPanelSafePoint(snap, commentPanelLock(snap));
+    }
+
+    private ClickPoint commentPanelSafePoint(Snapshot snap, CommentPanelLock panelLock) {
+        List<ClickPoint> points = commentPanelScrollPoints(snap, panelLock);
+        if (!points.isEmpty()) {
+            return points.get(0);
+        }
+        int panelMinX = panelLock.interactionMinX();
+        double minSafeX = Math.min(viewportW(snap) - 80.0, panelMinX + 120.0);
+        double maxSafeX = commentPanelInteractionMaxSafeX(snap, panelMinX, minSafeX);
+        return new ClickPoint(
+                clampDouble(panelLock.anchorX(), minSafeX, maxSafeX),
+                clampDouble(viewportH(snap) * 0.55, 180.0, viewportH(snap) - 72.0));
+    }
+
+    private List<ClickPoint> commentClickPoints(Snapshot snap, TreeLine trigger) {
         double centerX = trigger.x() + trigger.w() / 2.0;
         double centerY = trigger.y() + trigger.h() / 2.0;
         List<ClickPoint> points = new ArrayList<>();
-        if (isSideActionCommentSurface(trigger) && !"button".equalsIgnoreCase(trigger.role())) {
+        if (isSideActionCommentSurface(snap, trigger) && !"button".equalsIgnoreCase(trigger.role())) {
             addDistinctPoint(points, centerX, Math.max(0, trigger.y() - 44.0));
             addDistinctPoint(points, centerX, Math.max(0, trigger.y() - 28.0));
         }
         addDistinctPoint(points, centerX, centerY);
-        if (isSideActionCommentSurface(trigger)) {
+        if (isSideActionCommentSurface(snap, trigger)) {
             addDistinctPoint(points, centerX, Math.max(0, centerY - 34.0));
         }
         return points;
     }
 
-    private boolean isSideActionCommentSurface(TreeLine line) {
-        return line.x() >= 500 && line.y() >= 140 && line.w() <= 220 && line.h() <= 110;
+    private boolean isSideActionCommentSurface(Snapshot snap, TreeLine line) {
+        return line.x() >= sideActionMinX(snap) && line.y() >= 140 && line.w() <= 220 && line.h() <= 110;
     }
 
     private void addDistinctPoint(List<ClickPoint> points, double x, double y) {
@@ -1579,8 +2630,14 @@ public class LeadBrowserHarnessTool {
                                              String waitStep,
                                              String verifyStep) {
         String targetText = optionLabels.getFirst();
-        JsonNode textClick = callBrowser(clickStep, attempts,
-                () -> browser.extension_browser_click(targetText, "button", null, ctx));
+        JsonNode textClick = null;
+        SortSelection observedOption = bestOption(current, optionLabels);
+        if (observedOption != null) {
+            textClick = clickAtLine(clickStep + "_observed_option", observedOption.line(), attempts, ctx);
+        }
+        if (!ok(textClick)) {
+            textClick = clickVisibleOptionAcrossRoles(clickStep, targetText, attempts, ctx);
+        }
         if (!ok(textClick)) {
             return new SortRun(false, "SORT_OPTION_NOT_FOUND",
                     "已打开/尝试打开 " + siteName + " 筛选控件，但没有观察到「"
@@ -1603,6 +2660,27 @@ public class LeadBrowserHarnessTool {
         SortSelection selected = selectedOption(current, optionLabels);
         return new SortRun(true, "DONE", "", current,
                 selected == null ? targetText : selected.label(), attempts);
+    }
+
+    private JsonNode clickVisibleOptionAcrossRoles(String step,
+                                                   String targetText,
+                                                   List<Map<String, Object>> attempts,
+                                                   ToolContext ctx) {
+        JsonNode last = mapper.createObjectNode()
+                .put("ok", false)
+                .put("code", "SORT_OPTION_NOT_FOUND")
+                .put("message", "No visible option matched: " + targetText);
+        for (String role : List.of("button", "menuitem", "option", "text", "statictext", "generic", "tab", "link")) {
+            JsonNode clicked = callBrowser(step + "_" + role, attempts,
+                    () -> browser.extension_browser_click(targetText, role, null, ctx));
+            if (ok(clicked)) {
+                return clicked;
+            }
+            if (!isMalformedToolResult(clicked) || "SORT_OPTION_NOT_FOUND".equals(last.path("code").asText(""))) {
+                last = clicked;
+            }
+        }
+        return last;
     }
 
     private JsonNode clickSearchEntry(Snapshot snap, List<Map<String, Object>> attempts, ToolContext ctx) {
@@ -1648,6 +2726,23 @@ public class LeadBrowserHarnessTool {
         return clickAtPoint(step, x, y, target, attempts, ctx);
     }
 
+    private JsonNode clickAtLineLinear(String step,
+                                       TreeLine line,
+                                       List<Map<String, Object>> attempts,
+                                       ToolContext ctx) {
+        return clickAtLineLinear(step, line, BrowserTarget.MAIN, attempts, ctx);
+    }
+
+    private JsonNode clickAtLineLinear(String step,
+                                       TreeLine line,
+                                       BrowserTarget target,
+                                       List<Map<String, Object>> attempts,
+                                       ToolContext ctx) {
+        double x = line.x() + line.w() / 2.0;
+        double y = line.y() + line.h() / 2.0;
+        return clickAtPointLinear(step, x, y, target, attempts, ctx);
+    }
+
     private JsonNode clickAtPoint(String step,
                                   double x,
                                   double y,
@@ -1670,6 +2765,20 @@ public class LeadBrowserHarnessTool {
         });
     }
 
+    private JsonNode clickAtPointLinear(String step,
+                                        double x,
+                                        double y,
+                                        BrowserTarget target,
+                                        List<Map<String, Object>> attempts,
+                                        ToolContext ctx) {
+        return callBrowser(step, attempts, () -> {
+            if (target == BrowserTarget.ACTIVE) {
+                return browser.extension_browser_click_at_active(x, y, ctx);
+            }
+            return browser.extension_browser_click_at_linear(x, y, ctx);
+        });
+    }
+
     private JsonNode hoverAtLine(String step,
                                  TreeLine line,
                                  List<Map<String, Object>> attempts,
@@ -1677,6 +2786,45 @@ public class LeadBrowserHarnessTool {
         double x = line.x() + line.w() / 2.0;
         double y = line.y() + line.h() / 2.0;
         return callBrowser(step, attempts, () -> browser.extension_browser_hover_at(x, y, ctx));
+    }
+
+    private JsonNode parkMouseInCommentPanel(String step,
+                                             Snapshot snap,
+                                             List<Map<String, Object>> attempts,
+                                             ToolContext ctx) {
+        return parkMouseInCommentPanel(step, snap, commentPanelLock(snap), attempts, ctx);
+    }
+
+    private JsonNode parkMouseInCommentPanel(String step,
+                                             Snapshot snap,
+                                             CommentPanelLock panelLock,
+                                             List<Map<String, Object>> attempts,
+                                             ToolContext ctx) {
+        return parkMouseInCommentPanel(step, snap, panelLock, BrowserTarget.MAIN, attempts, ctx);
+    }
+
+    private JsonNode parkMouseInCommentPanel(String step,
+                                             Snapshot snap,
+                                             CommentPanelLock panelLock,
+                                             BrowserTarget target,
+                                             List<Map<String, Object>> attempts,
+                                             ToolContext ctx) {
+        ClickPoint point = commentPanelSafePoint(snap, panelLock);
+        return hoverAtPointLinear(step, point.x(), point.y(), target, attempts, ctx);
+    }
+
+    private JsonNode hoverAtPointLinear(String step,
+                                        double x,
+                                        double y,
+                                        BrowserTarget target,
+                                        List<Map<String, Object>> attempts,
+                                        ToolContext ctx) {
+        return callBrowser(step, attempts, () -> {
+            if (target == BrowserTarget.ACTIVE) {
+                return browser.extension_browser_hover_at_active_linear(x, y, ctx);
+            }
+            return browser.extension_browser_hover_at_linear(x, y, ctx);
+        });
     }
 
     private JsonNode clickSearchTarget(Snapshot snap,
@@ -2485,6 +3633,13 @@ public class LeadBrowserHarnessTool {
                 .anyMatch(match -> commentAuthorNearMatch(snap.tree(), match.comment()) != null);
     }
 
+    private boolean hasVisibleCommentPanelShell(Snapshot snap) {
+        List<TreeLine> lines = parseTreeLines(snap.tree());
+        return hasVisibleCommentPanelHeader(lines, snap)
+                || hasVisibleCommentInput(lines, snap)
+                || hasVisibleDouyinCommentTabPanel(lines, snap);
+    }
+
     private boolean hasVisibleCommentPanelHeader(List<TreeLine> lines, Snapshot snap) {
         int viewportH = viewportH(snap);
         int panelMinX = commentPanelMinX(snap);
@@ -2510,12 +3665,13 @@ public class LeadBrowserHarnessTool {
 
     private boolean hasVisibleDouyinCommentTabPanel(List<TreeLine> lines, Snapshot snap) {
         int panelMinX = commentPanelMinX(snap);
+        int tabMinX = Math.max(80, panelMinX - 260);
         boolean detailsTab = false;
         boolean worksTab = false;
         boolean commentTab = false;
         boolean askAiTab = false;
         for (TreeLine line : lines) {
-            if (line.x() < panelMinX || !isVisibleInViewport(line, snap)
+            if (line.x() < tabMinX || !isVisibleInViewport(line, snap)
                     || line.y() > Math.max(220, viewportH(snap) * 0.42)) {
                 continue;
             }
@@ -2529,11 +3685,24 @@ public class LeadBrowserHarnessTool {
     }
 
     private List<CommentMatch> visiblePanelCommentMatches(Snapshot snap) {
-        int panelMinX = commentPanelMinX(snap);
         return commentMatches(snap, "").stream()
-                .filter(match -> match.comment().x() >= panelMinX)
-                .filter(match -> isVisibleInViewport(match.comment(), snap))
+                .filter(match -> isCommentLineInVisiblePanel(snap, match.comment()))
                 .toList();
+    }
+
+    private boolean isCommentLineInVisiblePanel(Snapshot snap, TreeLine comment) {
+        if (!isVisibleInViewport(comment, snap)) {
+            return false;
+        }
+        CommentPanelLock panelLock = commentPanelLock(snap);
+        int panelMinX = panelLock.minX();
+        int relaxedMinX = Math.max(80, panelMinX - 36);
+        if (comment.x() >= relaxedMinX || centerX(comment) >= panelMinX) {
+            return true;
+        }
+        TreeLine author = commentAuthorNearMatch(snap.tree(), comment);
+        return author != null && isVisibleInViewport(author, snap)
+                && (author.x() >= relaxedMinX || centerX(author) >= panelMinX);
     }
 
     private boolean containsDouyinSearchResultContext(Snapshot snap) {
@@ -2556,7 +3725,163 @@ public class LeadBrowserHarnessTool {
     }
 
     private int commentPanelMinX(Snapshot snap) {
-        return Math.max(520, (int) Math.round(viewportW(snap) * 0.46));
+        return commentPanelLock(snap).minX();
+    }
+
+    private CommentPanelLock commentPanelLock(Snapshot snap) {
+        int viewportW = viewportW(snap);
+        int viewportH = viewportH(snap);
+        List<TreeLine> lines = parseTreeLines(snap.tree());
+
+        int fallback = commentPanelFallbackStartX(snap);
+        int minEvidenceX = commentPanelEvidenceMinX(snap);
+        int maxPanelStart = commentPanelMaxStartX(snap, fallback);
+        Integer structuralStart = commentPanelStructuralStartX(snap, lines);
+        Integer rowStart = commentPanelRowStartX(snap);
+        int interactionEvidenceStart = lines.stream()
+                .filter(line -> isVisibleInViewport(line, snap))
+                .filter(line -> line.x() >= minEvidenceX)
+                .filter(line -> line.y() >= 96)
+                .filter(line -> isReplyExpanderText(line.name()) || looksLikeCommentPanelRow(line))
+                .mapToInt(TreeLine::x)
+                .min()
+                .orElse(fallback);
+        int panelStart = structuralStart != null
+                ? structuralStart
+                : rowStart != null
+                ? rowStart
+                : interactionEvidenceStart;
+
+        int minX = structuralStart != null || rowStart != null
+                ? Math.max(commentPanelRecognitionFloorX(snap), Math.min(panelStart, maxPanelStart))
+                : Math.max(minEvidenceX, Math.min(panelStart, maxPanelStart));
+        if (rowStart != null && rowStart < commentPanelRecognitionFloorX(snap)) {
+            minX = Math.max(commentPanelAbsoluteFloorX(snap), Math.min(rowStart, maxPanelStart));
+        }
+        int interactionPanelStart = structuralStart != null ? structuralStart : interactionEvidenceStart;
+        int interactionMinX = Math.max(minEvidenceX, Math.min(interactionPanelStart, maxPanelStart));
+        double minSafeX = Math.min(viewportW - 80.0, interactionMinX + 120.0);
+        double maxSafeX = commentPanelInteractionMaxSafeX(snap, interactionMinX, minSafeX);
+        double anchorX = clampDouble(interactionMinX + 260.0, minSafeX, maxSafeX);
+        double anchorY = clampDouble(viewportH * 0.62, Math.max(180.0, viewportH * 0.28), viewportH - 72.0);
+        return new CommentPanelLock(minX, interactionMinX, anchorX, anchorY);
+    }
+
+    private int commentPanelFallbackStartX(Snapshot snap) {
+        int viewportW = viewportW(snap);
+        double fallbackRatio = viewportW >= 1500 ? 0.60 : 0.46;
+        return clamp((int) Math.round(viewportW * fallbackRatio),
+                commentPanelRecognitionFloorX(snap), Math.max(commentPanelRecognitionFloorX(snap), viewportW - 80));
+    }
+
+    private int commentPanelMaxStartX(Snapshot snap, int fallback) {
+        int viewportW = viewportW(snap);
+        int visiblePanelWidth = clamp((int) Math.round(viewportW * 0.28), 260, 520);
+        return Math.max(fallback, viewportW - visiblePanelWidth);
+    }
+
+    private int commentPanelEvidenceMinX(Snapshot snap) {
+        int viewportW = viewportW(snap);
+        double ratio = viewportW >= 1500 ? 0.58 : 0.45;
+        return clamp((int) Math.round(viewportW * ratio),
+                commentPanelRecognitionFloorX(snap), Math.max(commentPanelRecognitionFloorX(snap), viewportW - 80));
+    }
+
+    private int commentPanelMinInteractiveWidth(Snapshot snap) {
+        return clamp((int) Math.round(viewportW(snap) * 0.33), 240, 520);
+    }
+
+    private int commentPanelRecognitionFloorX(Snapshot snap) {
+        return Math.max(80, (int) Math.round(viewportW(snap) * 0.16));
+    }
+
+    private int commentPanelAbsoluteFloorX(Snapshot snap) {
+        return Math.max(40, (int) Math.round(viewportW(snap) * 0.08));
+    }
+
+    private double commentPanelInteractionMaxSafeX(Snapshot snap, int interactionMinX, double minSafeX) {
+        int viewportW = viewportW(snap);
+        double panelWidth = clampDouble(viewportW - interactionMinX - 80.0,
+                Math.min(180.0, Math.max(0.0, viewportW - interactionMinX - 120.0)),
+                Math.max(180.0, viewportW * 0.34));
+        return Math.max(minSafeX, Math.min(viewportW - 120.0, interactionMinX + panelWidth));
+    }
+
+    @Nullable
+    private Integer commentPanelRowStartX(Snapshot snap) {
+        List<CommentMatch> rows = commentMatches(snap, "").stream()
+                .filter(match -> isVisibleInViewport(match.comment(), snap))
+                .filter(match -> commentAuthorNearMatch(snap.tree(), match.comment()) != null)
+                .toList();
+        if (rows.isEmpty()) {
+            return null;
+        }
+        return rows.stream()
+                .mapToInt(match -> Math.min(match.comment().x(),
+                        commentAuthorNearMatch(snap.tree(), match.comment()).x()))
+                .min()
+                .orElse(0);
+    }
+
+    @Nullable
+    private Integer commentPanelStructuralStartX(Snapshot snap, List<TreeLine> lines) {
+        int viewportH = viewportH(snap);
+        int topLimit = Math.max(240, (int) Math.round(viewportH * 0.42));
+        int minStructuralX = commentPanelRecognitionFloorX(snap);
+        List<TreeLine> topRightish = lines.stream()
+                .filter(line -> isVisibleInViewport(line, snap))
+                .filter(line -> line.x() >= minStructuralX)
+                .filter(line -> line.y() <= topLimit)
+                .toList();
+
+        Integer headerX = topRightish.stream()
+                .filter(line -> isCommentPanelHeader(line.name()))
+                .map(TreeLine::x)
+                .min(Integer::compareTo)
+                .orElse(null);
+        if (headerX != null) {
+            return headerX;
+        }
+
+        List<TreeLine> tabs = topRightish.stream()
+                .filter(line -> isDouyinCommentPanelTab(normalizeQuery(line.name())))
+                .toList();
+        boolean hasCommentTab = tabs.stream().anyMatch(line -> normalizeQuery(line.name()).equals("评论"));
+        boolean hasSiblingTab = tabs.stream().anyMatch(line -> {
+            String name = normalizeQuery(line.name());
+            return name.equals("详情")
+                    || name.equals("TA的作品")
+                    || name.equals("ta的作品")
+                    || name.equals("问AI")
+                    || name.equals("问ai");
+        });
+        if (hasCommentTab && hasSiblingTab) {
+            return tabs.stream().map(TreeLine::x).min(Integer::compareTo).orElse(null);
+        }
+        return null;
+    }
+
+    private boolean isDouyinCommentPanelTab(String name) {
+        return name.equals("详情")
+                || name.equals("评论")
+                || name.equals("问AI")
+                || name.equals("问ai")
+                || name.equals("TA的作品")
+                || name.equals("ta的作品");
+    }
+
+    private boolean looksLikeCommentPanelRow(TreeLine line) {
+        String role = line.role().toLowerCase(Locale.ROOT);
+        if (!(role.equals("text") || role.equals("statictext") || role.equals("link") || role.equals("generic"))) {
+            return false;
+        }
+        String name = normalizeQuery(line.name());
+        return name.length() >= 4
+                && name.length() <= 180
+                && !isControlText(name)
+                && !isNavOnlyText(name)
+                && !isAvatarOrAccessoryText(name)
+                && !name.matches("^[\\d.,万wW]+.*$");
     }
 
     private boolean isVisibleInViewport(TreeLine line, Snapshot snap) {
@@ -2568,25 +3893,29 @@ public class LeadBrowserHarnessTool {
                 && line.y() < viewportH;
     }
 
+    private double centerX(TreeLine line) {
+        return line.x() + line.w() / 2.0;
+    }
+
     @Nullable
-    private TreeLine bestCommentTrigger(String tree) {
-        List<TreeLine> lines = parseTreeLines(tree);
+    private TreeLine bestCommentTrigger(Snapshot snap) {
+        List<TreeLine> lines = parseTreeLines(snap.tree());
         TreeLine explicit = lines.stream()
                 .filter(line -> line.name().contains("评论"))
                 .filter(line -> !isCommentPanelHeader(line.name()))
                 .filter(line -> !isLikelyCommentText(line))
-                .map(line -> new CommentTriggerCandidate(line, scoreCommentTrigger(line)))
+                .map(line -> new CommentTriggerCandidate(line, scoreCommentTrigger(snap, line)))
                 .filter(candidate -> candidate.score() >= 35)
                 .max(Comparator.comparingInt(CommentTriggerCandidate::score))
                 .map(CommentTriggerCandidate::line)
                 .orElse(null);
-        return explicit == null ? inferredCommentTriggerFromActionBar(lines) : explicit;
+        return explicit == null ? inferredCommentTriggerFromActionBar(snap, lines) : explicit;
     }
 
     @Nullable
-    private TreeLine inferredCommentTriggerFromActionBar(List<TreeLine> lines) {
+    private TreeLine inferredCommentTriggerFromActionBar(Snapshot snap, List<TreeLine> lines) {
         List<TreeLine> actionSignals = lines.stream()
-                .filter(this::isInteractionActionSignal)
+                .filter(line -> isInteractionActionSignal(snap, line))
                 .toList();
         if (actionSignals.isEmpty()) {
             return null;
@@ -2632,9 +3961,9 @@ public class LeadBrowserHarnessTool {
                 (int) Math.round(actionX - 36), (int) Math.round(y - 24), 72, 48);
     }
 
-    private boolean isInteractionActionSignal(TreeLine line) {
+    private boolean isInteractionActionSignal(Snapshot snap, TreeLine line) {
         String name = line.name();
-        return line.x() >= 500
+        return line.x() >= sideActionMinX(snap)
                 && line.y() >= 140
                 && line.w() <= 260
                 && line.h() <= 120
@@ -2658,10 +3987,14 @@ public class LeadBrowserHarnessTool {
                 .orElse(null);
     }
 
-    private int scoreCommentTrigger(TreeLine line) {
+    private int scoreCommentTrigger(Snapshot snap, TreeLine line) {
         String role = line.role().toLowerCase(Locale.ROOT);
         String name = line.name();
         int score = 0;
+        boolean sideAction = line.x() >= sideActionMinX(snap);
+        if (!"button".equals(role) && !"link".equals(role) && !"tab".equals(role) && !sideAction) {
+            return 0;
+        }
         if ("button".equals(role)) {
             score += 80;
         } else if ("link".equals(role) || "tab".equals(role)) {
@@ -2674,7 +4007,7 @@ public class LeadBrowserHarnessTool {
         } else if (name.contains("查看评论") || name.contains("全部评论")) {
             score += 35;
         }
-        if (line.x() >= 500 || line.y() >= 160) {
+        if (sideAction || line.y() >= 160) {
             score += 15;
         }
         if (line.w() <= 180 && line.h() <= 80) {
@@ -2683,27 +4016,36 @@ public class LeadBrowserHarnessTool {
         return score;
     }
 
+    private int sideActionMinX(Snapshot snap) {
+        int viewportW = viewportW(snap);
+        int ratioBased = clamp((int) Math.round(viewportW * 0.72),
+                Math.max(160, (int) Math.round(viewportW * 0.24)),
+                Math.max(160, viewportW - 80));
+        Integer panelStart = commentPanelStructuralStartX(snap, parseTreeLines(snap.tree()));
+        if (panelStart == null) {
+            return ratioBased;
+        }
+        int gutterWidth = clamp((int) Math.round(viewportW * 0.28), 180, 360);
+        return Math.min(ratioBased, Math.max(commentPanelAbsoluteFloorX(snap), panelStart - gutterWidth));
+    }
+
     private boolean isCommentPanelHeader(String name) {
         String trimmed = normalizeQuery(name);
-        return trimmed.matches("^全部评论\\s*\\d*$")
+        return trimmed.matches("^全部评论\\s*[（(]?\\s*\\d*\\s*[）)]?$")
                 || trimmed.matches("^\\d+\\s*条评论$")
-                || trimmed.equals("评论区");
+                || trimmed.equals("评论区")
+                || trimmed.equals("评论详情")
+                || trimmed.equals("回复详情")
+                || trimmed.equals("相关回复");
     }
 
     private List<CommentMatch> commentMatches(Snapshot snap, String targetComment) {
         return parseTreeLines(snap.tree()).stream()
                 .filter(this::isLikelyCommentText)
-                .filter(line -> isLikelyDouyinCommentColumn(line)
-                        || commentAuthorNearMatch(snap.tree(), line) != null)
                 .map(line -> new CommentMatch(line, scoreCommentSimilarity(targetComment, line.name())))
                 .sorted(Comparator.comparingInt(CommentMatch::score).reversed()
                         .thenComparing(match -> match.comment().y()))
                 .toList();
-    }
-
-    private boolean isLikelyDouyinCommentColumn(TreeLine line) {
-        return line.x() >= 520
-                || (line.x() >= 360 && line.y() >= 120 && line.w() <= 760);
     }
 
     private boolean isLikelyCommentText(TreeLine line) {
@@ -2714,6 +4056,9 @@ public class LeadBrowserHarnessTool {
         }
         String name = line.name().trim();
         if (name.length() < 4 || name.length() > 260) {
+            return false;
+        }
+        if (isReplyExpanderText(name)) {
             return false;
         }
         if (isControlText(name) || isNavOnlyText(name)) {
@@ -2728,7 +4073,7 @@ public class LeadBrowserHarnessTool {
         if (name.contains("全部评论") || name.contains("条评论") || name.contains("暂无评论")) {
             return false;
         }
-        if (name.length() <= 18 && !containsSentenceSignal(name)) {
+        if (name.length() <= 18 && !containsSentenceSignal(name) && !containsShortCommentSignal(name)) {
             return false;
         }
         return true;
@@ -2767,8 +4112,101 @@ public class LeadBrowserHarnessTool {
         Set<String> targetTerms = importantTerms(targetComment);
         Set<String> candidateTerms = importantTerms(candidateComment);
         score += intersectionSize(targetTerms, candidateTerms) * 8;
+        score -= missingRequiredEntityPenalty(targetComment, candidateComment);
 
         return clamp(score, 1, 100);
+    }
+
+    private int missingRequiredEntityPenalty(String targetComment, String candidateComment) {
+        Set<String> targetEntities = requiredCommentEntities(targetComment);
+        if (targetEntities.isEmpty()) {
+            return 0;
+        }
+        String candidate = normalizeForSimilarity(candidateComment);
+        boolean allPresent = targetEntities.stream()
+                .map(this::normalizeForSimilarity)
+                .allMatch(candidate::contains);
+        return allPresent ? 0 : 36;
+    }
+
+    private Set<String> requiredCommentEntities(String text) {
+        String normalized = normalizeForSimilarity(text);
+        Set<String> entities = new HashSet<>();
+        for (String entity : List.of("豆包", "deepseek", "openclaw", "claude", "codex", "chatgpt", "gpt")) {
+            if (normalized.contains(normalizeForSimilarity(entity))) {
+                entities.add(entity);
+            }
+        }
+        return entities;
+    }
+
+    @Nullable
+    private Integer semanticMatchScrollLimit(@Nullable Integer requested) {
+        if (requested == null) {
+            return null;
+        }
+        return Math.max(0, requested);
+    }
+
+    private CommentMatch scoreCommentLeadCandidate(Snapshot snap,
+                                                   TreeLine comment,
+                                                   String authorHint,
+                                                   String commentQuery) {
+        TreeLine author = commentAuthorNearMatch(snap.tree(), comment);
+        int commentScore = normalizeQuery(commentQuery).isBlank()
+                ? 0
+                : scoreCommentSimilarity(commentQuery, comment.name());
+        int authorScore = scoreAuthorSimilarity(authorHint, author == null ? "" : stripAvatarSuffix(author.name()));
+
+        boolean hasAuthor = !normalizeQuery(authorHint).isBlank();
+        boolean hasComment = !normalizeQuery(commentQuery).isBlank();
+        int score;
+        if (hasComment) {
+            score = commentScore;
+            if (hasAuthor && authorScore >= 85) {
+                score += 14;
+            } else if (hasAuthor && authorScore >= 60) {
+                score += 6;
+            }
+        } else if (hasAuthor) {
+            score = authorScore;
+        } else {
+            score = 0;
+        }
+        return new CommentMatch(comment, clamp(score, 1, 100));
+    }
+
+    private int matchedCommentThreshold(String authorHint, String commentQuery) {
+        boolean hasAuthor = !normalizeQuery(authorHint).isBlank();
+        boolean hasComment = !normalizeQuery(commentQuery).isBlank();
+        if (hasComment) {
+            return 60;
+        }
+        return hasAuthor ? 82 : 60;
+    }
+
+    private int scoreAuthorSimilarity(String targetAuthor, String candidateAuthor) {
+        String target = normalizeForSimilarity(targetAuthor);
+        String candidate = normalizeForSimilarity(candidateAuthor);
+        if (target.isBlank()) {
+            return 0;
+        }
+        if (candidate.isBlank()) {
+            return 1;
+        }
+        if (candidate.equals(target)) {
+            return 100;
+        }
+        if (candidate.contains(target) || target.contains(candidate)) {
+            return 92;
+        }
+        Set<String> targetBigrams = charNgrams(target, 2);
+        Set<String> candidateBigrams = charNgrams(candidate, 2);
+        if (targetBigrams.isEmpty()) {
+            return 1;
+        }
+        return clamp((int) Math.round(intersectionSize(targetBigrams, candidateBigrams) * 100.0
+                / targetBigrams.size()), 1, 100);
     }
 
     private String normalizeForSimilarity(String text) {
@@ -2800,6 +4238,17 @@ public class LeadBrowserHarnessTool {
                         "弄不懂", "学不会", "整不明白", "操作不了"));
         addConceptIfAny(concepts, hay, "powerless",
                 List.of("无力感", "无力", "无助", "无奈", "挫败", "崩溃", "吃力"));
+        addConceptIfAny(concepts, hay, "majority_users",
+                List.of("99%", "百分之九十九", "九成", "九成以上", "大多数", "绝大多数",
+                        "大部分", "大部分人", "多数人", "九成以上的普通人"));
+        addConceptIfAny(concepts, hay, "ordinary_users",
+                List.of("普通人", "一般人", "大部分人", "多数人", "99%的人", "九成以上的普通人"));
+        addConceptIfAny(concepts, hay, "simple_tool_enough",
+                List.of("豆包就行", "用豆包", "用豆包就行", "就行了", "够了", "够用",
+                        "没必要", "不需要", "不用", "根本没必要", "先别折腾"));
+        addConceptIfAny(concepts, hay, "complex_tool_unneeded",
+                List.of("没必要", "根本没必要", "不需要", "不用", "别折腾", "先别折腾",
+                        "豆包就行", "用豆包就行", "没必要用"));
         return concepts;
     }
 
@@ -2813,7 +4262,9 @@ public class LeadBrowserHarnessTool {
         String normalized = normalizeForSimilarity(text);
         Set<String> terms = new HashSet<>();
         for (String term : List.of("老年人", "老人", "智能手机", "手机", "玩不懂", "不会用",
-                "看不懂", "搞不懂", "无力感", "无助", "无奈")) {
+                "看不懂", "搞不懂", "无力感", "无助", "无奈", "99%", "九成",
+                "九成以上", "普通人", "豆包", "就行", "没必要", "根本没必要",
+                "不需要", "不用", "别折腾")) {
             if (normalized.contains(normalizeForSimilarity(term))) {
                 terms.add(term);
             }
@@ -2840,6 +4291,19 @@ public class LeadBrowserHarnessTool {
                 || name.contains("?") || name.contains("像") || name.contains("感觉")
                 || name.contains("一样") || name.contains("就是") || name.contains("真的")
                 || name.contains("不会") || name.contains("不懂");
+    }
+
+    private boolean containsShortCommentSignal(String name) {
+        String normalized = normalizeForSimilarity(name);
+        return normalized.contains("99%")
+                || normalized.contains("百分之九十九")
+                || normalized.contains("九成")
+                || normalized.contains("用豆包")
+                || normalized.contains("豆包就行")
+                || normalized.contains("就行")
+                || normalized.contains("行了")
+                || normalized.contains("没必要")
+                || normalized.contains("不需要");
     }
 
     @Nullable
@@ -2914,7 +4378,9 @@ public class LeadBrowserHarnessTool {
             String suffix = i == 0 ? "" : "_retry_" + i;
             ObserveResult active = observeActive(stepPrefix + "_active_tab" + suffix, attempts, ctx);
             if (active.ok()) {
-                fallback = active.snapshot();
+                if (isDouyinSnapshot(active.snapshot())) {
+                    fallback = active.snapshot();
+                }
                 if (profileLooksOpen(active.snapshot(), previous)) {
                     return new ProfileOpenResult(true, active.snapshot(), BrowserTarget.ACTIVE);
                 }
@@ -2922,7 +4388,9 @@ public class LeadBrowserHarnessTool {
 
             ObserveResult main = observe(stepPrefix + "_main_tab" + suffix, attempts, ctx);
             if (main.ok()) {
-                fallback = main.snapshot();
+                if (isDouyinSnapshot(main.snapshot())) {
+                    fallback = main.snapshot();
+                }
                 if (profileLooksOpen(main.snapshot(), previous)) {
                     return new ProfileOpenResult(true, main.snapshot(), BrowserTarget.MAIN);
                 }
@@ -2942,7 +4410,23 @@ public class LeadBrowserHarnessTool {
 
     private boolean profileLooksOpen(Snapshot snap, @Nullable Snapshot previous) {
         String lowerUrl = decodeUrl(snap.url()).toLowerCase(Locale.ROOT);
+        if (!isDouyinSnapshot(snap)) {
+            return false;
+        }
         if (lowerUrl.contains("douyin.com/user/") || lowerUrl.contains("/user/")) {
+            return true;
+        }
+        String tree = snap.tree();
+        boolean hasProfileAction = hasProfileActionButton(snap, "关注", "已关注", "互相关注")
+                || hasProfileActionButton(snap, "私信", "发私信", "消息");
+        boolean hasProfileSignal = parseTreeLines(tree).stream()
+                .map(TreeLine::name)
+                .anyMatch(name -> name.contains("粉丝") || name.contains("获赞")
+                        || name.contains("作品") || name.contains("IP属地")
+                        || name.contains("抖音号"))
+                || snap.title().contains("主页")
+                || tree.contains("私信");
+        if (hasProfileAction && hasProfileSignal) {
             return true;
         }
         if (previous != null && samePageLocation(previous, snap)) {
@@ -2951,11 +4435,7 @@ public class LeadBrowserHarnessTool {
         if (containsDouyinSearchResultContext(snap) || hasVisibleCommentPanel(snap)) {
             return false;
         }
-        String tree = snap.tree();
-        return hasProfileActionButton(snap, "关注", "已关注", "互相关注")
-                && parseTreeLines(tree).stream()
-                .map(TreeLine::name)
-                .anyMatch(name -> name.contains("粉丝") || name.contains("获赞"));
+        return false;
     }
 
     private boolean samePageLocation(Snapshot left, Snapshot right) {
@@ -2972,37 +4452,250 @@ public class LeadBrowserHarnessTool {
                                                 BrowserTarget target,
                                                 List<Map<String, Object>> attempts,
                                                 ToolContext ctx) {
-        boolean followClicked = false;
+        boolean followAttempted = false;
+        boolean followConfirmed = profileAlreadyFollowed(current);
         TreeLine follow = bestProfileAction(current, List.of("关注"));
-        if (follow != null && !follow.name().contains("已关注") && !follow.name().contains("互相关注")) {
-            JsonNode followClick = clickAtLine("click_profile_follow", follow, target, attempts, ctx);
+        if (!followConfirmed && follow != null && !follow.name().contains("已关注") && !follow.name().contains("互相关注")) {
+            JsonNode followClick = clickProfileActionWithRetry("click_profile_follow",
+                    follow, target, attempts, ctx);
+            followAttempted = true;
             if (ok(followClick)) {
-                followClicked = true;
                 localWait("wait_after_profile_follow_click", attempts, PAGE_SETTLE_DELAY_MS);
-                ObserveResult afterFollow = observeForTarget("observe_profile_after_follow", target, attempts, ctx);
+                TargetSnapshot afterFollow = observeFollowStateOnTarget(
+                        "observe_profile_after_follow", target, attempts, ctx);
                 if (afterFollow.ok()) {
                     current = afterFollow.snapshot();
+                    target = afterFollow.target();
+                    followConfirmed = true;
+                } else {
+                    ObserveResult refreshed = observeForTarget("observe_profile_after_unconfirmed_follow",
+                            target, attempts, ctx);
+                    if (refreshed.ok()) {
+                        current = refreshed.snapshot();
+                        followConfirmed = profileAlreadyFollowed(current);
+                    }
+                }
+            } else {
+                ObserveResult afterFailedFollow = observeForTarget("observe_profile_after_failed_follow",
+                        target, attempts, ctx);
+                if (afterFailedFollow.ok()) {
+                    current = afterFailedFollow.snapshot();
+                    followConfirmed = profileAlreadyFollowed(current);
                 }
             }
-        } else if (profileAlreadyFollowed(current)) {
-            followClicked = true;
         }
 
         TreeLine dm = bestProfileAction(current, List.of("私信", "发私信", "消息"));
         if (dm == null) {
-            return new FollowDmResult(current, followClicked, false);
+            return new FollowDmResult(current, target, followAttempted, followConfirmed, false);
         }
 
-        JsonNode dmClick = clickAtLine("click_profile_private_message", dm, target, attempts, ctx);
+        JsonNode dmClick = clickProfileActionWithRetry("click_profile_private_message", dm, target, attempts, ctx);
         if (!ok(dmClick)) {
-            return new FollowDmResult(current, followClicked, false);
+            TargetSnapshot afterFailedDm = observeDmStateAcrossTargets(
+                    "observe_profile_after_failed_private_message", target, attempts, ctx);
+            if (afterFailedDm.ok()) {
+                return new FollowDmResult(afterFailedDm.snapshot(), afterFailedDm.target(),
+                        followAttempted, followConfirmed, true);
+            }
+            return new FollowDmResult(current, target, followAttempted, followConfirmed, false);
         }
         localWait("wait_after_profile_private_message_click", attempts, PAGE_SETTLE_DELAY_MS);
-        ObserveResult afterDm = observeForTarget("observe_profile_after_private_message", target, attempts, ctx);
+        TargetSnapshot afterDm = observeDmStateAcrossTargets("observe_profile_after_private_message",
+                target, attempts, ctx);
         if (afterDm.ok()) {
-            current = afterDm.snapshot();
+            return new FollowDmResult(afterDm.snapshot(), afterDm.target(), followAttempted, followConfirmed, true);
         }
-        return new FollowDmResult(current, followClicked, dmLooksOpen(current));
+        ObserveResult fallback = observeForTarget("observe_profile_after_private_message_fallback", target, attempts, ctx);
+        if (fallback.ok()) {
+            current = fallback.snapshot();
+            TreeLine retryDm = bestProfileAction(current, List.of("私信", "发私信", "消息"));
+            if (retryDm != null) {
+                JsonNode retryDmClick = clickProfileActionWithRetry("click_profile_private_message_effect_retry",
+                        retryDm, target, attempts, ctx);
+                if (ok(retryDmClick)) {
+                    localWait("wait_after_profile_private_message_effect_retry", attempts, PAGE_SETTLE_DELAY_MS);
+                    TargetSnapshot retryDmState = observeDmStateAcrossTargets(
+                            "observe_profile_after_private_message_effect_retry", target, attempts, ctx);
+                    if (retryDmState.ok()) {
+                        return new FollowDmResult(retryDmState.snapshot(), retryDmState.target(),
+                                followAttempted, followConfirmed, true);
+                    }
+                }
+            }
+        }
+        return new FollowDmResult(current, target, followAttempted, followConfirmed, dmLooksOpen(current));
+    }
+
+    private TargetSnapshot observeFollowStateOnTarget(String stepPrefix,
+                                                      BrowserTarget target,
+                                                      List<Map<String, Object>> attempts,
+                                                      ToolContext ctx) {
+        for (int i = 0; i < PROFILE_OPEN_OBSERVE_ATTEMPTS; i++) {
+            String suffix = i == 0 ? "" : "_retry_" + i;
+            ObserveResult observed = observeForTarget(stepPrefix + suffix, target, attempts, ctx);
+            if (observed.ok() && profileAlreadyFollowed(observed.snapshot())) {
+                return new TargetSnapshot(true, observed.snapshot(), target);
+            }
+            if (i < PROFILE_OPEN_OBSERVE_ATTEMPTS - 1) {
+                localWait(stepPrefix + "_wait_for_follow_state_" + (i + 1), attempts,
+                        FILTER_PANEL_SETTLE_DELAY_MS);
+            }
+        }
+        return new TargetSnapshot(false, Snapshot.empty(), target);
+    }
+
+    private TargetSnapshot observeDmStateAcrossTargets(String stepPrefix,
+                                                       BrowserTarget preferred,
+                                                       List<Map<String, Object>> attempts,
+                                                       ToolContext ctx) {
+        for (int i = 0; i < PROFILE_OPEN_OBSERVE_ATTEMPTS; i++) {
+            String suffix = i == 0 ? "" : "_retry_" + i;
+            for (BrowserTarget target : preferred == BrowserTarget.ACTIVE
+                    ? List.of(BrowserTarget.ACTIVE, BrowserTarget.MAIN)
+                    : List.of(BrowserTarget.MAIN, BrowserTarget.ACTIVE)) {
+                ObserveResult observed = observeForTarget(stepPrefix + suffix, target, attempts, ctx);
+                if (observed.ok() && dmLooksOpen(observed.snapshot())) {
+                    return new TargetSnapshot(true, observed.snapshot(), target);
+                }
+            }
+            if (i < PROFILE_OPEN_OBSERVE_ATTEMPTS - 1) {
+                localWait(stepPrefix + "_wait_for_dm_" + (i + 1), attempts, FILTER_PANEL_SETTLE_DELAY_MS);
+            }
+        }
+        return new TargetSnapshot(false, Snapshot.empty(), preferred);
+    }
+
+    private JsonNode clickProfileActionWithRetry(String step,
+                                                 TreeLine action,
+                                                 BrowserTarget target,
+                                                 List<Map<String, Object>> attempts,
+                                                 ToolContext ctx) {
+        JsonNode click = clickAtLine(step, action, target, attempts, ctx);
+        if (ok(click)) {
+            return click;
+        }
+        localWait(step + "_wait_before_retry", attempts, FILTER_PANEL_SETTLE_DELAY_MS);
+        ObserveResult refreshed = observeForTarget(step + "_observe_before_retry", target, attempts, ctx);
+        TreeLine refreshedAction = refreshed.ok()
+                ? bestProfileAction(refreshed.snapshot(), List.of(action.name()))
+                : null;
+        TreeLine retryTarget = refreshedAction == null ? action : refreshedAction;
+        return clickAtLine(step + "_retry", retryTarget, target, attempts, ctx);
+    }
+
+    private JsonNode typePrivateMessageDraft(String step,
+                                             String draft,
+                                             Snapshot snap,
+                                             BrowserTarget target,
+                                             List<Map<String, Object>> attempts,
+                                             ToolContext ctx) {
+        if (!dmLooksOpen(snap)) {
+            return mapper.createObjectNode()
+                    .put("ok", false)
+                    .put("code", "DM_TARGET_NOT_CONFIRMED")
+                    .put("message", "Refusing to type because the current target is not a confirmed Douyin DM page.");
+        }
+        TypePayload.FocusTarget focusTarget = focusTargetForPrivateMessageInput(snap);
+        if (focusTarget == null) {
+            return mapper.createObjectNode()
+                    .put("ok", false)
+                    .put("code", "DM_INPUT_NOT_FOUND")
+                    .put("message", "Confirmed Douyin DM page was not found with a visible message input.");
+        }
+        return callBrowser(step, attempts, () -> {
+            if (target == BrowserTarget.ACTIVE) {
+                return browser.extension_browser_type_at_active(draft, focusTarget, ctx);
+            }
+            return browser.extension_browser_type_at(draft, focusTarget, ctx);
+        });
+    }
+
+    @Nullable
+    private TypePayload.FocusTarget focusTargetForPrivateMessageInput(Snapshot snap) {
+        TreeLine best = parseTreeLines(snap.tree()).stream()
+                .filter(line -> isVisibleInViewport(line, snap))
+                .filter(this::isPrivateMessageInput)
+                .max(Comparator.comparingInt(line -> scorePrivateMessageInput(line, snap)))
+                .orElse(null);
+        if (best == null || best.w() <= 0 || best.h() <= 0) {
+            return null;
+        }
+        return new TypePayload.FocusTarget(best.x() + best.w() / 2.0, best.y() + best.h() / 2.0);
+    }
+
+    private boolean isPrivateMessageInput(TreeLine line) {
+        String role = line.role().toLowerCase(Locale.ROOT);
+        if (!(role.equals("textbox") || role.equals("textarea") || role.equals("input") || role.equals("generic"))) {
+            return false;
+        }
+        String name = normalizeQuery(line.name());
+        return name.contains("输入消息")
+                || name.contains("说点什么")
+                || name.contains("按Enter发送")
+                || name.contains("按enter发送")
+                || role.equals("textbox");
+    }
+
+    private int scorePrivateMessageInput(TreeLine line, Snapshot snap) {
+        String name = normalizeQuery(line.name());
+        int score = 0;
+        if (name.contains("输入消息") || name.contains("按Enter发送") || name.contains("按enter发送")) {
+            score += 100;
+        }
+        if (line.y() >= viewportH(snap) * 0.45) {
+            score += 30;
+        }
+        if (line.w() >= 180) {
+            score += 20;
+        }
+        return score;
+    }
+
+    private String engagementCandidateKey(CommentMatch match, @Nullable TreeLine author) {
+        String authorName = author == null ? "" : stripAvatarSuffix(author.name());
+        return normalizeForSimilarity(authorName) + "|" + normalizeForSimilarity(match.comment().name());
+    }
+
+    private Map<String, Object> engagementResult(String status,
+                                                 String message,
+                                                 Snapshot snap,
+                                                 CommentMatch match,
+                                                 @Nullable TreeLine author,
+                                                 BrowserTarget target,
+                                                 boolean followAttempted,
+                                                 boolean followConfirmed,
+                                                 boolean dmOpened,
+                                                 boolean draftTyped,
+                                                 String profileUrl) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("status", status);
+        if (!message.isBlank()) {
+            out.put("message", message);
+        }
+        out.put("matched_comment", match.comment().name());
+        out.put("matched_author", author == null ? "" : stripAvatarSuffix(author.name()));
+        out.put("match_score", match.score());
+        out.put("profile_url", blankFallback(profileUrl, snap.url()));
+        out.put("target", target.name().toLowerCase(Locale.ROOT));
+        out.put("follow_attempted", followAttempted);
+        out.put("follow_clicked", followConfirmed);
+        out.put("follow_confirmed", followConfirmed);
+        out.put("dm_opened", dmOpened);
+        out.put("dm_draft_typed", draftTyped);
+        out.put("url", snap.url());
+        out.put("title", snap.title());
+        return out;
+    }
+
+    private String engagementStatus(boolean dmOpened, boolean draftTyped, String dmDraft) {
+        if (draftTyped || (dmOpened && dmDraft.isBlank())) {
+            return dmDraft.isBlank() ? "DONE_DM_OPENED" : "DONE_DM_DRAFT_TYPED";
+        }
+        if (dmOpened) {
+            return "PARTIAL_DM_OPENED_DRAFT_NOT_TYPED";
+        }
+        return "PARTIAL_PROFILE_FOLLOW_ATTEMPTED";
     }
 
     @Nullable
@@ -3064,24 +4757,28 @@ public class LeadBrowserHarnessTool {
 
     private boolean dmLooksOpen(Snapshot snap) {
         String lowerUrl = decodeUrl(snap.url()).toLowerCase(Locale.ROOT);
+        if (!isDouyinSnapshot(snap)) {
+            return false;
+        }
         List<TreeLine> lines = parseTreeLines(snap.tree());
         String tree = snap.tree();
-        return lowerUrl.contains("/im/")
-                || lowerUrl.contains("conversation")
-                || lowerUrl.contains("chat")
-                || lines.stream().anyMatch(line -> {
+        boolean urlLooksDm = lowerUrl.contains("/im/")
+                || lowerUrl.contains("douyin.com/im")
+                || lowerUrl.contains("/conversation/");
+        boolean hasDmInput = lines.stream().anyMatch(line -> {
                     String role = line.role().toLowerCase(Locale.ROOT);
                     String name = normalizeQuery(line.name());
                     return (role.equals("textbox") || role.equals("textarea") || role.equals("input"))
                             && (name.contains("输入消息") || name.contains("说点什么") || name.contains("按Enter发送")
                             || name.contains("按 enter 发送"));
-                })
-                || lines.stream().anyMatch(line -> {
+                });
+        boolean hasSendButton = lines.stream().anyMatch(line -> {
                     String role = line.role().toLowerCase(Locale.ROOT);
                     String name = normalizeQuery(line.name());
                     return role.equals("button") && name.equals("发送");
-                })
-                || tree.contains("按 Enter 发送");
+                });
+        return (urlLooksDm && (hasDmInput || hasSendButton || tree.contains("按 Enter 发送")))
+                || (hasDmInput && hasSendButton && lowerUrl.contains("douyin.com"));
     }
 
     private void appendCandidateComments(List<String> out, List<CommentMatch> matches, int limit) {
@@ -3089,6 +4786,22 @@ public class LeadBrowserHarnessTool {
             String text = match.comment().name();
             if (out.stream().noneMatch(existing -> existing.contains(text))) {
                 out.add("score=" + match.score() + " " + text);
+            }
+            if (out.size() >= limit) {
+                return;
+            }
+        }
+    }
+
+    private void appendCandidateComments(List<String> out, List<CommentMatch> matches, Snapshot snap, int limit) {
+        for (CommentMatch match : matches) {
+            String text = match.comment().name();
+            if (out.stream().noneMatch(existing -> existing.contains(text))) {
+                TreeLine author = commentAuthorNearMatch(snap.tree(), match.comment());
+                String authorName = author == null ? "" : stripAvatarSuffix(author.name());
+                out.add("score=" + match.score()
+                        + (authorName.isBlank() ? "" : " author=" + authorName)
+                        + " comment=" + text);
             }
             if (out.size() >= limit) {
                 return;
@@ -3108,18 +4821,49 @@ public class LeadBrowserHarnessTool {
                 List.copyOf(candidateComments), attempts);
     }
 
-    private FirstCommentEngagementRun firstCommentEngagementFail(String status,
-                                                                 String message,
-                                                                 Snapshot snap,
-                                                                 @Nullable CommentMatch firstComment,
-                                                                 @Nullable TreeLine author,
-                                                                 String profileUrl,
-                                                                 boolean followClicked,
-                                                                 boolean dmOpened,
-                                                                 List<String> candidateComments,
-                                                                 List<Map<String, Object>> attempts) {
-        return new FirstCommentEngagementRun(false, status, message, snap, firstComment, author, profileUrl,
-                followClicked, dmOpened, List.copyOf(candidateComments), attempts);
+    private MatchedCommentEngagementRun matchedCommentEngagementFail(String status,
+                                                                     String message,
+                                                                     Snapshot snap,
+                                                                     @Nullable CommentMatch match,
+                                                                     @Nullable TreeLine author,
+                                                                     String profileUrl,
+                                                                     boolean followAttempted,
+                                                                     boolean followClicked,
+                                                                     boolean dmOpened,
+                                                                     boolean draftTyped,
+                                                                     List<String> candidateComments,
+                                                                     List<Map<String, Object>> attempts) {
+        int declared = declaredCommentCountFromCommentPanel(snap);
+        int scanned = visiblePanelCommentMatches(snap).size();
+        boolean complete = commentsReachedEnd(snap) && (declared <= 0 || scanned >= declared);
+        String reason = commentsReachedEnd(snap)
+                ? (complete ? "END_OF_LIST" : "END_BEFORE_DECLARED_COUNT")
+                : "";
+        return matchedCommentEngagementFail(status, message, snap, match, author, profileUrl,
+                followAttempted, followClicked, dmOpened, draftTyped, candidateComments,
+                complete, reason, scanned, declared, attempts);
+    }
+
+    private MatchedCommentEngagementRun matchedCommentEngagementFail(String status,
+                                                                     String message,
+                                                                     Snapshot snap,
+                                                                     @Nullable CommentMatch match,
+                                                                     @Nullable TreeLine author,
+                                                                     String profileUrl,
+                                                                     boolean followAttempted,
+                                                                     boolean followClicked,
+                                                                     boolean dmOpened,
+                                                                     boolean draftTyped,
+                                                                     List<String> candidateComments,
+                                                                     boolean scanComplete,
+                                                                     String scanStopReason,
+                                                                     int scannedCommentCount,
+                                                                     int declaredCommentCount,
+                                                                     List<Map<String, Object>> attempts) {
+        return new MatchedCommentEngagementRun(false, status, message, snap, match, author, profileUrl,
+                followAttempted, followClicked, dmOpened, draftTyped, List.copyOf(candidateComments), List.of(),
+                scanComplete, scanStopReason, scannedCommentCount, declaredCommentCount,
+                attempts);
     }
 
     private VideoCommentsRun videoCommentsFail(String status,
@@ -3135,10 +4879,20 @@ public class LeadBrowserHarnessTool {
             return true;
         }
         return trimmed.matches("^(搜索|筛选|排序|综合|视频|用户|直播|商品|音乐|话题|地点|更多|展开|收起|回复|点赞|分享|收藏|评论|关注|私信|登录)$")
+                || isReplyExpanderText(trimmed)
                 || trimmed.matches("^\\d+\\s*(赞|评论|回复|分享|收藏)$")
                 || trimmed.contains("登录后")
                 || trimmed.contains("扫码登录")
                 || trimmed.contains("验证码登录");
+    }
+
+    private boolean isReplyExpanderText(String name) {
+        String trimmed = normalizeQuery(name);
+        return trimmed.matches("^(展开|查看|显示).{0,12}(\\d+\\s*)?条?回复.*$")
+                || trimmed.matches("^共?\\d+\\s*条回复.*$")
+                || trimmed.matches("^还有\\d+\\s*条回复.*$")
+                || trimmed.matches("^展开回复.*$")
+                || trimmed.matches("^收起回复.*$");
     }
 
     private boolean isNavOnlyText(String name) {
@@ -3260,7 +5014,14 @@ public class LeadBrowserHarnessTool {
     }
 
     private boolean ok(JsonNode node) {
+        if (node == null) {
+            return false;
+        }
         return node.path("ok").asBoolean(false);
+    }
+
+    private boolean isMalformedToolResult(JsonNode node) {
+        return node != null && "MALFORMED_TOOL_RESULT".equals(node.path("code").asText(""));
     }
 
     private boolean isSessionDetached(JsonNode node) {
@@ -3317,6 +5078,24 @@ public class LeadBrowserHarnessTool {
         } catch (Exception ignored) {
             return "站点";
         }
+    }
+
+    private boolean isDouyinUrl(String url) {
+        try {
+            String host = java.net.URI.create(url).getHost();
+            if (host == null) {
+                return false;
+            }
+            String normalized = host.toLowerCase(Locale.ROOT);
+            return normalized.equals("douyin.com") || normalized.endsWith(".douyin.com");
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private boolean isDouyinSnapshot(Snapshot snap) {
+        String lowerUrl = decodeUrl(snap.url()).toLowerCase(Locale.ROOT);
+        return lowerUrl.contains("douyin.com");
     }
 
     private String decodeUrl(String url) {
@@ -3396,21 +5175,34 @@ public class LeadBrowserHarnessTool {
                                   List<String> candidateComments,
                                   List<Map<String, Object>> attempts) {}
 
-    private record FirstCommentEngagementRun(boolean done,
-                                             String status,
-                                             String message,
-                                             Snapshot snapshot,
-                                             @Nullable CommentMatch firstComment,
-                                             @Nullable TreeLine author,
-                                             String profileUrl,
-                                             boolean followClicked,
-                                             boolean dmOpened,
-                                             List<String> candidateComments,
-                                             List<Map<String, Object>> attempts) {}
+    private record MatchedCommentEngagementRun(boolean done,
+                                               String status,
+                                               String message,
+                                               Snapshot snapshot,
+                                               @Nullable CommentMatch match,
+                                               @Nullable TreeLine author,
+                                               String profileUrl,
+                                               boolean followAttempted,
+                                               boolean followClicked,
+                                               boolean dmOpened,
+                                               boolean draftTyped,
+                                               List<String> candidateComments,
+                                               List<Map<String, Object>> engagementResults,
+                                               boolean scanComplete,
+                                               String scanStopReason,
+                                               int scannedCommentCount,
+                                               int declaredCommentCount,
+                                               List<Map<String, Object>> attempts) {}
 
-    private record FollowDmResult(Snapshot snapshot, boolean followClicked, boolean dmOpened) {}
+    private record FollowDmResult(Snapshot snapshot,
+                                  BrowserTarget target,
+                                  boolean followAttempted,
+                                  boolean followConfirmed,
+                                  boolean dmOpened) {}
 
     private record ProfileOpenResult(boolean ok, Snapshot snapshot, BrowserTarget target) {}
+
+    private record TargetSnapshot(boolean ok, Snapshot snapshot, BrowserTarget target) {}
 
     private record VideoCommentsRun(boolean done,
                                     String status,
@@ -3423,6 +5215,8 @@ public class LeadBrowserHarnessTool {
     private record CommentReveal(Snapshot snapshot, boolean opened) {}
 
     private record ClickPoint(double x, double y) {}
+
+    private record CommentPanelLock(int minX, int interactionMinX, double anchorX, double anchorY) {}
 
     private record Snapshot(String url, String title, String tree, int viewportW, int viewportH) {
         static Snapshot empty() {
@@ -3446,6 +5240,25 @@ public class LeadBrowserHarnessTool {
     private record CommentTriggerCandidate(TreeLine line, int score) {}
 
     private record CommentMatch(TreeLine comment, int score) {}
+
+    private record CommentItem(String author, String text, boolean authorClickable, int score) {}
+
+    private record CommentCollection(List<CommentItem> comments,
+                                     String reason,
+                                     Snapshot snapshot,
+                                     int declaredCommentCount) {}
+
+    private record ReplyExpansion(Snapshot snapshot, int clicked) {}
+
+    private record CollectRun(boolean done,
+                              String status,
+                              String message,
+                              Snapshot snapshot,
+                              List<Map<String, Object>> videos,
+                              List<Map<String, Object>> leadCandidates,
+                              int totalComments,
+                              boolean collectionComplete,
+                              List<Map<String, Object>> attempts) {}
 
     private record CommentAuthorCandidate(TreeLine line, int score) {}
 

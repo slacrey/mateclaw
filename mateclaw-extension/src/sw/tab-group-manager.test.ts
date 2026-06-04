@@ -16,6 +16,7 @@ function fakeChrome(
   opts: { missingTabs?: number[]; nextGroupId?: number } = {},
 ) {
   const onRemovedListeners: Array<(tabId: number, info: any) => void> = []
+  const onCreatedListeners: Array<(tab: chrome.tabs.Tab) => void> = []
   const onPageLoadedListeners: Array<(details: any) => void> = []
   const sentUp: EdgeMessage[] = []
   // Records of the tab-group API calls so tests can assert the official
@@ -42,6 +43,9 @@ function fakeChrome(
         onRemoved: {
           addListener: (fn: any) => onRemovedListeners.push(fn),
         },
+        onCreated: {
+          addListener: (fn: any) => onCreatedListeners.push(fn),
+        },
         // Promise overload: returns a fresh group id when none supplied,
         // echoes the joined group id when one is passed.
         group: vi.fn(async (info: { tabIds: number[]; groupId?: number }) => {
@@ -61,6 +65,7 @@ function fakeChrome(
           if (missingTabs.has(tabId)) throw new Error(`No tab with id: ${tabId}`)
           return { id: tabId, windowId: 901 } as chrome.tabs.Tab
         }),
+        query: vi.fn(async () => []),
       },
       tabGroups: {
         update: vi.fn(async (groupId: number, props: chrome.tabGroups.UpdateProperties) => {
@@ -92,6 +97,9 @@ function fakeChrome(
     },
     triggerTabClose: async (tabId: number) => {
       await Promise.all(onRemovedListeners.map(fn => fn(tabId, {})))
+    },
+    triggerTabCreated: async (tab: chrome.tabs.Tab) => {
+      await Promise.all(onCreatedListeners.map(fn => fn(tab)))
     },
     triggerPageLoad: async (tabId: number, url: string, frameId = 0) => {
       await Promise.all(onPageLoadedListeners.map(fn => fn({ tabId, url, frameId })))
@@ -390,6 +398,62 @@ describe('TabGroupManager', () => {
 
     expect(await manager.isManagedTab(42)).toBe(true)
     expect(await manager.isManagedTab(99)).toBe(false)
+  })
+
+  it('getActiveTabId returns only an active tab inside the managed group', async () => {
+    const f = fakeChrome()
+    const manager = new TabGroupManager(f.chrome, f.sendUp)
+
+    await manager.setMainTabId('alice', 42)
+    await manager.joinChromeGroup('alice', 42)
+    await manager.addTab('alice', 43)
+    ;(f.chrome.tabs.query as any).mockImplementation(async (query: chrome.tabs.QueryInfo) => {
+      if ('groupId' in query) return [{ id: 43, active: true }]
+      return [{ id: 99, active: true }]
+    })
+
+    expect(await manager.getActiveTabId('alice')).toBe(43)
+  })
+
+  it('getActiveTabId refuses the browser-global active tab when it is outside the managed group', async () => {
+    const f = fakeChrome()
+    const manager = new TabGroupManager(f.chrome, f.sendUp)
+
+    await manager.setMainTabId('alice', 42)
+    ;(f.chrome.tabs.query as any).mockResolvedValue([{ id: 99, active: true }])
+
+    expect(await manager.getActiveTabId('alice')).toBeNull()
+  })
+
+  it('getActiveTabId adopts an active tab opened from a managed tab', async () => {
+    const f = fakeChrome()
+    const manager = new TabGroupManager(f.chrome, f.sendUp)
+
+    await manager.setMainTabId('alice', 42)
+    ;(f.chrome.tabs.query as any).mockResolvedValue([{ id: 77, active: true, openerTabId: 42 }])
+
+    expect(await manager.getActiveTabId('alice')).toBe(77)
+    expect(f.storage.tabGroups.alice?.allTabIds).toContain(77)
+    expect(f.groupCalls).toContainEqual({ tabIds: [77], groupId: undefined })
+  })
+
+  it('new tabs opened from a managed tab join the same MateClaw group', async () => {
+    const f = fakeChrome({ tabGroups: {} }, { nextGroupId: 7001 })
+    const manager = new TabGroupManager(f.chrome, f.sendUp)
+
+    await manager.setMainTabId('alice', 42)
+    await manager.joinChromeGroup('alice', 42)
+    f.groupCalls.length = 0
+    f.tabMessages.length = 0
+
+    await f.triggerTabCreated({ id: 77, openerTabId: 42 } as chrome.tabs.Tab)
+
+    expect(f.storage.tabGroups.alice?.allTabIds).toContain(77)
+    expect(f.groupCalls).toEqual([{ tabIds: [77], groupId: 7001 }])
+    expect(f.tabMessages).toContainEqual({
+      tabId: 77,
+      message: { type: 'SHOW_STATIC_INDICATOR', dismissed: false },
+    })
   })
 
   it('switchToMainTabForTab activates the subject main tab and focuses its window', async () => {

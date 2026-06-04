@@ -77,32 +77,45 @@ class ReasoningNodeEmptyCompletionTest {
     }
 
     @Test
-    @DisplayName("完整抖音评论获客调试请求 → 命中第一条评论关注私信 harness 条件。")
-    void fullDouyinFirstCommentFollowDmRequestMatchesDeterministicRoute() {
-        String request = "从头开始测试：用我的浏览器打开抖音，搜索 openclaw，点击筛选，按最多点赞排序，点开第一个视频，打开评论区，获取评论区内容，点开第一个评论的人，关注并点击私信，不发送";
+    @DisplayName("完整抖音语义评论获客请求 → 命中语义评论关注私信 harness 条件。")
+    void fullDouyinSemanticCommentFollowDmRequestMatchesDeterministicRoute() {
+        String request = "用我的浏览器打开抖音，搜索 openclaw，点击筛选并按最多点赞排序，点开第一个视频，打开评论区，匹配评论语义“对于99%的人用豆包就行了。”，匹配上后点开这个评论用户主页，关注并点击私信，在私信输入框里输入“你好”，不要发送。";
 
         assertTrue(ReasoningNode.isFullDouyinSearchSortVideoCommentsRequest(request));
-        assertTrue(ReasoningNode.isFullDouyinFirstCommentFollowDmRequest(request));
+        assertTrue(ReasoningNode.isFullDouyinSemanticCommentFollowDmRequest(request));
         assertEquals("openclaw", ReasoningNode.extractDouyinQuery(request));
+        assertEquals("对于99%的人用豆包就行了", ReasoningNode.extractDouyinCommentQuery(request));
+        assertEquals("你好", ReasoningNode.extractDmDraft(request));
     }
 
     @Test
-    @DisplayName("第一条可见评论表达 → 也命中完整关注私信 harness。")
-    void firstVisibleCommentFollowDmRequestMatchesDeterministicRoute() {
+    @DisplayName("第一条可见评论表达 → 不再命中语义评论关注私信 harness。")
+    void firstVisibleCommentFollowDmRequestDoesNotMatchSemanticRoute() {
         String request = "用我的浏览器打开抖音，搜索 openclaw，点击筛选，按最多点赞排序，点开第一个视频，打开评论区，读取评论区内容，点开第一条可见评论的用户主页，直接点击关注，然后点击私信入口，但不要发送任何消息。";
 
         assertTrue(ReasoningNode.isFullDouyinSearchSortVideoCommentsRequest(request));
-        assertTrue(ReasoningNode.isFullDouyinFirstCommentFollowDmRequest(request));
+        assertFalse(ReasoningNode.isFullDouyinSemanticCommentFollowDmRequest(request));
         assertEquals("openclaw", ReasoningNode.extractDouyinQuery(request));
     }
 
     @Test
-    @DisplayName("当前评论区继续执行 → 命中第一条评论关注私信 current-page harness。")
-    void currentCommentsFirstVisibleCommentFollowDmRequestMatchesDeterministicRoute() {
-        assertTrue(ReasoningNode.isCurrentDouyinFirstCommentFollowDmRequest(
-                "评论区已经打开，点开第一条可见评论的用户主页，直接点击关注，然后点击私信入口，但不要发送任何消息。"));
-        assertTrue(ReasoningNode.isCurrentDouyinFirstCommentFollowDmRequest(
-                "继续，点开第一个评论的人主页，关注并点击私信，不发送"));
+    @DisplayName("前 N 个视频全部评论采集请求 → 命中多视频评论采集 harness 条件。")
+    void collectCommentsAcrossVideosRequestMatchesDeterministicRoute() {
+        String request = "用我的浏览器打开抖音,搜索 openclaw,点击筛选并按最多点赞排序,然后逐个打开前 3 个视频,把每个视频评论区的全部评论滚动采集下来,采集完一个自动进入下一个。";
+
+        assertTrue(ReasoningNode.isDouyinCollectCommentsAcrossVideosRequest(request));
+        assertEquals("openclaw", ReasoningNode.extractDouyinQuery(request));
+        assertEquals(3, ReasoningNode.extractRequestedVideoCount(request, 1));
+    }
+
+    @Test
+    @DisplayName("单视频全部评论采集请求 → 命中第一视频评论采集 harness 条件。")
+    void collectFirstVideoCommentsRequestMatchesDeterministicRoute() {
+        String request = "先解决抖音搜索 openclaw 后第一个视频的所有评论滚动收集全部，不要切换到第二个视频";
+
+        assertTrue(ReasoningNode.isDouyinCollectFirstVideoCommentsRequest(request));
+        assertFalse(ReasoningNode.isDouyinCollectCommentsAcrossVideosRequest(request));
+        assertEquals("openclaw", ReasoningNode.extractDouyinQuery(request));
     }
 
     @Test
@@ -114,11 +127,13 @@ class ReasoningNodeEmptyCompletionTest {
                 "用我的浏览器打开抖音，搜索 openclaw，点击筛选，按最多点赞排序"));
         assertFalse(ReasoningNode.isFullDouyinSearchSortVideoCommentsRequest(
                 "在抖音搜索 openclaw，提取搜索结果数据"));
-        assertFalse(ReasoningNode.isFullDouyinFirstCommentFollowDmRequest(
+        assertFalse(ReasoningNode.isFullDouyinSemanticCommentFollowDmRequest(
                 "用我的浏览器打开抖音，搜索 openclaw，点击筛选，按最多点赞排序，点开第一个视频，打开评论区"));
-        assertFalse(ReasoningNode.isFullDouyinFirstCommentFollowDmRequest(
+        assertFalse(ReasoningNode.isFullDouyinSemanticCommentFollowDmRequest(
                 "用我的浏览器打开抖音，搜索 openclaw，点击筛选，按最多点赞排序，点开第一个视频，打开评论区，点开第一个评论的人，关注并点击私信"));
-        assertFalse(ReasoningNode.isCurrentDouyinFirstCommentFollowDmRequest(
-                "评论区已经打开，点开第一条评论的用户主页，只读取资料，不关注不私信"));
+        assertFalse(ReasoningNode.isDouyinCollectCommentsAcrossVideosRequest(
+                "用我的浏览器打开抖音，搜索 openclaw，点击筛选，按最多点赞排序，点开第一个视频，打开评论区"));
+        assertFalse(ReasoningNode.isDouyinCollectFirstVideoCommentsRequest(
+                "用我的浏览器打开抖音，搜索 openclaw，点击筛选，按最多点赞排序，点开第一个视频，打开评论区"));
     }
 }

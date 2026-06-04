@@ -23,10 +23,12 @@ import com.fasterxml.jackson.annotation.JsonSubTypes;
         @JsonSubTypes.Type(value = TypePayload.class,      name = "type"),
         @JsonSubTypes.Type(value = PressKeyPayload.class,  name = "press_key"),
         @JsonSubTypes.Type(value = ScrollPayload.class,    name = "scroll"),
+        @JsonSubTypes.Type(value = ScrollRegionPayload.class, name = "scroll_region"),
         @JsonSubTypes.Type(value = MoveMousePayload.class, name = "move_mouse"),
         @JsonSubTypes.Type(value = WaitPayload.class,      name = "wait")
 })
 public sealed interface ActionPayload
         permits NavigatePayload, ClickPayload, TypePayload,
-                PressKeyPayload, ScrollPayload, MoveMousePayload, WaitPayload {
+                PressKeyPayload, ScrollPayload, ScrollRegionPayload,
+                MoveMousePayload, WaitPayload {
 }

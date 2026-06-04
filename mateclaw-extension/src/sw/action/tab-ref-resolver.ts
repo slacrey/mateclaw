@@ -13,10 +13,10 @@ export interface TabRefResolverDeps {
  * Resolves a TabRef wire-form value to a concrete Chrome tab id.
  *
  *   "main"   → TabGroupManager.getMainTabId(subject)
- *   "active" → chrome.tabs.query({ active: true, lastFocusedWindow: true })[0].id
+ *   "active" → active tab inside the subject's managed MateClaw tab group
  *   <int>    → that integer literally
  *
- * Returns null if resolution fails (no main tab, no active tab, or wrong type).
+ * Returns null if resolution fails (no main tab, no managed active tab, or wrong type).
  * Callers should map null to ActionResult.Failure(code='NO_TARGET_TAB').
  */
 export class TabRefResolver {
@@ -63,14 +63,13 @@ export class TabRefResolver {
     }
 
     if (tabRef === 'active') {
-      const chrome = this.deps.chrome ?? globalThis.chrome
-      const tabs = await chrome.tabs.query({
-        active: true,
-        lastFocusedWindow: true,
-      })
-      const first = tabs[0]
-      if (!first || typeof first.id !== 'number') return null
-      return first.id
+      try {
+        const resolver = this.deps.tabGroupManager.getActiveTabId
+        if (typeof resolver !== 'function') return null
+        return await resolver.call(this.deps.tabGroupManager, this.deps.subject)
+      } catch {
+        return null
+      }
     }
 
     // Future-proof: an unrecognized string falls through here. Treat as a

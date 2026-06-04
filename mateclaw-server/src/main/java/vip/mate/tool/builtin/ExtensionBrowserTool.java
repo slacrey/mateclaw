@@ -19,6 +19,8 @@ import vip.mate.browser.edge.action.NavigatePayload;
 import vip.mate.browser.edge.action.NavigateSuccess;
 import vip.mate.browser.edge.action.PressKeyPayload;
 import vip.mate.browser.edge.action.ScrollPayload;
+import vip.mate.browser.edge.action.ScrollRegionPayload;
+import vip.mate.browser.edge.action.ScrollRegionSuccess;
 import vip.mate.browser.edge.action.ScrollSuccess;
 import vip.mate.browser.edge.action.TabRef;
 import vip.mate.browser.edge.action.TypePayload;
@@ -326,12 +328,25 @@ public class ExtensionBrowserTool {
     String extension_browser_type_at(String text,
                                      @Nullable TypePayload.FocusTarget focusTarget,
                                      @Nullable ToolContext ctx) {
+        return extension_browser_type_at_tab(new TabRef.Main(), text, focusTarget, ctx);
+    }
+
+    String extension_browser_type_at_active(String text,
+                                            @Nullable TypePayload.FocusTarget focusTarget,
+                                            @Nullable ToolContext ctx) {
+        return extension_browser_type_at_tab(new TabRef.Active(), text, focusTarget, ctx);
+    }
+
+    private String extension_browser_type_at_tab(TabRef tabRef,
+                                                 String text,
+                                                 @Nullable TypePayload.FocusTarget focusTarget,
+                                                 @Nullable ToolContext ctx) {
         BrowserSession session = resolveSession();
         if (session == null) return noSession();
 
         ActionRequest req = new ActionRequest(
                 newMsgId(),
-                new TabRef.Main(),
+                tabRef,
                 ActionKind.TYPE,
                 new TypePayload(text, focusTarget),
                 DEFAULT_DEADLINE_MS);
@@ -354,14 +369,22 @@ public class ExtensionBrowserTool {
     }
 
     String extension_browser_click_at(double x, double y, @Nullable ToolContext ctx) {
-        return extension_browser_click_at_tab(new TabRef.Main(), x, y, ctx);
+        return extension_browser_click_at_tab(new TabRef.Main(), x, y, "natural", ctx);
     }
 
     String extension_browser_click_at_active(double x, double y, @Nullable ToolContext ctx) {
-        return extension_browser_click_at_tab(new TabRef.Active(), x, y, ctx);
+        return extension_browser_click_at_tab(new TabRef.Active(), x, y, "natural", ctx);
     }
 
-    String extension_browser_click_at_tab(TabRef tabRef, double x, double y, @Nullable ToolContext ctx) {
+    String extension_browser_click_at_linear(double x, double y, @Nullable ToolContext ctx) {
+        return extension_browser_click_at_tab(new TabRef.Main(), x, y, "linear", ctx);
+    }
+
+    String extension_browser_click_at_tab(TabRef tabRef,
+                                          double x,
+                                          double y,
+                                          String profile,
+                                          @Nullable ToolContext ctx) {
         BrowserSession session = resolveSession();
         if (session == null) return noSession();
 
@@ -369,7 +392,7 @@ public class ExtensionBrowserTool {
                 newMsgId(),
                 tabRef,
                 ActionKind.MOVE_MOUSE,
-                new MoveMousePayload(x, y, "natural"),
+                new MoveMousePayload(x, y, profile),
                 DEFAULT_DEADLINE_MS);
         ActionRequest click = new ActionRequest(
                 newMsgId(),
@@ -382,18 +405,41 @@ public class ExtensionBrowserTool {
     }
 
     String extension_browser_hover_at(double x, double y, @Nullable ToolContext ctx) {
+        return extension_browser_hover_at(x, y, "natural", ctx);
+    }
+
+    String extension_browser_hover_at_linear(double x, double y, @Nullable ToolContext ctx) {
+        return extension_browser_hover_at_tab(new TabRef.Main(), x, y, "linear", ctx);
+    }
+
+    private String extension_browser_hover_at(double x,
+                                              double y,
+                                              String profile,
+                                              @Nullable ToolContext ctx) {
+        return extension_browser_hover_at_tab(new TabRef.Main(), x, y, profile, ctx);
+    }
+
+    String extension_browser_hover_at_active_linear(double x, double y, @Nullable ToolContext ctx) {
+        return extension_browser_hover_at_tab(new TabRef.Active(), x, y, "linear", ctx);
+    }
+
+    private String extension_browser_hover_at_tab(TabRef tabRef,
+                                                  double x,
+                                                  double y,
+                                                  String profile,
+                                                  @Nullable ToolContext ctx) {
         BrowserSession session = resolveSession();
         if (session == null) return noSession();
 
         ActionRequest move = new ActionRequest(
                 newMsgId(),
-                new TabRef.Main(),
+                tabRef,
                 ActionKind.MOVE_MOUSE,
-                new MoveMousePayload(x, y, "natural"),
+                new MoveMousePayload(x, y, profile),
                 DEFAULT_DEADLINE_MS);
         ActionRequest dwell = new ActionRequest(
                 newMsgId(),
-                new TabRef.Main(),
+                tabRef,
                 ActionKind.WAIT,
                 new WaitPayload("time", 450L, null, null),
                 DEFAULT_DEADLINE_MS);
@@ -417,16 +463,80 @@ public class ExtensionBrowserTool {
             @ToolParam(description = "Total scroll distance in CSS pixels. Default 600.", required = false)
             Integer distancePx,
             @Nullable ToolContext ctx) {
+        return extension_browser_scroll_at(direction, distancePx, null, null, ctx);
+    }
+
+    String extension_browser_scroll_at(String direction,
+                                       Integer distancePx,
+                                       @Nullable Double x,
+                                       @Nullable Double y,
+                                       @Nullable ToolContext ctx) {
+        return extension_browser_scroll_at_tab(new TabRef.Main(), direction, distancePx, x, y, ctx);
+    }
+
+    String extension_browser_scroll_at_active(String direction,
+                                              Integer distancePx,
+                                              @Nullable Double x,
+                                              @Nullable Double y,
+                                              @Nullable ToolContext ctx) {
+        return extension_browser_scroll_at_tab(new TabRef.Active(), direction, distancePx, x, y, ctx);
+    }
+
+    private String extension_browser_scroll_at_tab(TabRef tabRef,
+                                                   String direction,
+                                                   Integer distancePx,
+                                                   @Nullable Double x,
+                                                   @Nullable Double y,
+                                                   @Nullable ToolContext ctx) {
         BrowserSession session = resolveSession();
         if (session == null) return noSession();
 
         ActionRequest req = new ActionRequest(
                 newMsgId(),
-                new TabRef.Main(),
+                tabRef,
                 ActionKind.SCROLL,
-                new ScrollPayload(direction, distancePx == null ? 600 : distancePx, 5),
+                new ScrollPayload(direction, distancePx == null ? 600 : distancePx, 5, x, y),
                 DEFAULT_DEADLINE_MS);
 
+        return executePlan(session, List.of(req));
+    }
+
+    @Tool(description = """
+            Scroll a previously detected browser region, such as a Douyin comments panel.
+            Prefer this over generic page scroll when collecting comments or working inside
+            side panels: the extension keeps the wheel safe point inside the registered
+            region and avoids drifting onto the video area or another tab.
+
+            region_key examples: douyin.comments, douyin.profile, dm.compose.
+            stop_when.type may be edge, selector_visible, or text_visible.
+
+            Returns: { "ok": true, "results": [{ "kind": "scroll_region", ... }] }
+            """)
+    public String extension_browser_scroll_region(
+            @ToolParam(description = "Registered region key, e.g. 'douyin.comments'") String regionKey,
+            @ToolParam(description = "Scroll direction: 'up' | 'down' | 'left' | 'right'") String direction,
+            @ToolParam(description = "Scroll amount in CSS pixels. Default 600.", required = false)
+            Double amount,
+            @ToolParam(description = "Stop predicate type: edge | selector_visible | text_visible", required = false)
+            String stopWhenType,
+            @ToolParam(description = "Selector for stop_when.type=selector_visible", required = false)
+            String selector,
+            @ToolParam(description = "Text for stop_when.type=text_visible", required = false)
+            String text,
+            @Nullable ToolContext ctx) {
+        BrowserSession session = resolveSession();
+        if (session == null) return noSession();
+
+        ScrollRegionPayload.StopWhen stopWhen = null;
+        if (stopWhenType != null && !stopWhenType.isBlank()) {
+            stopWhen = new ScrollRegionPayload.StopWhen(stopWhenType, emptyToNull(selector), emptyToNull(text));
+        }
+        ActionRequest req = new ActionRequest(
+                newMsgId(),
+                new TabRef.Main(),
+                ActionKind.SCROLL_REGION,
+                new ScrollRegionPayload(regionKey, direction, amount == null ? 600.0 : amount, stopWhen, 5),
+                DEFAULT_DEADLINE_MS);
         return executePlan(session, List.of(req));
     }
 
@@ -630,6 +740,7 @@ public class ExtensionBrowserTool {
             case TypeSuccess ignored -> "type";
             case vip.mate.browser.edge.action.PressKeySuccess ignored -> "press_key";
             case ScrollSuccess ignored -> "scroll";
+            case ScrollRegionSuccess ignored -> "scroll_region";
             case MoveMouseSuccess ignored -> "move_mouse";
             case WaitSuccess ignored -> "wait";
         };

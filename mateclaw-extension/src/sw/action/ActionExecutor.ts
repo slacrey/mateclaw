@@ -7,6 +7,7 @@ import type {
   TypeParams,
   PressKeyParams,
   ScrollParams,
+  ScrollRegionParams,
   MoveMouseParams,
   WaitParams,
 } from './types'
@@ -30,6 +31,7 @@ export interface ActionHandlers {
   type:       ActionHandler<TypeParams>
   press_key:  ActionHandler<PressKeyParams>
   scroll:     ActionHandler<ScrollParams>
+  scroll_region: ActionHandler<ScrollRegionParams>
   move_mouse: ActionHandler<MoveMouseParams>
   wait:       ActionHandler<WaitParams>
 }

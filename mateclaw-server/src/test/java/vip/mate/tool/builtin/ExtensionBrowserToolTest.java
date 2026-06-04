@@ -271,6 +271,22 @@ class ExtensionBrowserToolTest {
     }
 
     @Test
+    void browserTypeAtActive_dispatchesTypeRequestToActiveTabForHarnesses() throws Exception {
+        when(planExec.execute(any(), any())).thenReturn(Mono.just((PlanResult)
+                new PlanResult.Success(List.of(
+                        new ActionResult.Success(2L, new TypeSuccess(2))))));
+
+        tool.extension_browser_type_at_active("你好", null, null);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(planExec).execute(any(), captor.capture());
+        @SuppressWarnings("unchecked")
+        List<ActionRequest> sent = (List<ActionRequest>) captor.getValue();
+        assertThat(sent.get(0).kind()).isEqualTo(ActionKind.TYPE);
+        assertThat(sent.get(0).tabRef()).isEqualTo(new TabRef.Active());
+    }
+
+    @Test
     void browserPressKey_dispatchesPressKeyRequestForHarnesses() throws Exception {
         when(planExec.execute(any(), any())).thenReturn(Mono.just((PlanResult)
                 new PlanResult.Success(List.of(
@@ -358,6 +374,48 @@ class ExtensionBrowserToolTest {
     }
 
     @Test
+    void browserHoverAtLinear_dispatchesLinearMoveForHarnesses() throws Exception {
+        when(planExec.execute(any(), any())).thenReturn(Mono.just((PlanResult)
+                new PlanResult.Success(List.of(
+                        new ActionResult.Success(11L,
+                                new vip.mate.browser.edge.action.MoveMouseSuccess(11L, 2))))));
+
+        tool.extension_browser_hover_at_linear(900.0, 360.0, null);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(planExec).execute(any(), captor.capture());
+        @SuppressWarnings("unchecked")
+        List<ActionRequest> sent = (List<ActionRequest>) captor.getValue();
+        assertThat(sent).hasSize(2);
+        var move = (MoveMousePayload) sent.get(0).params();
+        assertThat(move.x()).isEqualTo(900.0);
+        assertThat(move.y()).isEqualTo(360.0);
+        assertThat(move.profile()).isEqualTo("linear");
+    }
+
+    @Test
+    void browserClickAtLinear_dispatchesLinearMoveThenClickForHarnesses() throws Exception {
+        when(planExec.execute(any(), any())).thenReturn(Mono.just((PlanResult)
+                new PlanResult.Success(List.of(
+                        new ActionResult.Success(11L,
+                                new vip.mate.browser.edge.action.MoveMouseSuccess(11L, 2)),
+                        new ActionResult.Success(12L,
+                                new vip.mate.browser.edge.action.ClickSuccess())))));
+
+        tool.extension_browser_click_at_linear(775.0, 163.0, null);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(planExec).execute(any(), captor.capture());
+        @SuppressWarnings("unchecked")
+        List<ActionRequest> sent = (List<ActionRequest>) captor.getValue();
+        assertThat(sent).hasSize(2);
+        assertThat(sent.get(0).kind()).isEqualTo(ActionKind.MOVE_MOUSE);
+        assertThat(sent.get(1).kind()).isEqualTo(ActionKind.CLICK);
+        var move = (MoveMousePayload) sent.get(0).params();
+        assertThat(move.profile()).isEqualTo("linear");
+    }
+
+    @Test
     void browserScroll_dispatchesScrollRequest() throws Exception {
         when(planExec.execute(any(), any())).thenReturn(Mono.just((PlanResult)
                 new PlanResult.Success(List.of())));
@@ -369,6 +427,23 @@ class ExtensionBrowserToolTest {
         @SuppressWarnings("unchecked")
         List<ActionRequest> sent = (List<ActionRequest>) captor.getValue();
         assertThat(sent.get(0).kind()).isEqualTo(ActionKind.SCROLL);
+    }
+
+    @Test
+    void browserScrollAt_dispatchesCoordinateScrollRequestForHarnesses() throws Exception {
+        when(planExec.execute(any(), any())).thenReturn(Mono.just((PlanResult)
+                new PlanResult.Success(List.of())));
+
+        tool.extension_browser_scroll_at("down", 800, 980.0, 360.0, null);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(planExec).execute(any(), captor.capture());
+        @SuppressWarnings("unchecked")
+        List<ActionRequest> sent = (List<ActionRequest>) captor.getValue();
+        assertThat(sent.get(0).kind()).isEqualTo(ActionKind.SCROLL);
+        var payload = (vip.mate.browser.edge.action.ScrollPayload) sent.get(0).params();
+        assertThat(payload.x()).isEqualTo(980.0);
+        assertThat(payload.y()).isEqualTo(360.0);
     }
 
     @Test

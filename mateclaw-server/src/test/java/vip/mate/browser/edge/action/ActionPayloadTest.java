@@ -61,12 +61,34 @@ class ActionPayloadTest {
 
     @Test
     void scrollPayload_roundTrip() throws Exception {
-        var scroll = new ScrollPayload("down", 600, 3);
+        var scroll = new ScrollPayload("down", 600, 3, 980.0, 360.0);
 
         String json = mapper.writeValueAsString(scroll);
         ScrollPayload back = mapper.readValue(json, ScrollPayload.class);
 
-        assertThat(json).contains("\"distance_px\":600");
+        assertThat(json)
+                .contains("\"distance_px\":600")
+                .contains("\"x\":980.0")
+                .contains("\"y\":360.0");
+        assertThat(back).isEqualTo(scroll);
+    }
+
+    @Test
+    void scrollRegionPayload_roundTrip() throws Exception {
+        var scroll = new ScrollRegionPayload(
+                "douyin.comments",
+                "down",
+                600,
+                new ScrollRegionPayload.StopWhen("edge", null, null),
+                4);
+
+        String json = mapper.writeValueAsString(scroll);
+        ScrollRegionPayload back = mapper.readValue(json, ScrollRegionPayload.class);
+
+        assertThat(json)
+                .contains("\"regionKey\":\"douyin.comments\"")
+                .contains("\"amount\":600.0")
+                .contains("\"stopWhen\":{\"type\":\"edge\"");
         assertThat(back).isEqualTo(scroll);
     }
 
@@ -191,6 +213,18 @@ class ActionPayloadTest {
 
         assertThat(p).isInstanceOf(PressKeyPayload.class);
         assertThat(((PressKeyPayload) p).key()).isEqualTo("x");
+    }
+
+    @Test
+    void abstractInterfaceDispatch_scrollRegion() throws Exception {
+        String json = """
+            {"kind":"scroll_region","regionKey":"douyin.comments","direction":"down","amount":600}
+            """;
+
+        ActionPayload p = mapper.readValue(json, ActionPayload.class);
+
+        assertThat(p).isInstanceOf(ScrollRegionPayload.class);
+        assertThat(((ScrollRegionPayload) p).regionKey()).isEqualTo("douyin.comments");
     }
 
     @Test

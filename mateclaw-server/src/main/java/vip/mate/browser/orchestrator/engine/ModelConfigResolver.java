@@ -8,6 +8,7 @@ import vip.mate.llm.service.ModelCapabilityService;
 import vip.mate.llm.service.ModelCapabilityService.Modality;
 import vip.mate.llm.service.ModelConfigService;
 import vip.mate.llm.service.ModelProviderService;
+import vip.mate.system.service.SystemSettingService;
 
 import java.util.List;
 import java.util.Optional;
@@ -16,13 +17,12 @@ import java.util.Optional;
  * Resolves which {@link ModelConfigEntity} the {@link VisionEngine} should
  * use to ground a screenshot.
  *
- * <p><strong>Phase 3 Wave A approach:</strong> a single global config key
- * {@code mateclaw.browser.vision.model-id} names the vision model by its
- * {@code model_name} (e.g. {@code qwen-vl-plus}); the resolver looks it up
- * via {@link ModelConfigService#findEnabledModel(String, String)} or
- * scans enabled rows by name. When unset or unresolvable the resolver
- * returns {@link Optional#empty()} so VisionEngine fails soft to
- * {@link vip.mate.browser.orchestrator.domain.GroundingResult.Miss}.
+ * <p><strong>Resolution order:</strong> the Settings → Models → Multimodal
+ * sidecar vision model ({@code mate_system_setting.default.vision_model})
+ * wins, because it is the user-facing UI for this setting. The legacy
+ * {@code mateclaw.browser.vision.model-id} property remains as an ops-only
+ * override when the UI setting is empty. When both are unset, auto-discovery
+ * selects a configured vision-capable model.
  *
  * <p><strong>TODO (Phase 4):</strong> resolution should consult the active
  * tenant / digital-employee binding instead of a global property so each
@@ -38,19 +38,24 @@ public class ModelConfigResolver {
     /** Default sentinel that triggers "no model configured" semantics. */
     public static final String DEFAULT_SENTINEL = "default-vision";
 
+    private static final String DEFAULT_VISION_MODEL_KEY = "default.vision_model";
+
     private final ModelConfigService modelConfigService;
     private final ModelCapabilityService capabilityService;
     private final ModelProviderService providerService;
+    private final SystemSettingService systemSettingService;
     private final String configuredModelName;
 
     public ModelConfigResolver(
             ModelConfigService modelConfigService,
             ModelCapabilityService capabilityService,
             ModelProviderService providerService,
+            SystemSettingService systemSettingService,
             @Value("${mateclaw.browser.vision.model-id:default-vision}") String configuredModelName) {
         this.modelConfigService = modelConfigService;
         this.capabilityService = capabilityService;
         this.providerService = providerService;
+        this.systemSettingService = systemSettingService;
         this.configuredModelName = configuredModelName == null ? DEFAULT_SENTINEL : configuredModelName.trim();
     }
 
@@ -59,9 +64,12 @@ public class ModelConfigResolver {
      *
      * <p>Two modes:
      * <ul>
-     *   <li><strong>Explicit pin</strong> — {@code mateclaw.browser.vision.model-id}
-     *       names a model; we look it up among enabled models (by modelName or
-     *       display name).</li>
+     *   <li><strong>UI sidecar setting</strong> — {@code default.vision_model}
+     *       stores a {@code mate_model_config.id}. This is what the Settings UI
+     *       writes.</li>
+     *   <li><strong>Legacy explicit pin</strong> —
+     *       {@code mateclaw.browser.vision.model-id} names a model; we look it
+     *       up among enabled models (by modelName or display name).</li>
      *   <li><strong>Auto-discovery</strong> (the default, when the property is
      *       unset) — pick an enabled, vision-capable chat model so screenshot
      *       grounding works out of the box. Vision is only a FALLBACK (it runs
@@ -76,9 +84,14 @@ public class ModelConfigResolver {
      */
     public Optional<ModelConfigEntity> resolveVisionModel() {
         try {
+            Optional<ModelConfigEntity> sidecarModel = resolveSidecarVisionModel();
+            if (sidecarModel.isPresent()) {
+                return sidecarModel;
+            }
+
             List<ModelConfigEntity> enabled = modelConfigService.listEnabledModels();
 
-            // Explicit pin wins.
+            // Legacy explicit pin wins when the UI sidecar setting is empty.
             if (!configuredModelName.isBlank() && !DEFAULT_SENTINEL.equals(configuredModelName)) {
                 ModelConfigEntity match = enabled.stream()
                         .filter(m -> configuredModelName.equalsIgnoreCase(m.getModelName())
@@ -149,6 +162,53 @@ public class ModelConfigResolver {
             log.warn("[VisionEngine] error resolving vision model: {}", e.getMessage());
             return Optional.empty();
         }
+    }
+
+    private Optional<ModelConfigEntity> resolveSidecarVisionModel() {
+        String raw = systemSettingService.getString(DEFAULT_VISION_MODEL_KEY, "");
+        if (raw == null || raw.isBlank()) {
+            return Optional.empty();
+        }
+        Long modelId;
+        try {
+            modelId = Long.parseLong(raw.trim());
+        } catch (NumberFormatException e) {
+            log.warn("[VisionEngine] configured sidecar vision model id '{}' is not a valid number", raw);
+            return Optional.empty();
+        }
+
+        ModelConfigEntity match;
+        try {
+            match = modelConfigService.getModel(modelId);
+        } catch (Exception e) {
+            log.warn("[VisionEngine] configured sidecar vision model id '{}' could not be loaded: {}",
+                    modelId, e.getMessage());
+            return Optional.empty();
+        }
+        if (!Boolean.TRUE.equals(match.getEnabled())) {
+            log.warn("[VisionEngine] configured sidecar vision model '{}/{}' is disabled",
+                    match.getProvider(), match.getModelName());
+            return Optional.empty();
+        }
+        if (!isChatModel(match)) {
+            log.warn("[VisionEngine] configured sidecar vision model '{}/{}' is model_type='{}', not chat",
+                    match.getProvider(), match.getModelName(), match.getModelType());
+            return Optional.empty();
+        }
+        if (!isVisionCapable(match)) {
+            log.warn("[VisionEngine] configured sidecar vision model '{}/{}' is not vision-capable; "
+                    + "ignoring it and falling back to legacy pin / auto-discovery",
+                    match.getProvider(), match.getModelName());
+            return Optional.empty();
+        }
+        if (!isProviderConfigured(match)) {
+            log.warn("[VisionEngine] configured sidecar vision model '{}/{}' provider '{}' is NOT configured; "
+                    + "the vision call will fail until you configure it in Settings→Models",
+                    match.getProvider(), match.getModelName(), match.getProvider());
+        }
+        log.debug("[VisionEngine] selected sidecar vision model '{} / {}' for grounding",
+                match.getProvider(), match.getModelName());
+        return Optional.of(match);
     }
 
     /** chat (multimodal) models only — embedding/rerank can't ground a screenshot. */

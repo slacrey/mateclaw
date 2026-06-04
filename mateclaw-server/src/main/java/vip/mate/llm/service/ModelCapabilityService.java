@@ -56,8 +56,12 @@ public class ModelCapabilityService {
         m.put("glm-4v",        EnumSet.of(Modality.VISION));
 
         // ===== Alibaba Qwen-VL / Omni =====
-        // Qwen3-VL (Sept 2025+, all sizes 2B/4B/8B/32B/30B-A3B/235B-A22B) and Qwen3.5-Omni
-        // (Mar 2026) natively handle video. Older qwen-vl-plus / qwen-vl base are image-only.
+        // Qwen3.6 / Qwen3.7 accept text + image + video. Qwen3-VL
+        // (Sept 2025+, all sizes 2B/4B/8B/32B/30B-A3B/235B-A22B) and
+        // Qwen3.5-Omni (Mar 2026) natively handle video. Older qwen-vl-plus /
+        // qwen-vl base are image-only.
+        m.put("qwen3.7",       EnumSet.of(Modality.VISION, Modality.VIDEO));
+        m.put("qwen3.6",       EnumSet.of(Modality.VISION, Modality.VIDEO));
         m.put("qwen3.5-omni",  EnumSet.of(Modality.VISION, Modality.VIDEO, Modality.AUDIO));
         m.put("qwen3-omni",    EnumSet.of(Modality.VISION, Modality.VIDEO, Modality.AUDIO));
         m.put("qwen2.5-omni",  EnumSet.of(Modality.VISION, Modality.VIDEO, Modality.AUDIO));
@@ -96,9 +100,10 @@ public class ModelCapabilityService {
         m.put("claude-haiku",  EnumSet.of(Modality.VISION));
 
         // ===== DeepSeek =====
-        // V4 (Apr 2026) is the first DeepSeek line with native multimodal — image + video.
-        // V3 and earlier are text-only (no entry → defaults to text only).
-        m.put("deepseek-v4",   EnumSet.of(Modality.VISION, Modality.VIDEO));
+        // DeepSeek's public Chat Completions schema still declares user content as plain text.
+        // Treat DeepSeek rows as text-only by default so they do not appear in the vision/video
+        // sidecar list. Deployments that proxy a DeepSeek-compatible multimodal backend can
+        // opt in explicitly via mate_model_config.modalities.
 
         // ===== ByteDance Doubao / Seed =====
         // Seed 2.0 Pro (Feb 2026) handles hour-long videos. Seed1.5-VL also supports video.

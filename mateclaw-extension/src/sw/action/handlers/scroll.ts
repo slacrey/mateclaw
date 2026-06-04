@@ -30,7 +30,7 @@ export interface ScrollHandlerDeps {
  *        left  -> deltaX = -d
  *        right -> deltaX = +d
  *   5. For i in 0..segments-1:
- *      a. send Input.dispatchMouseWheelEvent { type:'mouseWheel', x, y, deltaX, deltaY }
+ *      a. send Input.dispatchMouseEvent { type:'mouseWheel', x, y, deltaX, deltaY }
  *      b. if i < segments-1, wait segmentIntervalMs()
  *   6. return Success.
  *
@@ -48,7 +48,7 @@ export const scrollHandler = (deps: ScrollHandlerDeps): ActionHandler<ScrollPara
     try {
       await deps.debugger.attach(tabId)
 
-      const { x, y } = await viewportCenter(tabId)
+      const { x, y } = hasPoint(params) ? { x: params.x, y: params.y } : await viewportCenter(tabId)
       const segmentCount = normalizeSegments(params.segments)
       const distances = integerSegments(params.distance_px, segmentCount)
 
@@ -57,7 +57,7 @@ export const scrollHandler = (deps: ScrollHandlerDeps): ActionHandler<ScrollPara
         const deltaX = params.direction === 'left' || params.direction === 'right' ? distance : 0
         const deltaY = params.direction === 'up' || params.direction === 'down' ? distance : 0
 
-        await deps.debugger.send(tabId, 'Input.dispatchMouseWheelEvent', {
+        await deps.debugger.send(tabId, 'Input.dispatchMouseEvent', {
           type: 'mouseWheel',
           x,
           y,
@@ -83,6 +83,11 @@ export const scrollHandler = (deps: ScrollHandlerDeps): ActionHandler<ScrollPara
       throw err
     }
   }
+}
+
+function hasPoint(params: ScrollParams): params is ScrollParams & { x: number; y: number } {
+  return typeof params.x === 'number' && Number.isFinite(params.x)
+    && typeof params.y === 'number' && Number.isFinite(params.y)
 }
 
 function normalizeSegments(segments: number | undefined): number {
