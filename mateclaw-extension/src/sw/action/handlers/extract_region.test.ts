@@ -249,6 +249,7 @@ describe('extract_region handler', () => {
             <div class="comment-item-stats-container"><span>17</span><div>分享</div><span>回复</span></div>
           </div>
           <div class="dMP4Jal9"><div class="Hvm3BPqF">加载中</div></div>
+          <div id="end-marker">暂时没有更多评论</div>
         </div>
         <div class="comment-input-container"><span>留下你的精彩评论吧</span></div>
       </div>
@@ -266,6 +267,7 @@ describe('extract_region handler', () => {
     mockRect(document.querySelector('#item2')!, { x: 128, y: 410, width: 610, height: 160 })
     mockRect(document.querySelector('#author2')!, { x: 230, y: 416, width: 120, height: 28 })
     mockRect(document.querySelector('#body2')!, { x: 230, y: 456, width: 500, height: 56 })
+    mockRect(document.querySelector('#end-marker')!, { x: 410, y: 780, width: 170, height: 28 })
 
     const regions = new RegionRegistry()
     regions.register({ key: 'douyin.comments', tabId: 9, rect: { x: 98, y: 100, width: 660, height: 650 } })
@@ -277,6 +279,9 @@ describe('extract_region handler', () => {
     const items = result.ok ? result.payload.items as any[] : []
     expect(items.find(item => item.itemType === 'comment_count')).toEqual(expect.objectContaining({
       text: '758',
+    }))
+    expect(items.find(item => item.itemType === 'comment_end')).toEqual(expect.objectContaining({
+      text: '暂时没有更多评论',
     }))
     const comments = items.filter(item => item.itemType === 'douyin_comment')
     expect(comments).toEqual([

@@ -280,6 +280,7 @@ function extractDouyinComments(
 
   const unique: CommentCandidate[] = []
   const count = declaredCommentCountCandidate(regionRect)
+  const end = commentEndCandidate(regionRect)
   for (const candidate of commentListCandidates) {
     if (unique.some(existing => sameCommentCandidate(existing, candidate))) continue
     unique.push(candidate)
@@ -317,7 +318,7 @@ function extractDouyinComments(
       author: candidate.author,
       hrefs: candidate.hrefs,
     }))
-  return count ? [count, ...comments] : comments
+  return [count, end, ...comments].filter((item): item is ExtractedRegionItem => item !== null)
 
   interface CommentCandidate {
     el: HTMLElement
@@ -475,6 +476,50 @@ function extractDouyinComments(
       }
     }
     return null
+  }
+
+  function commentEndCandidate(
+    clip: { left: number; top: number; right: number; bottom: number },
+  ): ExtractedRegionItem | null {
+    const panelEntries = Array.from(document.querySelectorAll<HTMLElement>('#merge-all-comment-container'))
+      .map(el => ({ el, rect: el.getBoundingClientRect() }))
+      .filter(entry => entry.rect.width > 0 && entry.rect.height > 0)
+      .sort((a, b) => {
+        const overlapDiff = overlapAreaWithClip(b.rect, clip) - overlapAreaWithClip(a.rect, clip)
+        if (Math.abs(overlapDiff) > 1) return overlapDiff
+        return area(b.rect) - area(a.rect)
+      })
+    const panelEntry = panelEntries.find(entry => intersects(entry.rect, clip) || containsClip(entry.rect, clip))
+      ?? panelEntries[0]
+      ?? null
+    const searchRoot: ParentNode = panelEntry?.el ?? document
+    const panelRoot = panelEntry?.el ?? null
+    const all = Array.from(searchRoot.querySelectorAll<HTMLElement>('span, div, p, button, [role]'))
+      .map(el => ({ el, rect: el.getBoundingClientRect(), text: cleanText(el.innerText || el.textContent || '') }))
+      .filter(entry => entry.text && entry.rect.width > 0 && entry.rect.height > 0)
+      .filter(entry => {
+        if (panelRoot) return panelRoot.contains(entry.el)
+        return intersects(entry.rect, clip) || containsClip(entry.rect, clip)
+      })
+      .filter(entry => isCommentEndText(entry.text))
+      .sort((a, b) => b.rect.top - a.rect.top || a.rect.left - b.rect.left)
+    const entry = all[0]
+    if (!entry) return null
+    return {
+      text: cleanText(entry.text).replace(/\s+/g, ''),
+      role: entry.el.getAttribute('role') || undefined,
+      tag: entry.el.tagName.toLowerCase(),
+      bbox: bboxOf(entry.rect),
+      itemType: 'comment_end',
+    }
+  }
+
+  function isCommentEndText(text: string): boolean {
+    const compact = cleanText(text).replace(/\s+/g, '')
+    return compact.includes('暂时没有更多评论') ||
+      compact.includes('没有更多评论') ||
+      compact.includes('到底了') ||
+      compact.includes('已展示全部评论')
   }
 
   function parseDeclaredCommentCount(text: string): number {

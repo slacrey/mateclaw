@@ -202,6 +202,25 @@ public class DouyinCommentCollector {
         return best;
     }
 
+    public boolean commentsReachedEndFromExtractedRegion(JsonNode extractRoot) {
+        JsonNode results = extractRoot.path("results");
+        if (!results.isArray() || results.isEmpty()) {
+            return false;
+        }
+        JsonNode items = results.get(0).path("payload").path("items");
+        if (!items.isArray()) {
+            return false;
+        }
+        for (JsonNode item : items) {
+            String itemType = item.path("itemType").asText("");
+            String text = item.path("text").asText("");
+            if ("comment_end".equals(itemType) || commentsReachedEnd(text)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public NetworkCommentPage commentsFromNetworkPage(JsonNode page, String fallbackVideoKey) {
         JsonNode body = networkResponseBody(page);
         if (body == null || body.isMissingNode() || body.isNull()) {

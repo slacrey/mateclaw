@@ -157,6 +157,17 @@ class DouyinCommentCollectorTest {
     }
 
     @Test
+    void extractedRegionDetectsCommentEndMarker() throws Exception {
+        var root = mapper.readTree("""
+                {"ok":true,"results":[{"payload":{"items":[
+                  {"itemType":"comment_end","text":"暂时没有更多评论","bbox":{"x":410,"y":780,"width":170,"height":28}}
+                ]}}]}
+                """);
+
+        assertThat(collector.commentsReachedEndFromExtractedRegion(root)).isTrue();
+    }
+
+    @Test
     void extractedCommentKeyDoesNotDependOnWindowIndex() throws Exception {
         var first = mapper.readTree("""
                 {"ok":true,"results":[{"payload":{"items":[

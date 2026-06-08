@@ -544,7 +544,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
             if (lastCollectionAdvanced) {
                 advancedWindows++;
             }
-            boolean endReached = collector.commentsReachedEnd(current.tree(), region);
+            boolean endReached = commentsEndReached(current, region, extractedResult);
             if (!lastCollectionAdvanced) {
                 stableNoNew++;
             } else {
@@ -586,7 +586,8 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                         effectiveScrolls, advancedWindows, forwardScrolls, repeatedWindows, totalNewItems, staleScrolls,
                         lastWindowSignature, lastLoopMs, lastScrollEvidence);
             }
-            if (scrollEvidence.panelLostSignal()) {
+            boolean postScrollEndReached = commentsEndReached(current, region, ExtractedComments.empty());
+            if (scrollEvidence.panelLostSignal() && !postScrollEndReached) {
                 return collectionResult(seen, declared, false, "COMMENT_PANEL_LOST_DURING_SCROLL", scrolls + 1, stableNoNew,
                         stableEndMarker, lastExtractedCount, lastVisibleCount, lastNewItems,
                         lastCollectionAdvanced, lastWindowBeforeCount, lastWindowAfterCount,
@@ -624,6 +625,9 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         if (observed == null) {
             return false;
         }
+        if (collector.commentsReachedEnd(observed.tree())) {
+            return true;
+        }
         if (looksLikeStrongCommentPanelText(observed.tree())) {
             return true;
         }
@@ -635,6 +639,17 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
             return false;
         }
         return !collector.visibleComments(observed, region).isEmpty();
+    }
+
+    private boolean commentsEndReached(BrowserObservation observed, RegionInfo region, ExtractedComments extracted) {
+        if (extracted != null && extracted.endReached()) {
+            return true;
+        }
+        if (observed == null) {
+            return false;
+        }
+        return collector.commentsReachedEnd(observed.tree(), region)
+                || collector.commentsReachedEnd(observed.tree());
     }
 
     private long elapsedMs(long startedAtNanos) {
@@ -1029,13 +1044,14 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         try {
             JsonNode root = parse(browser.service_extract_region_main(region.regionKey(), 160));
             if (!root.path("ok").asBoolean(false)) {
-                return new ExtractedComments(List.of(), 0);
+                return ExtractedComments.empty();
             }
             return new ExtractedComments(
                     collector.commentsFromExtractedRegion(root, videoKey),
-                    collector.declaredCommentCountFromExtractedRegion(root));
+                    collector.declaredCommentCountFromExtractedRegion(root),
+                    collector.commentsReachedEndFromExtractedRegion(root));
         } catch (Exception ignored) {
-            return new ExtractedComments(List.of(), 0);
+            return ExtractedComments.empty();
         }
     }
 
@@ -1059,11 +1075,11 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         try {
             JsonNode root = parse(browser.service_douyin_comment_network_main("drain", null, null, null));
             if (!root.path("ok").asBoolean(false)) {
-                return new ExtractedComments(List.of(), 0);
+                return ExtractedComments.empty();
             }
             JsonNode pages = root.path("results").path(0).path("payload").path("pages");
             if (!pages.isArray()) {
-                return new ExtractedComments(List.of(), 0);
+                return ExtractedComments.empty();
             }
             LinkedHashMap<String, DouyinCommentItem> comments = new LinkedHashMap<>();
             int declared = 0;
@@ -1079,7 +1095,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
             }
             return new ExtractedComments(new ArrayList<>(comments.values()), declared);
         } catch (Exception ignored) {
-            return new ExtractedComments(List.of(), 0);
+            return ExtractedComments.empty();
         }
     }
 
@@ -1088,7 +1104,9 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
     }
 
     private void ensureCommentsPanelReady(RegionInfo region, BrowserObservation observed, String phase) {
-        if (commentsPanelReady(observed) || extractedCommentPanelReady(region, observed.url())) {
+        if (commentsPanelReady(observed)
+                || observed != null && collector.commentsReachedEnd(observed.tree())
+                || extractedCommentPanelReady(region, observed == null ? "" : observed.url())) {
             return;
         }
         ClickPoint point = commentRegionScrollPoint(region, 0);
@@ -1096,7 +1114,9 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         focusCommentRegion(point, "recover_comments_region_focus_" + phase);
         waitMs(300L);
         BrowserObservation recovered = observeMain("all");
-        if (commentsPanelReady(recovered) || extractedCommentPanelReady(region, recovered.url())) {
+        if (commentsPanelReady(recovered)
+                || recovered != null && collector.commentsReachedEnd(recovered.tree())
+                || extractedCommentPanelReady(region, recovered == null ? "" : recovered.url())) {
             return;
         }
         BrowserObservation latest = observeMain("all");
@@ -3922,7 +3942,15 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         }
     }
 
-    record ExtractedComments(List<DouyinCommentItem> comments, int declaredCommentCount) {
+    record ExtractedComments(List<DouyinCommentItem> comments, int declaredCommentCount, boolean endReached) {
+        ExtractedComments(List<DouyinCommentItem> comments, int declaredCommentCount) {
+            this(comments, declaredCommentCount, false);
+        }
+
+        static ExtractedComments empty() {
+            return new ExtractedComments(List.of(), 0, false);
+        }
+
         ExtractedComments {
             comments = comments == null ? List.of() : List.copyOf(comments);
             declaredCommentCount = Math.max(0, declaredCommentCount);
