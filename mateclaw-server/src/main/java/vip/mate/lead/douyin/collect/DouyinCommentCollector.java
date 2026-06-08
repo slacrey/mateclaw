@@ -28,6 +28,10 @@ public class DouyinCommentCollector {
     private static final String COUNT_NUMBER = "(?:\\d{1,3}(?:,\\d{3})+|\\d+(?:\\.\\d+)?)";
     private static final Pattern COUNT_AFTER_LABEL = Pattern.compile("评论\\s*[（(]?\\s*(" + COUNT_NUMBER + ")(万|w|k|千)?\\s*[）)]?\\s*(?:条)?", Pattern.CASE_INSENSITIVE);
     private static final Pattern COUNT_BEFORE_LABEL = Pattern.compile("(" + COUNT_NUMBER + ")(万|w|k|千)?\\s*(?:条)?\\s*评论", Pattern.CASE_INSENSITIVE);
+    private static final Pattern COMMENT_TIME_LOCATION = Pattern.compile(
+            "^(?:刚刚|昨天|前天|\\d{1,3}\\s*(?:秒|分钟|小时|天|周|个?月|年)前)(?:\\s*[·・•]\\s*[^\\s]{1,16})?$");
+    private static final Pattern GENERIC_USER_ID = Pattern.compile("^用户\\d{5,}$");
+    private static final Pattern BRACKET_EMOJI_ONLY = Pattern.compile("^(?:\\[[^\\]\\s]{1,12}])+$");
 
     public Optional<DouyinBrowserAdapter.RegionInfo> detectCommentRegion(DouyinBrowserAdapter.BrowserObservation obs) {
         List<TreeLine> lines = parseLines(obs.tree());
@@ -716,6 +720,9 @@ public class DouyinCommentCollector {
     private boolean isControlText(String text) {
         String value = clean(text);
         return value.isBlank()
+                || COMMENT_TIME_LOCATION.matcher(value).matches()
+                || GENERIC_USER_ID.matcher(value).matches()
+                || BRACKET_EMOJI_ONLY.matcher(value).matches()
                 || value.equals("评论")
                 || value.equals("详情")
                 || value.equals("TA的作品")

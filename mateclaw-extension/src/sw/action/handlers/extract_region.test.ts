@@ -136,6 +136,7 @@ describe('extract_region handler', () => {
   it('extracts Douyin comment items before scrolling even when the detected region is misaligned', async () => {
     document.body.innerHTML = `
       <div id="merge-all-comment-container">
+        <span id="count" class="BzbFvOrN">全部评论(758)</span>
         <div data-e2e="comment-list" id="list">
           <div class="F89wJ3x4" data-e2e="comment-item" id="item">
             <a id="avatar" href="//www.douyin.com/user/MS4wAvatar"><img alt="欢愉头像"></a>
@@ -153,6 +154,7 @@ describe('extract_region handler', () => {
       </div>
     `
     mockRect(document.querySelector('#merge-all-comment-container')!, { x: 96, y: 20, width: 670, height: 760 })
+    mockRect(document.querySelector('#count')!, { x: 130, y: 58, width: 150, height: 30 })
     mockRect(document.querySelector('#list')!, { x: 98, y: 100, width: 660, height: 650 })
     mockRect(document.querySelector('#item')!, { x: 128, y: 122, width: 610, height: 210 })
     mockRect(document.querySelector('#avatar')!, { x: 132, y: 132, width: 58, height: 58 })
@@ -166,7 +168,11 @@ describe('extract_region handler', () => {
     const result = await handler(9, { regionKey: 'douyin.comments' }, 1000)
 
     expect(result.ok).toBe(true)
-    const comments = result.ok ? (result.payload.items as any[]).filter(item => item.itemType === 'douyin_comment') : []
+    const items = result.ok ? result.payload.items as any[] : []
+    expect(items.find(item => item.itemType === 'comment_count')).toEqual(expect.objectContaining({
+      text: '758',
+    }))
+    const comments = items.filter(item => item.itemType === 'douyin_comment')
     expect(comments).toEqual([
       expect.objectContaining({
         author: '欢愉',

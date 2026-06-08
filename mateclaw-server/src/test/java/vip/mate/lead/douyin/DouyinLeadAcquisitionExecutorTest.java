@@ -138,7 +138,7 @@ class DouyinLeadAcquisitionExecutorTest {
                 List.of(browser.near),
                 50,
                 false,
-                "COMMENT_EXTRACTION_NOT_ADVANCING",
+                "PROTECTION_LIMIT",
                 12,
                 Map.of("partialCollection", true));
         LeadPersistenceService persistence = mock(LeadPersistenceService.class);
@@ -191,7 +191,7 @@ class DouyinLeadAcquisitionExecutorTest {
                 List.of(near, exact),
                 2,
                 true,
-                "DECLARED_COUNT_REACHED",
+                "END_OF_LIST",
                 1);
 
         @Override

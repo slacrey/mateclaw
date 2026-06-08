@@ -430,17 +430,30 @@ function extractDouyinComments(
   function declaredCommentCountCandidate(
     clip: { left: number; top: number; right: number; bottom: number },
   ): ExtractedRegionItem | null {
-    const panelRoot = Array.from(document.querySelectorAll<HTMLElement>('#merge-all-comment-container'))
+    const panelEntries = Array.from(document.querySelectorAll<HTMLElement>('#merge-all-comment-container'))
       .map(el => ({ el, rect: el.getBoundingClientRect() }))
       .filter(entry => entry.rect.width > 0 && entry.rect.height > 0)
-      .filter(entry => intersects(entry.rect, clip) || containsClip(entry.rect, clip))
-      .sort((a, b) => overlapAreaWithClip(b.rect, clip) - overlapAreaWithClip(a.rect, clip))[0]?.el ?? null
+      .sort((a, b) => {
+        const overlapDiff = overlapAreaWithClip(b.rect, clip) - overlapAreaWithClip(a.rect, clip)
+        if (Math.abs(overlapDiff) > 1) return overlapDiff
+        return area(b.rect) - area(a.rect)
+      })
+    const panelEntry = panelEntries.find(entry => intersects(entry.rect, clip) || containsClip(entry.rect, clip))
+      ?? panelEntries[0]
+      ?? null
+    const panelRoot = panelEntry?.el ?? null
+    const panelRect = panelEntry?.rect ?? null
     const searchRoot: ParentNode = panelRoot ?? document
     const all = Array.from(searchRoot.querySelectorAll<HTMLElement>('button, [role], span, div, h1, h2, h3'))
       .map(el => ({ el, rect: el.getBoundingClientRect(), text: cleanText(el.innerText || el.textContent || '') }))
       .filter(entry => entry.text && entry.rect.width > 0 && entry.rect.height > 0)
       .filter(entry => {
         const centerX = entry.rect.left + entry.rect.width / 2
+        if (panelRoot && panelRect) {
+          return entry.rect.top <= panelRect.top + 190 &&
+            entry.rect.left >= panelRect.left - 8 &&
+            entry.rect.right <= panelRect.right + 8
+        }
         return centerX >= clip.left && centerX <= clip.right && entry.rect.top <= clip.top + 180
       })
       .filter(entry => {

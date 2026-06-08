@@ -30,7 +30,6 @@ import java.util.function.Supplier;
 public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
 
     private static final int END_MARKER_STABLE_WINDOWS = 2;
-    private static final int NO_NEW_COMMENT_STALL_WINDOWS = 12;
     private static final int MAX_SCROLL_PROTECTION = 2_000;
     private static final long COMMENT_SCROLL_REGION_DEADLINE_MS = 15_000L;
     private static final long COMMENT_WHEEL_SCROLL_DEADLINE_MS = 3_500L;
@@ -161,11 +160,11 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
             try {
                 BrowserObservation observed = waitForSearchVerified(keyword, 4, 600L);
                 observed = ensurePlainSearchResultPage(observed, keyword);
-                if (mostLikedSortVerifiedByResultEvidence(observed, keyword)) {
+                if (mostLikedSortVerified(observed, keyword)) {
                     rememberSortedVideoSnapshot(keyword, observed);
                     return observed;
                 }
-                BrowserObservation panel = openFilterPanel(observed);
+                BrowserObservation panel = openFilterPanel(observed, keyword);
                 return selectMostLikedSortOption(panel, keyword);
             } catch (DouyinBrowserException e) {
                 if (!"SESSION_DETACHED".equals(e.code()) || attempt >= 2) {
@@ -174,7 +173,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                 lastDetached = e;
                 sleepLocal(1_200L);
                 BrowserObservation recovered = waitForSearchVerified(keyword, 4, 700L);
-                if (mostLikedSortVerifiedByResultEvidence(recovered, keyword)) {
+                if (mostLikedSortVerified(recovered, keyword)) {
                     rememberSortedVideoSnapshot(keyword, recovered);
                     return recovered;
                 }
@@ -545,17 +544,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
             if (lastCollectionAdvanced) {
                 advancedWindows++;
             }
-            boolean reachedDeclared = declared > 0 && seen.size() >= declared;
             boolean endReached = collector.commentsReachedEnd(current.tree(), region);
-            if (reachedDeclared) {
-                complete = true;
-                stopReason = "DECLARED_COUNT_REACHED";
-                return collectionResult(seen, declared, true, stopReason, scrolls, stableNoNew,
-                        stableEndMarker, lastExtractedCount, lastVisibleCount, lastNewItems,
-                        lastCollectionAdvanced, lastWindowBeforeCount, lastWindowAfterCount,
-                        effectiveScrolls, advancedWindows, forwardScrolls, repeatedWindows, totalNewItems, staleScrolls,
-                        lastWindowSignature, lastLoopMs, lastScrollEvidence);
-            }
             if (!lastCollectionAdvanced) {
                 stableNoNew++;
             } else {
@@ -606,16 +595,6 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
             }
             if (!commentsPanelStillVisible(current, region)) {
                 return collectionResult(seen, declared, false, "COMMENT_PANEL_LOST_AFTER_SCROLL", scrolls + 1, stableNoNew,
-                        stableEndMarker, lastExtractedCount, lastVisibleCount, lastNewItems,
-                        lastCollectionAdvanced, lastWindowBeforeCount, lastWindowAfterCount,
-                        effectiveScrolls, advancedWindows, forwardScrolls, repeatedWindows, totalNewItems, staleScrolls,
-                        lastWindowSignature, lastLoopMs, lastScrollEvidence);
-            }
-            if (stableNoNew >= NO_NEW_COMMENT_STALL_WINDOWS) {
-                String stalledReason = scrollEvidence.forwardProgress()
-                        ? "COMMENT_EXTRACTION_NOT_ADVANCING"
-                        : "COMMENT_SCROLL_STALLED";
-                return collectionResult(seen, declared, false, stalledReason, scrolls + 1, stableNoNew,
                         stableEndMarker, lastExtractedCount, lastVisibleCount, lastNewItems,
                         lastCollectionAdvanced, lastWindowBeforeCount, lastWindowAfterCount,
                         effectiveScrolls, advancedWindows, forwardScrolls, repeatedWindows, totalNewItems, staleScrolls,
@@ -1770,7 +1749,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         return lower.contains("modal_id=") || lower.contains("aweme_id=") || lower.contains("/video/");
     }
 
-    private BrowserObservation openFilterPanel(BrowserObservation searchPage) {
+    private BrowserObservation openFilterPanel(BrowserObservation searchPage, String keyword) {
         BrowserObservation observed = searchPage == null ? observeMain("all") : searchPage;
         TreeLine filter = findFilterTriggerLine(observed.tree());
         if (filter == null) {
@@ -1793,7 +1772,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
             throw new DouyinBrowserException("FILTER_NOT_FOUND",
                     "未找到筛选入口或无法打开筛选面板: hover=" + errorSummary(hoverByText)
                             + ", click=" + errorSummary(clickByText)
-                            + ", signals=" + sortSignals(observed, DouyinLeadAcquisitionInput.DEFAULT_KEYWORD));
+                            + ", signals=" + sortSignals(observed, keyword));
         }
 
         TreeLine filterLine = filter;
@@ -1816,7 +1795,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
             if (filterPanelLooksOpen(observed.tree())) {
                 return observed;
             }
-            if (mostLikedSortVerifiedByResultEvidence(observed, DouyinLeadAcquisitionInput.DEFAULT_KEYWORD)) {
+            if (mostLikedSortVerified(observed, keyword)) {
                 return observed;
             }
             if (!actionOk && i >= 2) {
@@ -1824,7 +1803,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
             }
         }
 
-        if (mostLikedSortVerifiedByResultEvidence(observed, DouyinLeadAcquisitionInput.DEFAULT_KEYWORD)) {
+        if (mostLikedSortVerified(observed, keyword)) {
             return observed;
         }
 
@@ -1832,13 +1811,13 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                 "已定位筛选入口但无法确认面板打开。filter=(" + filterPoint.x() + "," + filterPoint.y() + ")"
                         + ", filterLine=" + filterLine.name() + "@{" + filterLine.x() + "," + filterLine.y()
                         + " " + filterLine.w() + "x" + filterLine.h() + "}"
-                        + ", signals=" + sortSignals(observed, DouyinLeadAcquisitionInput.DEFAULT_KEYWORD)
+                        + ", signals=" + sortSignals(observed, keyword)
                         + ", tree=" + treeExcerpt(observed.tree()));
     }
 
     private BrowserObservation selectMostLikedSortOption(BrowserObservation panel, String keyword) {
         BrowserObservation observed = panel == null ? observeMain("all") : panel;
-        if (mostLikedSortVerifiedByResultEvidence(observed, keyword)) {
+        if (mostLikedSortVerified(observed, keyword)) {
             rememberSortedVideoSnapshot(keyword, observed);
             return observed;
         }
@@ -1859,7 +1838,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                 }
             }
 
-            observed = openFilterPanel(observed);
+            observed = openFilterPanel(observed, keyword);
         }
         throw new DouyinBrowserException("MOST_LIKED_NOT_FOUND",
                 "筛选面板已打开，但没有定位/点击到「最多点赞」。filterPanelVisible="

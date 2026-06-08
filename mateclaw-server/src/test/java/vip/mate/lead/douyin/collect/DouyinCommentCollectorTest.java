@@ -44,8 +44,39 @@ class DouyinCommentCollectorTest {
     void detectsDeclaredCommentCount() {
         assertThat(collector.declaredCommentCount("评论 151 条")).isEqualTo(151);
         assertThat(collector.declaredCommentCount("266条评论")).isEqualTo(266);
+        assertThat(collector.declaredCommentCount("全部评论(758)")).isEqualTo(758);
         assertThat(collector.declaredCommentCount("全部评论 7,166")).isEqualTo(7166);
         assertThat(collector.declaredCommentCount("7,166条评论")).isEqualTo(7166);
+    }
+
+    @Test
+    void visibleCommentsIgnoreA11yMetadataLinesAndGenericUserIds() {
+        DouyinBrowserAdapter.BrowserObservation obs = new DouyinBrowserAdapter.BrowserObservation(
+                true,
+                "https://www.douyin.com/search/ai?modal_id=1",
+                "发现更多精彩视频 - 抖音搜索",
+                """
+                Link[ref=ref_1, frame=0]: 哇塞 @{760,124 90x28}
+                StaticText[ref=ref_2, frame=0]: 不需要超级个体，只希望公平正义 @{810,164 280x32}
+                StaticText[ref=ref_3, frame=0]: 7月前·四川 @{810,200 120x20}
+                StaticText[ref=ref_4, frame=0]: 用户4868154654558 @{810,230 160x20}
+                Link[ref=ref_5, frame=0]: 实在想不出好名字 @{760,260 160x28}
+                StaticText[ref=ref_6, frame=0]: [抠鼻] @{810,292 80x20}
+                StaticText[ref=ref_7, frame=0]: 又赢麻了？ @{810,322 160x28}
+                """,
+                1280,
+                720,
+                "",
+                "");
+        DouyinBrowserAdapter.RegionInfo region = DouyinBrowserAdapter.RegionInfo.comments(
+                720, 100, 500, 520, "test");
+
+        List<DouyinCommentItem> comments = collector.visibleComments(obs, region);
+
+        assertThat(comments).extracting(DouyinCommentItem::text)
+                .containsExactly("不需要超级个体，只希望公平正义", "又赢麻了？");
+        assertThat(comments).extracting(DouyinCommentItem::authorName)
+                .containsExactly("哇塞", "实在想不出好名字");
     }
 
     @Test
