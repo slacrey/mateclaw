@@ -133,6 +133,51 @@ describe('extract_region handler', () => {
     expect(comments[0].text).not.toContain('作者回复过')
   })
 
+  it('extracts Douyin comment items before scrolling even when the detected region is misaligned', async () => {
+    document.body.innerHTML = `
+      <div id="merge-all-comment-container">
+        <div data-e2e="comment-list" id="list">
+          <div class="F89wJ3x4" data-e2e="comment-item" id="item">
+            <a id="avatar" href="//www.douyin.com/user/MS4wAvatar"><img alt="欢愉头像"></a>
+            <a id="author" href="//www.douyin.com/user/MS4wTitle">
+              <span data-click-from="title"><span>欢愉</span></span>
+            </a>
+            <div data-e2e="video-comment-more">...</div>
+            <div class="Sbe6bqNb" id="body">
+              <span class="LqTo7UJT">听了半天就是在卖广告<img alt="[尬笑]"></span>
+            </div>
+            <div class="xVZK2i5x"><span>7月前·广西</span></div>
+            <div class="comment-item-stats-container"><span>8</span><div>分享</div><span>回复</span></div>
+          </div>
+        </div>
+      </div>
+    `
+    mockRect(document.querySelector('#merge-all-comment-container')!, { x: 96, y: 20, width: 670, height: 760 })
+    mockRect(document.querySelector('#list')!, { x: 98, y: 100, width: 660, height: 650 })
+    mockRect(document.querySelector('#item')!, { x: 128, y: 122, width: 610, height: 210 })
+    mockRect(document.querySelector('#avatar')!, { x: 132, y: 132, width: 58, height: 58 })
+    mockRect(document.querySelector('#author')!, { x: 230, y: 124, width: 90, height: 28 })
+    mockRect(document.querySelector('#body')!, { x: 230, y: 164, width: 500, height: 92 })
+
+    const regions = new RegionRegistry()
+    regions.register({ key: 'douyin.comments', tabId: 9, rect: { x: 1200, y: 100, width: 562, height: 558 } })
+    const handler = extractRegionHandler({ regions, chrome: chromeWithDomExecution() })
+
+    const result = await handler(9, { regionKey: 'douyin.comments' }, 1000)
+
+    expect(result.ok).toBe(true)
+    const comments = result.ok ? (result.payload.items as any[]).filter(item => item.itemType === 'douyin_comment') : []
+    expect(comments).toEqual([
+      expect.objectContaining({
+        author: '欢愉',
+        text: '听了半天就是在卖广告[尬笑]',
+        href: expect.stringContaining('douyin.com/user/MS4w'),
+      }),
+    ])
+    expect(comments[0].text).not.toContain('分享')
+    expect(comments[0].text).not.toContain('回复')
+  })
+
   it('extracts comma-formatted Douyin declared comment count', async () => {
     document.body.innerHTML = `
       <section data-e2e="comment-list" id="list">

@@ -284,7 +284,7 @@ function extractDouyinComments(
     if (unique.some(existing => sameCommentCandidate(existing, candidate))) continue
     unique.push(candidate)
   }
-  if (commentListCandidates.length === 0) {
+  if (unique.length === 0) {
     const candidates = Array.from(document.querySelectorAll<HTMLElement>(selectors))
       .map((el, domIndex) => toCommentCandidate(el, domIndex))
       .filter((candidate): candidate is CommentCandidate => candidate !== null)
@@ -342,12 +342,23 @@ function extractDouyinComments(
       }
     }
     const lists = Array.from(listSet)
-      .map(el => ({ el, rect: el.getBoundingClientRect() }))
-      .filter(entry => isUsefulTextRect(entry.rect) && intersects(entry.rect, regionRect))
+      .map((el, domIndex) => ({
+        el,
+        domIndex,
+        rect: el.getBoundingClientRect(),
+        itemCount: el.querySelectorAll('[data-e2e="comment-item"]').length,
+        insidePanel: Boolean(el.closest('#merge-all-comment-container')),
+      }))
+      .filter(entry => entry.itemCount > 0)
+      .filter(entry => isUsefulTextRect(entry.rect) || entry.insidePanel)
       .sort((a, b) => {
-        const itemDiff = b.el.querySelectorAll('[data-e2e="comment-item"]').length - a.el.querySelectorAll('[data-e2e="comment-item"]').length
+        const panelDiff = Number(b.insidePanel) - Number(a.insidePanel)
+        if (panelDiff !== 0) return panelDiff
+        const overlapDiff = overlapAreaWithClip(b.rect, regionRect) - overlapAreaWithClip(a.rect, regionRect)
+        if (Math.abs(overlapDiff) > 1) return overlapDiff
+        const itemDiff = b.itemCount - a.itemCount
         if (itemDiff !== 0) return itemDiff
-        return overlapAreaWithClip(b.rect, regionRect) - overlapAreaWithClip(a.rect, regionRect)
+        return a.domIndex - b.domIndex
       })
     const list = lists[0]?.el
     if (!list) return []
@@ -360,7 +371,7 @@ function extractDouyinComments(
   function toCommentListItemCandidate(item: HTMLElement, domIndex: number): CommentCandidate | null {
     if (item.closest('[data-e2e="video-comment-more"], .comment-reply-expand-btn')) return null
     const rect = item.getBoundingClientRect()
-    if (!isUsefulCommentListItemRect(rect) || !intersects(rect, regionRect)) return null
+    if (!isUsefulStructuredCommentItemRect(rect)) return null
 
     const authorEl = findCommentItemAuthorElement(item)
     const author = normalizeAuthor(cleanText(authorEl?.innerText || authorEl?.textContent || ''))
@@ -775,6 +786,12 @@ function extractDouyinComments(
     ].join(',')))) {
       node.remove()
     }
+    for (const img of Array.from(clone.querySelectorAll<HTMLImageElement>('img[alt]'))) {
+      const alt = cleanText(img.getAttribute('alt') || '')
+      if (alt) {
+        img.replaceWith(document.createTextNode(alt))
+      }
+    }
     return cleanText(clone.textContent || '')
   }
 
@@ -827,13 +844,11 @@ function extractDouyinComments(
       rect.height <= Math.max(regionHeight * 0.46, 220)
   }
 
-  function isUsefulCommentListItemRect(rect: DOMRect): boolean {
-    const regionWidth = regionRect.right - regionRect.left
-    const regionHeight = regionRect.bottom - regionRect.top
-    return rect.width >= 80 &&
-      rect.height >= 28 &&
-      rect.width <= Math.max(regionWidth * 1.18, 420) &&
-      rect.height <= Math.max(regionHeight * 0.86, 520)
+  function isUsefulStructuredCommentItemRect(rect: DOMRect): boolean {
+    return rect.width >= 60 &&
+      rect.height >= 20 &&
+      rect.width <= 1200 &&
+      rect.height <= 900
   }
 
   function isUsefulTextRect(rect: DOMRect): boolean {
