@@ -506,11 +506,14 @@ public class DouyinCommentCollector {
         LinkedHashMap<String, DouyinCommentItem> out = new LinkedHashMap<>();
         for (int i = 0; i < lines.size(); i++) {
             TreeLine line = lines.get(i);
-            if (!isLikelyCommentText(line.name())) {
+            if (isLikelyAuthorLine(line)) {
+                continue;
+            }
+            if (!isPossibleA11yCommentText(line.name())) {
                 continue;
             }
             TreeLine author = nearestAuthor(lines, i).orElse(null);
-            if (author == null && !isStrongStandaloneCommentText(line.name())) {
+            if (author == null && !isLikelyCommentText(line.name()) && !isStrongStandaloneCommentText(line.name())) {
                 continue;
             }
             String authorName = author == null ? "" : author.name();
@@ -541,6 +544,22 @@ public class DouyinCommentCollector {
                     Map.of("source", "a11y_tree", "commentRef", line.ref())));
         }
         return new ArrayList<>(out.values());
+    }
+
+    private boolean isPossibleA11yCommentText(String text) {
+        String value = clean(text);
+        if (value.length() < 4 || value.length() > 600) {
+            return false;
+        }
+        String normalized = value.toLowerCase(Locale.ROOT);
+        if (isControlText(value)
+                || normalized.contains("搜索")
+                || normalized.contains("筛选")
+                || value.endsWith("头像")
+                || value.contains("头像")) {
+            return false;
+        }
+        return value.matches(".*[\\p{L}\\p{N}].*");
     }
 
     private Optional<TreeLine> nearestAuthor(List<TreeLine> lines, int commentIndex) {
@@ -716,6 +735,10 @@ public class DouyinCommentCollector {
                 || value.equals("留下你的精彩评论吧")
                 || value.equals("说点什么")
                 || value.equals("发表评论")
+                || value.equals("没有更多评论")
+                || value.equals("暂时没有更多评论")
+                || value.equals("已展示全部评论")
+                || value.equals("到底了")
                 || value.equals("大家都在搜：")
                 || value.equals("Stop Agent")
                 || value.matches("^\\d+(?:\\.\\d+)?([万wWkK千])?$")

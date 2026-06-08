@@ -1067,6 +1067,40 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
     }
 
     @Test
+    void collectAllCommentsUsesA11yVisibleCommentsWhenDomExtractionIsEmpty() {
+        ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
+        ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
+                browser,
+                new ObjectMapper(),
+                new DouyinCommentCollector());
+        DouyinBrowserAdapter.RegionInfo region = DouyinBrowserAdapter.RegionInfo.comments(
+                718d, 17d, 562d, 558d, "a11y-comment-items+safe-point");
+        String page = """
+                {"ok":true,"url":"https://www.douyin.com/jingxuan/search/ai?modal_id=7562908390894079291","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1280,"h":575},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 2 @{760,58 140x28}\\nLink[ref=ref_2, frame=0]: 欢愉 @{760,124 90x28}\\nStaticText[ref=ref_3, frame=0]: 听了半天就是在卖广告 @{810,164 280x32}\\nLink[ref=ref_4, frame=0]: 见素抱朴 @{760,230 100x28}\\nStaticText[ref=ref_5, frame=0]: 又是转折点，又是财富！你们这些博主天天的服了 @{810,270 380x32}\\nTextbox[ref=ref_6, frame=0]: 说点什么 @{760,520 320x44}"}
+                """;
+        when(browser.service_observe_main("all")).thenReturn(page);
+        when(browser.service_extract_region_main("douyin.comments", 160)).thenReturn("""
+                {"ok":true,"results":[{"payload":{"items":[]}}]}
+                """);
+        when(browser.service_hover_main(anyDouble(), anyDouble())).thenReturn("{\"ok\":true}");
+
+        var result = adapter.collectAllComments(region);
+
+        assertThat(result.comments()).hasSize(2);
+        assertThat(result.comments()).extracting(DouyinCommentItem::text)
+                .containsExactly(
+                        "听了半天就是在卖广告",
+                        "又是转折点，又是财富！你们这些博主天天的服了");
+        assertThat(result.complete()).isTrue();
+        assertThat(result.stopReason()).isEqualTo("DECLARED_COUNT_REACHED");
+        assertThat(result.metadata()).containsEntry("a11yTreeComments", 2L);
+        assertThat(result.metadata()).containsEntry("primaryCollectionSource", "a11y_tree");
+        assertThat(result.metadata()).containsEntry("lastVisibleCount", 2);
+        verify(browser, never()).service_scroll_region_main(
+                eq("douyin.comments"), eq("down"), anyDouble(), org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
     void collectAllCommentsStopsWhenWheelAdvancesButExtractionDoesNotGainNewComments() {
         ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
         ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(

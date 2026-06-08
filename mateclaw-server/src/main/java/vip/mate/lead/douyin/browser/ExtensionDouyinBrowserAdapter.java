@@ -528,10 +528,16 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                     mergeComment(seen, item);
                 }
             }
-            lastVisibleCount = 0;
+            List<DouyinCommentItem> visibleTreeComments = collector.visibleComments(current, region);
+            lastVisibleCount = visibleTreeComments.size();
+            for (DouyinCommentItem item : visibleTreeComments) {
+                if (!item.text().isBlank()) {
+                    mergeComment(seen, item);
+                }
+            }
             declared = Math.max(declared, Math.max(
-                    networkResult.declaredCommentCount(),
-                    extractedResult.declaredCommentCount()));
+                    Math.max(networkResult.declaredCommentCount(), extractedResult.declaredCommentCount()),
+                    collector.declaredCommentCount(current.tree())));
             lastWindowAfterCount = seen.size();
             lastNewItems = Math.max(0, lastWindowAfterCount - lastWindowBeforeCount);
             lastCollectionAdvanced = lastNewItems > 0;
@@ -734,9 +740,15 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         long extractedRegionComments = seen.values().stream()
                 .filter(item -> "extract_region".equals(String.valueOf(item.metadata().get("source"))))
                 .count();
+        long a11yTreeComments = seen.values().stream()
+                .filter(item -> "a11y_tree".equals(String.valueOf(item.metadata().get("source"))))
+                .count();
         metadata.put("networkObservedComments", networkObservedComments);
         metadata.put("extractedRegionComments", extractedRegionComments);
-        metadata.put("primaryCollectionSource", networkObservedComments > 0 ? "network_observed" : "extract_region");
+        metadata.put("a11yTreeComments", a11yTreeComments);
+        metadata.put("primaryCollectionSource", networkObservedComments > 0
+                ? "network_observed"
+                : extractedRegionComments > 0 ? "extract_region" : "a11y_tree");
         metadata.put("fullCollectionExpected", declared > 0 && declared <= seen.size());
         metadata.put("partialCollection", declared > 0 && seen.size() < declared);
         metadata.put("replyExpansionEnabled", false);
@@ -798,6 +810,9 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         }
         if (item.metadata().containsKey("source") && "extract_region".equals(String.valueOf(item.metadata().get("source")))) {
             score += 15;
+        }
+        if (item.metadata().containsKey("source") && "a11y_tree".equals(String.valueOf(item.metadata().get("source")))) {
+            score += 5;
         }
         score += Math.min(40, item.text().length() / 4);
         return score;
