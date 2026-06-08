@@ -1728,7 +1728,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
     private BrowserObservation waitForMostLikedSortVerified(String keyword, int attempts, long waitMs) {
         BrowserObservation observed = observeMain("all");
         for (int i = 0; i < attempts; i++) {
-            if (mostLikedSortVerifiedAfterExplicitSelection(observed, keyword)) {
+            if (mostLikedSortAcceptedAfterExplicitSelection(observed, keyword)) {
                 return observed;
             }
             waitMs(waitMs);
@@ -1870,7 +1870,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
     private BrowserObservation waitForMostLikedSortVerifiedAfterSelection(String keyword, int attempts, long waitMs) {
         BrowserObservation observed = observeMain("all");
         for (int i = 0; i < attempts; i++) {
-            if (mostLikedSortVerifiedAfterExplicitSelection(observed, keyword)) {
+            if (mostLikedSortAcceptedAfterExplicitSelection(observed, keyword)) {
                 rememberSortedVideoSnapshot(keyword, observed);
                 return observed;
             }
@@ -1887,7 +1887,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
             waitMs(waitMs);
             observed = observeMain("all");
         }
-        if (mostLikedSortVerifiedAfterExplicitSelection(observed, keyword)) {
+        if (mostLikedSortAcceptedAfterExplicitSelection(observed, keyword)) {
             rememberSortedVideoSnapshot(keyword, observed);
             return observed;
         }
@@ -1910,6 +1910,39 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                     || firstTwoVisibleResultsLookMostLiked(targets);
         }
         return mostLikedSelectedSignal(observed.tree()) || urlHasSortSignal(observed.url());
+    }
+
+    boolean mostLikedSortAcceptedAfterExplicitSelection(BrowserObservation observed, String keyword) {
+        if (mostLikedSortVerifiedAfterExplicitSelection(observed, keyword)) {
+            return true;
+        }
+        if (!searchVerified(observed, keyword)) {
+            return false;
+        }
+        String tree = observed.tree() == null ? "" : observed.tree();
+        List<VideoResultTarget> targets = visualOrderVideoTargets(
+                tree, observed.viewportWidth(), observed.viewportHeight());
+        if (canRankVisibleResultsByLikes(targets)) {
+            return false;
+        }
+        return searchResultsPresentAfterSortClick(tree, targets);
+    }
+
+    private boolean searchResultsPresentAfterSortClick(String tree, List<VideoResultTarget> targets) {
+        if (tree == null || tree.isBlank()) {
+            return false;
+        }
+        if (targets != null && !targets.isEmpty()) {
+            return true;
+        }
+        if (tree.contains("播放")) {
+            return true;
+        }
+        return parseTreeLines(tree).stream()
+                .filter(line -> line.y() >= 120.0d)
+                .anyMatch(line -> parseLikeCount(line.name()) > 0.0d
+                        && line.x() >= resultLeftX(1_280)
+                        && line.w() >= 24.0d);
     }
 
     private VideoCandidates waitForVideoTargets(int attempts, long waitMs) {
@@ -2695,6 +2728,8 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         return searchSignals(observed, keyword)
                 + ", sortSelected=" + mostLikedSelectedSignal(tree)
                 + ", urlSortSignal=" + urlHasSortSignal(observed.url())
+                + ", resultEvidence=" + firstVisibleRowLooksLikeMostLiked(targets)
+                + ", acceptedAfterClick=" + mostLikedSortAcceptedAfterExplicitSelection(observed, keyword)
                 + ", targetCount=" + targets.size()
                 + ", topTargets=" + topTargets;
     }

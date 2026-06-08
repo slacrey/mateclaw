@@ -827,6 +827,37 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
     }
 
     @Test
+    void applySortAcceptsStableResultsAfterClickWhenDouyinHidesSelectedState() {
+        ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
+        ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
+                browser,
+                new ObjectMapper(),
+                mock(DouyinCommentCollector.class));
+        String searchPage = """
+                {"ok":true,"url":"https://www.douyin.com/jingxuan/search/ai数字化转型?type=general","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":900},"tree":"Searchbox[ref=ref_1, frame=0]: ai数字化转型 @{454,9 315x38}\\nText[ref=ref_2, frame=0]: 筛选 @{1810,66 54x26}\\nText[ref=ref_3, frame=0]: 播放 @{220,407 50x19}\\nText[ref=ref_4, frame=0]: ai数字化转型 相关视频 @{203,430 215x91}"}
+                """;
+        String filterPanel = """
+                {"ok":true,"url":"https://www.douyin.com/jingxuan/search/ai数字化转型?type=general","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":900},"tree":"Searchbox[ref=ref_1, frame=0]: ai数字化转型 @{454,9 315x38}\\nText[ref=ref_2, frame=0]: 筛选 @{1810,66 54x26}\\nGeneric[ref=ref_9, frame=0]: 最多点赞 @{430,172 84x28}\\nText[ref=ref_3, frame=0]: 播放 @{220,407 50x19}\\nText[ref=ref_4, frame=0]: ai数字化转型 相关视频 @{203,430 215x91}"}
+                """;
+        when(browser.service_observe_main("all")).thenReturn(searchPage, filterPanel, searchPage);
+        when(browser.service_hover_main(anyDouble(), anyDouble())).thenReturn("{\"ok\":true}");
+        when(browser.service_click_main(anyDouble(), anyDouble())).thenReturn("{\"ok\":true}");
+
+        DouyinBrowserAdapter.BrowserObservation sorted = adapter.applySort(new DouyinLeadAcquisitionInput(
+                "ai数字化转型",
+                "most_liked",
+                1,
+                "对于99%的人用豆包就行了。",
+                "你好",
+                false));
+
+        assertThat(sorted.tree()).contains("播放");
+        assertThat(sorted.tree()).doesNotContain("最多点赞已选");
+        assertThat(sorted.url()).doesNotContain("sort");
+        verify(browser).service_click_main(472.0d, 186.0d);
+    }
+
+    @Test
     void unconfirmedOpenClawSortFailsWithoutDirectVideoNavigation() {
         ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
         ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
