@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "douyin.lead_acquisition.output.v1",
+  "title": "DouyinLeadAcquisitionOutput",
+  "type": "object",
+  "required": ["summary", "matchedComments", "engagements", "reviewRequired"],
+  "properties": {
+    "summary": {
+      "type": "object",
+      "required": ["videosProcessed", "commentsCollected", "commentsMatched", "dmDraftsTyped"],
+      "properties": {
+        "videosProcessed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "commentsCollected": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "declaredCommentCount": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "remainingDeclaredComments": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "collectionComplete": {
+          "type": "boolean",
+          "default": false
+        },
+        "collectionCoverage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0
+        },
+        "collectionStopReason": {
+          "type": "string",
+          "default": ""
+        },
+        "commentsMatched": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "followsAttempted": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "followsSucceeded": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "dmDraftsTyped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dmSent": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "matchedComments": {
+      "type": "array",
+      "items": {
+        "$ref": "douyin.lead_acquisition.lead_comment.v1"
+      }
+    },
+    "engagements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["commentKey", "actionType", "status"],
+        "properties": {
+          "commentKey": {
+            "type": "string"
+          },
+          "authorProfileUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "actionType": {
+            "type": "string",
+            "enum": ["open_profile", "follow", "open_dm", "type_dm", "send_dm", "comment"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "succeeded", "failed", "skipped"]
+          },
+          "draftText": {
+            "type": "string"
+          },
+          "evidenceRef": {
+            "type": "string"
+          },
+          "failureCode": {
+            "type": "string"
+          },
+          "failureMessage": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "failures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["step", "code", "message"],
+        "properties": {
+          "step": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "evidenceRef": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "default": []
+    },
+    "reviewRequired": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "additionalProperties": false
+}

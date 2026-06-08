@@ -20,15 +20,16 @@ class SkillPackageV2LoaderTest {
                 .containsExactly("discover_leads", "qualify_leads", "draft_outreach");
         assertThat(skillPackage.manifest().adapters())
                 .extracting(AdapterDefinition::id)
-                .containsExactly("douyin-research", "crm-export");
-        assertThat(skillPackage.workflow().get("entry").asText()).isEqualTo("discover");
+                .containsExactly("douyin", "crm-export");
+        assertThat(skillPackage.workflow().get("apiVersion").asText()).isEqualTo("mateclaw.workflow/v2");
+        assertThat(skillPackage.workflow().get("kind").asText()).isEqualTo("Workflow");
         assertThat(skillPackage.adapters()).containsKeys(
-                "adapters/douyin-research.yaml",
+                "adapters/douyin.yaml",
                 "adapters/crm-export.yaml");
         assertThat(skillPackage.schemas()).containsKeys(
-                "schemas/lead-search-request.schema.json",
-                "schemas/lead-record.schema.json",
-                "schemas/outreach-plan.schema.json");
+                "schemas/input.schema.json",
+                "schemas/lead-comment.schema.json",
+                "schemas/output.schema.json");
         assertThat(skillPackage.prompts()).containsKey("prompts/research-system.md");
         assertThat(skillPackage.templates()).containsKey("templates/lead-report.md");
         assertThat(skillPackage.evals()).containsKey("evals/lead-quality.eval.yaml");

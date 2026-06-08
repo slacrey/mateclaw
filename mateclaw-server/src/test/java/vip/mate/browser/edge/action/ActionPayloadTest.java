@@ -93,6 +93,32 @@ class ActionPayloadTest {
     }
 
     @Test
+    void extractRegionPayload_roundTrip() throws Exception {
+        var extract = new ExtractRegionPayload("douyin.comments", 25);
+
+        String json = mapper.writeValueAsString(extract);
+        ExtractRegionPayload back = mapper.readValue(json, ExtractRegionPayload.class);
+
+        assertThat(json)
+                .contains("\"regionKey\":\"douyin.comments\"")
+                .contains("\"maxItems\":25");
+        assertThat(back).isEqualTo(extract);
+    }
+
+    @Test
+    void detectRegionPayload_roundTrip() throws Exception {
+        var detect = new DetectRegionPayload("douyin.comments", "dom");
+
+        String json = mapper.writeValueAsString(detect);
+        DetectRegionPayload back = mapper.readValue(json, DetectRegionPayload.class);
+
+        assertThat(json)
+                .contains("\"regionKey\":\"douyin.comments\"")
+                .contains("\"strategy\":\"dom\"");
+        assertThat(back).isEqualTo(detect);
+    }
+
+    @Test
     void moveMousePayload_roundTrip() throws Exception {
         var move = new MoveMousePayload(30, 40, "linear");
 
@@ -225,6 +251,19 @@ class ActionPayloadTest {
 
         assertThat(p).isInstanceOf(ScrollRegionPayload.class);
         assertThat(((ScrollRegionPayload) p).regionKey()).isEqualTo("douyin.comments");
+    }
+
+    @Test
+    void abstractInterfaceDispatch_extractRegion() throws Exception {
+        String json = """
+            {"kind":"extract_region","regionKey":"douyin.comments","maxItems":25}
+            """;
+
+        ActionPayload p = mapper.readValue(json, ActionPayload.class);
+
+        assertThat(p).isInstanceOf(ExtractRegionPayload.class);
+        assertThat(((ExtractRegionPayload) p).regionKey()).isEqualTo("douyin.comments");
+        assertThat(((ExtractRegionPayload) p).maxItems()).isEqualTo(25);
     }
 
     @Test

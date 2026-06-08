@@ -86,6 +86,12 @@ public record ActionRequest(
             case PRESS_KEY  -> p instanceof PressKeyPayload;
             case SCROLL     -> p instanceof ScrollPayload;
             case SCROLL_REGION -> p instanceof ScrollRegionPayload;
+            case REGISTER_REGION -> p instanceof RegisterRegionPayload;
+            case DETECT_REGION -> p instanceof DetectRegionPayload;
+            case EXTRACT_REGION -> p instanceof ExtractRegionPayload;
+            case OPEN_AUTHOR_FROM_COMMENT -> p instanceof OpenAuthorFromCommentPayload;
+            case CLICK_PROFILE_ACTION -> p instanceof ClickProfileActionPayload;
+            case TYPE_DM_DRAFT -> p instanceof TypeDmDraftPayload;
             case MOVE_MOUSE -> p instanceof MoveMousePayload;
             case WAIT       -> p instanceof WaitPayload;
         };

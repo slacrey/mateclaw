@@ -1444,201 +1444,41 @@ public class AgentGraphBuilder {
         // Wiki 知识库上下文注入
         String wikiContext = wikiContextService.buildWikiContext(entity.getId());
 
-        String leadBrowserGuidance = leadBrowserHarnessGuidance(entity);
+        String leadAcquisitionGuidance = leadAcquisitionGuidance(entity);
 
-        return basePrompt + toolGuidance + searchGuidance + leadBrowserGuidance + wikiContext;
+        return basePrompt + toolGuidance + searchGuidance + leadAcquisitionGuidance + wikiContext;
     }
 
-    private String leadBrowserHarnessGuidance(AgentEntity entity) {
+    private String leadAcquisitionGuidance(AgentEntity entity) {
         if (!isLeadAcquisitionAgent(entity)) {
             return "";
         }
         return """
 
-                ## Browser work — compose reusable lead workflows
-                HARD ROUTING RULE: task-level `lead_browser_*` harnesses are real Chrome
-                browser operations. They are NOT browser_use and they are preferred over
-                hand-composed `extension_browser_*` primitives whenever an exact harness matches.
-                For the exact Douyin full chain "搜索关键词 + 筛选/最多点赞 + 打开第一个视频 +
-                打开/展开评论区", the FIRST action MUST be
-                `lead_browser_douyin_search_sort_open_first_video_comments(query)`. Do not claim
-                the video or comments are open unless that tool returns `status =
-                DONE_COMMENTS_OPENED`.
+                ## Lead acquisition workflows
+                For Douyin lead discovery, comment collection, candidate ranking, follow-up
+                drafting, or DM-draft workflows, call `douyin_lead_acquisition_run`.
+                Do not manually execute the Douyin lead-acquisition workflow with
+                `extension_browser_*` click/type/scroll actions.
+                When explaining the action, simply say you are using the dedicated Douyin
+                Skill workflow. Do not cite AGENTS.md, the system prompt, or tool
+                descriptions as the reason for the choice.
 
-                For any request whose first goal is "open a site in my browser, search a keyword,
-                then click/filter/sort/select an option", you MUST call
-                `lead_browser_site_search_select_option(...)` first when the site can be expressed
-                as homeUrl + query + triggerText + optionText. For the exact Douyin "搜索 + 筛选 +
-                最多点赞" task without opening video/comments, call
-                `lead_browser_douyin_search_sort_most_liked` first. Do not decompose matching
-                harness tasks into repeated
-                `extension_browser_*` clicks before trying the harness, and do not guess URL
-                parameters such as `sort_type`. If a matching harness returns a clear failure,
-                report its exact status/message/attempts and STOP this bounded step. Continue
-                with primitives only when the user explicitly asks for new browser work after
-                the failed bounded step.
+                Do not decompose this Skill into ad-hoc browser primitive tool calls.
+                If the user asks to "only collect comments", "采集评论", "先不要关注",
+                or "只汇报评论数", explain that the production V1 Skill now runs the full
+                workflow from search through matched-author DM draft; engineering
+                breakpoints are not exposed to chat-side agents.
+                When reporting comment collection, follow the tool result's
+                `reportingGuidance`. If `complete=false`, say collection is incomplete
+                and the bottom was not confirmed. Do not infer anti-bot limits, login
+                limits, platform constraints, deleted/hidden comments, or "cannot load
+                more" unless `reportingGuidance` explicitly says that evidence exists.
 
-                Preferred first choice for common site search + filter/sort tasks:
-                call `lead_browser_site_search_select_option(homeUrl, query, triggerText,
-                optionText, siteName)`. Use it for sites that fit:
-                  home page → visible search box → results → 筛选/排序 trigger → option text
-                Example: Douyin or Xiaohongshu with query=openclaw, triggerText=筛选,
-                optionText=最多点赞. This generic harness avoids repeated click/search loops,
-                tries hover-triggered panels first, falls back to click-triggered panels, and
-                finally uses visible-text grounding for custom menu rows.
-
-                Convenience preset: for the exact request "用我的浏览器打开抖音，搜索 <query>，
-                点击筛选，按最多点赞排序" (or the same request in English), you may call
-                `lead_browser_douyin_search_sort_most_liked(query)`. It is only a preset over
-                the generic search + select-option pattern; do not generalize from it by
-                inventing hard-coded URL params or platform-specific one-off loops.
-
-                For interactive or multi-step browser tasks that do NOT have a matching
-                `lead_browser_*` harness (open a site, search, then filter / sort / open a
-                result / read comments / fill a form / page through), use the
-                `extension_browser_*` primitives and let the page tell you what to do:
-                  navigate → observe (read the tree + `url`/`title`) → click / type (by role +
-                  the visible text you saw in the tree) → observe again to confirm the page
-                  changed → repeat until the goal is met.
-                These compose into arbitrarily long flows and work on ANY site.
-
-                Confirm an action worked by its EFFECT, not by one fixed signal. After an action,
-                observe and look for ANY change consistent with your intent:
-                  • goal-relevant content appeared (search results, a list, a new section/heading),
-                  • the `url` OR `title` changed,
-                  • the field now shows the text you typed, or a panel / menu / dialog opened.
-                Do NOT assume the `url` must change (or must contain "/search/") — many sites,
-                especially SPAs, render results IN PLACE with the url unchanged. Judge success by
-                whether the goal-relevant content is now present in the tree.
-                Bounded retry — never loop: if nothing changed, retry the SAME action at most
-                once; if still nothing, switch tactics (e.g. click the visible 搜索 / Search
-                button instead of pressing Enter, or vice-versa); if it still doesn't move, STOP
-                and tell the user what you observed rather than repeating.
-
-                Menus / dropdowns / filter panels are TOGGLES. A control that OPENS a panel
-                (筛选 / 排序 / a "more" menu / a dropdown) CLOSES it again when clicked a second
-                time. So after clicking such a control ONCE, do NOT click it again to "make
-                sure" or "retry" — that just closes the panel you opened (it flickers open then
-                shut). Instead: observe — the panel's options should now be in the tree (they
-                may render as Button/Menuitem/Option lines like 综合排序 / 最多点赞 / 最新发布).
-                If they are not there yet, `extension_browser_wait` ~500ms and observe again
-                (the panel may animate in), or scroll it into view — only re-click the toggle if
-                an observe has CONFIRMED the panel is closed. Then click the desired option
-                INSIDE the panel by its visible text, not the toggle again.
-
-                HOVER menus (important): some panels open on mouse-HOVER, not click — they
-                appear only while the cursor RESTS on the trigger and VANISH (removed from the
-                DOM) the instant it leaves. Douyin's 筛选 sort panel (排序依据 / 最多点赞 /
-                最新发布 / 发布时间) is exactly this. A click will NOT reliably open it, and
-                moving the mouse away (or observing after a click that left the cursor
-                elsewhere) makes it disappear. For these, use extension_browser_hover:
-                  extension_browser_hover("筛选")  → panel opens, cursor parked on it
-                  extension_browser_observe(...)    → the panel is now in the tree
-                  extension_browser_click("最多点赞") (then hover 筛选 again + click "一周内", etc.)
-                The cursor stays on the trigger so the panel persists across the observe and
-                the option click. Tell-tale sign you need hover instead of click: a panel that
-                flickers open then disappears before you can read or click it. NEVER fall back
-                to crafting sort/filter URL params (e.g. sort_type=) — the site strips them.
-
-                See it but can't ground it? If something is clearly VISIBLE on the page (a filter
-                option like 最新发布 / 一周内, a custom widget, an icon-only button) but does NOT
-                appear as a Button/Link/etc. in the tree — STILL call extension_browser_click
-                with its visible text. Grounding falls back to a screenshot + vision pass that
-                locates targets the accessibility tree can't expose. Do NOT give up and hand the
-                user manual click-by-click instructions — that is the exact failure we're
-                avoiding. Only if the click returns a GROUNDING_MISS whose message says vision is
-                unconfigured ("vision: no model configured") should you tell the user to enable a
-                vision-capable model in Settings → Models, then retry.
-
-                To SEARCH a site, open its HOME page (e.g. https://www.douyin.com/) and use the
-                on-page search box: click it → type the query → submit. Do NOT navigate
-                directly to a /search/<query> URL and do NOT hand-craft sort/filter query
-                params — those often hit login walls or different states; always drive the
-                real on-page controls. To SUBMIT a search after typing, append a real newline
-                to press Enter (extension_browser_type already maps a trailing newline to the
-                Enter key) OR click the visible 搜索 / Search button — do not type the literal
-                two characters backslash-n.
-
-                If a page shows a login / verification wall (登录 / 扫码登录 / 验证码 / captcha),
-                STOP and tell the user to log in (or solve it) in this same browser, then retry.
-                You cannot log in or solve verification for them.
-
-                ## Comment-section lead acquisition workflow
-                For "评论区获客" tasks, run the workflow in safe stages:
-                1. Discover: search the requested platform/keyword, apply the requested sort,
-                   open relevant videos/notes/posts, and read visible comments.
-                2. Rank: compare comments to the user's target comment/query, deduplicate users,
-                   and return a candidate queue with evidence: platform, post, username/profile,
-                   matched comment, similarity reason, and confidence.
-                3. Draft: generate personalized follow/private-message copy for each candidate
-                   using the user's product pitch, but keep it as an unsent draft.
-                4. Act within the user's requested scope: following a matched commenter and
-                   opening/typing into a DM composer may be automated when the user explicitly
-                   requested that workflow. Never click Send or transmit promotional content
-                   unless the user explicitly requests sending and any Tool Guard approval is
-                   resolved. Do not report success unless the tool confirms the exact browser
-                   state (profile opened, follow confirmed, DM opened, draft typed).
-
-                This boundary is part of the product behavior, not a temporary limitation:
-                the agent may automate navigation, extraction, similarity ranking, and draft
-                preparation; the user remains in control of outbound contact.
-
-                The `lead_browser_*` tools are task-level helpers. Use the exact helper when
-                one matches the whole task; otherwise fall back to the primitives:
-                - `lead_browser_site_search_select_option(homeUrl, query, triggerText, optionText,
-                  siteName)` — generic cross-site helper for homepage search + filter/sort option
-                  selection. For Douyin use the dedicated `lead_browser_douyin_*` harnesses
-                  instead of generic hover/click sorting.
-                - `lead_browser_douyin_search_sort_most_liked(query)` — open Douyin in the
-                  user's browser, search the query, open 筛选, and select 最多点赞; this is a
-                  convenience preset, not the only path.
-                - `lead_browser_douyin_search_sort_open_first_video_comments(query)` — FIRST
-                  CHOICE when the user asks the full Douyin chain: search keyword, sort by
-                  最多点赞, open the first/highest-liked video, and open the comment area. Do
-                  not split that request into manual extension_browser_click/icon/JS steps; if
-                  this helper returns COMMENTS_NOT_OPENED, report that exact status instead of
-                  retrying random coordinates.
-                - `lead_browser_douyin_search_sort_first_video_match_comment_follow_open_dm_type_draft(
-                  query, commentQuery, authorHint, dmDraft, maxScrolls)` — FIRST CHOICE for the
-                  full Douyin comment lead workflow: search/sort/open first video/comments,
-                  semantically match the requested comment, open THAT comment author's profile
-                  (including a new active tab), click 关注, open 私信, and type the draft WITHOUT
-                  sending. Do not use any "first visible comment" shortcut for lead acquisition.
-                  `authorHint` is weak context only; `commentQuery` is the primary match.
-                  Omit `maxScrolls` for normal lead matching; only provide it when the user
-                  explicitly asks for a debug safety limit. Do not invent a default scroll cap.
-                - `lead_browser_douyin_collect_comments_across_videos(query, maxVideos)` —
-                  FIRST CHOICE when the user asks to collect/scrape ALL comments from the top N
-                  Douyin videos and automatically advance video-by-video. Treat `status =
-                  DONE_COLLECTED` / `collection_complete = true` as the only full-success state.
-                  If it returns `PARTIAL_COLLECTED`, explicitly say which video stop_reason failed
-                  and use the returned `lead_candidates[]` as an import/filter queue; do not
-                  describe it as "全部评论已采集".
-                - `lead_browser_douyin_collect_first_video_comments(query)` — FIRST CHOICE when
-                  the user is debugging or explicitly asks to collect ALL comments from only the
-                  first / one Douyin video. Do not switch to the second video after this tool. If
-                  it returns `PARTIAL_COLLECTED`, report the `stop_reason`, `declared_comment_count`,
-                  `comment_count`, and relevant scroll attempts so the single-video scroll can be
-                  fixed before any multi-video loop is attempted.
-                - `lead_browser_douyin_open_first_video_comments()` — when already on a
-                  Douyin search results page and the requested next step is ONLY to click the
-                  first video/result and open its comment area, use this helper first. It
-                  verifies the video opened before touching 评论, and verifies the comment area
-                  opened before reporting success. Do not continue to comment matching if this
-                  returns VIDEO_OPEN_FAILED or COMMENTS_NOT_OPENED.
-                - `lead_browser_douyin_open_first_video_match_comment_user(targetComment,
-                  maxScrolls)` — LEGACY/DEBUG ONLY for stopping at a matched profile. Do not
-                  use it for the current lead workflow because it has a bounded debug scroll
-                  budget and does not follow/open DM/type drafts. Use the full semantic
-                  `lead_browser_douyin_search_sort_first_video_match_comment_follow_open_dm_type_draft`
-                  harness for comment matching + follow + DM draft tasks.
-                - `lead_browser_snapshot_for_leads(goal, maxLines)` — read the CURRENT page once
-                  into compact lead-candidate lines.
-                - `lead_browser_douyin_search_for_leads(query, goal, maxLines)` — ONLY when the
-                  WHOLE task is "search Douyin for <query> and return lead candidates" with no
-                  follow-up interaction.
-                Do not use a non-matching harness to drive an arbitrary multi-step task; use the
-                primitives and keep going after each observe.
+                `douyin_lead_acquisition_run` matches comment text only. Author names are
+                not match criteria; after a comment text match, the workflow opens that
+                exact comment item's bound author profile, follows, opens DM, and types the
+                draft.
                 """;
     }
 

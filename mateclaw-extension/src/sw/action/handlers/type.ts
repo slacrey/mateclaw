@@ -5,6 +5,7 @@ import { clickHandler } from './click'
 
 export interface TypeHandlerDeps {
   debugger: DebuggerManager
+  chrome?: typeof chrome
   clock?: () => number
   random?: () => number
   /** Per-keystroke delay (default: log-normal ~40-120ms - human typing) */
@@ -68,6 +69,29 @@ export const typeHandler = (deps: TypeHandlerDeps): ActionHandler<TypeParams> =>
     const chars = Array.from(normalizedText)
 
     try {
+      const domWritableText = normalizedText.endsWith('\n')
+        ? normalizedText.slice(0, -1)
+        : normalizedText
+      const domCanSubmit = normalizedText.endsWith('\n') && Array.from(domWritableText).every(isPrintable)
+      if (params.focus_target && domCanSubmit) {
+        const domResult = await writeTextAtPoint(
+          deps.chrome,
+          tabId,
+          params.focus_target.x,
+          params.focus_target.y,
+          domWritableText,
+          deps.clearFirst ?? false,
+          domCanSubmit ? 'Enter' : undefined,
+        )
+        if (domResult.ok) {
+          return {
+            ok: true,
+            elapsed_ms: Math.max(0, clock() - startedAt),
+            payload: { chars_typed: params.text.length },
+          }
+        }
+      }
+
       await deps.debugger.attach(tabId)
 
       if (params.focus_target) {
@@ -90,16 +114,27 @@ export const typeHandler = (deps: TypeHandlerDeps): ActionHandler<TypeParams> =>
         await clearFocusedField(deps.debugger, tabId)
       }
 
+      let printableBuffer = ''
       for (const char of chars) {
-        const descriptor = describeKey(char)
-        // keyDown/keyUp carry NO text (text on keyDown would double-insert).
-        await dispatchKeyEvent(deps.debugger, tabId, 'keyDown', descriptor)
-        // Only printable chars get a `char` event (the sole text insertion).
-        // Control keys (Enter/Tab/Backspace) act via their keyDown alone.
         if (isPrintable(char)) {
-          await dispatchKeyEvent(deps.debugger, tabId, 'char', descriptor)
+          printableBuffer += char
+          continue
         }
+        if (printableBuffer) {
+          await insertText(deps.debugger, tabId, printableBuffer)
+          await sleep(keystrokeIntervalMs())
+          printableBuffer = ''
+        }
+        const descriptor = describeKey(char)
+        // Control keys (Enter/Tab/Backspace) act via keyDown/keyUp. Text
+        // insertion for printable content goes through Input.insertText; it is
+        // more reliable for React/contenteditable inputs such as Douyin search.
+        await dispatchKeyEvent(deps.debugger, tabId, 'keyDown', descriptor)
         await dispatchKeyEvent(deps.debugger, tabId, 'keyUp', descriptor)
+        await sleep(keystrokeIntervalMs())
+      }
+      if (printableBuffer) {
+        await insertText(deps.debugger, tabId, printableBuffer)
         await sleep(keystrokeIntervalMs())
       }
 
@@ -114,6 +149,105 @@ export const typeHandler = (deps: TypeHandlerDeps): ActionHandler<TypeParams> =>
       }
       throw err
     }
+  }
+}
+
+async function writeTextAtPoint(
+  chromeApi: typeof chrome | undefined,
+  tabId: number,
+  x: number,
+  y: number,
+  text: string,
+  clearFirst: boolean,
+  submitKey?: 'Enter',
+): Promise<{ ok: boolean; reason?: string }> {
+  if (!chromeApi?.scripting?.executeScript) return { ok: false, reason: 'no_scripting_api' }
+  try {
+    const [result] = await chromeApi.scripting.executeScript({
+      target: { tabId, allFrames: false },
+      args: [x, y, text, clearFirst, submitKey],
+      func: (pointX: number, pointY: number, value: string, replaceExisting: boolean, keyToPress?: 'Enter') => {
+        const isEditable = (element: Element | null): element is HTMLElement => {
+          if (!element || !(element instanceof HTMLElement)) return false
+          if (element.isContentEditable) return true
+          const tag = element.tagName.toLowerCase()
+          return tag === 'input' || tag === 'textarea'
+        }
+
+        const findEditable = (element: Element | null): HTMLElement | null => {
+          let current: Element | null = element
+          while (current) {
+            if (isEditable(current)) return current
+            current = current.parentElement
+          }
+          if (element instanceof HTMLElement) {
+            const nested = element.querySelector('input, textarea, [contenteditable="true"], [contenteditable=""]')
+            if (isEditable(nested)) return nested
+          }
+          return null
+        }
+
+        const setNativeValue = (element: HTMLInputElement | HTMLTextAreaElement, nextValue: string) => {
+          const proto = element instanceof HTMLTextAreaElement
+            ? HTMLTextAreaElement.prototype
+            : HTMLInputElement.prototype
+          const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set
+          if (setter) setter.call(element, nextValue)
+          else element.value = nextValue
+        }
+
+        const target = findEditable(document.elementFromPoint(pointX, pointY))
+          ?? findEditable(document.activeElement)
+        if (!target) return { ok: false, reason: 'editable_not_found' }
+
+        target.focus()
+        const pressSubmitKey = () => {
+          if (keyToPress !== 'Enter') return
+          const eventInit: KeyboardEventInit = {
+            key: 'Enter',
+            code: 'Enter',
+            keyCode: 13,
+            which: 13,
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+          }
+          target.dispatchEvent(new KeyboardEvent('keydown', eventInit))
+          target.dispatchEvent(new KeyboardEvent('keypress', eventInit))
+          target.dispatchEvent(new KeyboardEvent('keyup', eventInit))
+        }
+
+        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+          const nextValue = replaceExisting ? value : `${target.value ?? ''}${value}`
+          setNativeValue(target, nextValue)
+          target.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            composed: true,
+            data: value,
+            inputType: replaceExisting ? 'insertReplacementText' : 'insertText',
+          }))
+          target.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
+          pressSubmitKey()
+          return { ok: target.value === nextValue }
+        }
+
+        const nextText = replaceExisting ? value : `${target.textContent ?? ''}${value}`
+        target.textContent = nextText
+        target.dispatchEvent(new InputEvent('input', {
+          bubbles: true,
+          composed: true,
+          data: value,
+          inputType: replaceExisting ? 'insertReplacementText' : 'insertText',
+        }))
+        target.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
+        pressSubmitKey()
+        return { ok: (target.textContent ?? '') === nextText }
+      },
+    })
+    const value = result?.result as { ok?: boolean; reason?: string } | undefined
+    return { ok: value?.ok === true, reason: value?.reason }
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : String(err) }
   }
 }
 
@@ -138,6 +272,15 @@ export async function dispatchKeyEvent(
     nativeVirtualKeyCode: descriptor.windowsVirtualKeyCode,
     modifiers: 0,
   })
+}
+
+export async function insertText(
+  debug: DebuggerManager,
+  tabId: number,
+  text: string,
+): Promise<void> {
+  if (!text) return
+  await debug.send(tabId, 'Input.insertText', { text })
 }
 
 /** Printable = produces inserted text (everything except the control keys we

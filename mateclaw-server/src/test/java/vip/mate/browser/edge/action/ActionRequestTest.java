@@ -86,6 +86,44 @@ class ActionRequestTest {
         assertThat(back).isEqualTo(req);
     }
 
+    @Test
+    void extractRegion_roundTrips() throws Exception {
+        ActionRequest req = new ActionRequest(
+                "msg-extract",
+                new TabRef.Main(),
+                ActionKind.EXTRACT_REGION,
+                new ExtractRegionPayload("douyin.comments", 50),
+                5_000L);
+
+        String json = mapper.writeValueAsString(req);
+        ActionRequest back = mapper.readValue(json, ActionRequest.class);
+
+        assertThat(json)
+                .contains("\"kind\":\"extract_region\"")
+                .contains("\"regionKey\":\"douyin.comments\"")
+                .contains("\"maxItems\":50");
+        assertThat(back).isEqualTo(req);
+    }
+
+    @Test
+    void detectRegion_roundTrips() throws Exception {
+        ActionRequest req = new ActionRequest(
+                "msg-detect",
+                new TabRef.Main(),
+                ActionKind.DETECT_REGION,
+                new DetectRegionPayload("douyin.comments", "dom"),
+                5_000L);
+
+        String json = mapper.writeValueAsString(req);
+        ActionRequest back = mapper.readValue(json, ActionRequest.class);
+
+        assertThat(json)
+                .contains("\"kind\":\"detect_region\"")
+                .contains("\"regionKey\":\"douyin.comments\"")
+                .contains("\"strategy\":\"dom\"");
+        assertThat(back).isEqualTo(req);
+    }
+
     // -----------------------------------------------------------------
     // Construction-time validation — the record's compact constructor
     // enforces that the outer ActionKind matches the payload subtype.

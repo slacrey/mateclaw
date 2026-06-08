@@ -266,12 +266,21 @@ export class SnapshotRequestHandler {
     req: SnapshotRequestPayload,
   ): Promise<SnapshotResult> {
     await manager.attach(tabId)
-    // Settle + metadata first: this waits for the SPA to go quiet (same timing
-    // contract as the JS walker) and returns url/title/viewport. Reading the AX
-    // tree only after the page settles avoids a half-rendered capture.
-    const meta = await this.settleAndReadMeta(tabId, req)
-    const tree = await extractAxTreeViaCdp(manager, tabId, req.filter, req.max_chars)
-    return { tree, viewport: meta.viewport, url: meta.url, title: meta.title }
+    try {
+      // Settle + metadata first: this waits for the SPA to go quiet (same timing
+      // contract as the JS walker) and returns url/title/viewport. Reading the AX
+      // tree only after the page settles avoids a half-rendered capture.
+      const meta = await this.settleAndReadMeta(tabId, req)
+      const tree = await extractAxTreeViaCdp(manager, tabId, req.filter, req.max_chars)
+      return { tree, viewport: meta.viewport, url: meta.url, title: meta.title }
+    } finally {
+      // A snapshot is a read-only operation. Do not keep CDP attached after it:
+      // if the MV3 service worker is suspended between observe and the next
+      // action, Chrome can otherwise retain a debugger binding that the fresh
+      // worker no longer has in memory, causing "Another debugger is already
+      // attached" on the following click/hover/type.
+      await manager.detach(tabId)
+    }
   }
 
   /**

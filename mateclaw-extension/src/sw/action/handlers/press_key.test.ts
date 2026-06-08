@@ -46,4 +46,18 @@ describe('press_key handler', () => {
       ['keyUp', 'Enter', 13],
     ])
   })
+
+  it('supports named navigation keys used for focused region scrolling', async () => {
+    const { debuggerStub, sent } = fakeDebugger()
+    const handler = pressKeyHandler({ debugger: debuggerStub })
+
+    const result = await handler(42, { key: 'PageDown' }, 5000)
+
+    expect(result.ok).toBe(true)
+    expect(result.payload).toEqual({ key: 'PageDown' })
+    expect(keyParams(sent).map(params => [params.type, params.key, params.code, params.windowsVirtualKeyCode])).toEqual([
+      ['rawKeyDown', 'PageDown', 'PageDown', 34],
+      ['keyUp', 'PageDown', 'PageDown', 34],
+    ])
+  })
 })

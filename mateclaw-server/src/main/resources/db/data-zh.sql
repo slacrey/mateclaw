@@ -522,11 +522,6 @@ MERGE INTO mate_tool (id, name, display_name, description, tool_type, bean_name,
 KEY (id)
 VALUES (1000000022, 'PdfRenderTool', 'PDF 渲染', '将 Markdown 渲染为最终交付形态的 .pdf 并返回一次性下载链接。双 backend 自动切换（优先 LibreOffice，不可用时回落到进程内 OpenPDF + Flying Saucer）；通过 YAML frontmatter 控制封面、页眉、页脚。', 'builtin', 'pdfRenderTool', '📄', TRUE, TRUE, NOW(), NOW(), 0);
 
--- 内置工具：获客浏览器 Harness
-MERGE INTO mate_tool (id, name, display_name, description, tool_type, bean_name, icon, enabled, builtin, create_time, update_time, deleted)
-KEY (id)
-VALUES (1000000023, 'LeadBrowserHarnessTool', '获客浏览器 Harness', '面向获客场景的任务级浏览器 Harness：跨站点可见搜索、筛选/排序选项选择、抖音预设，以及紧凑的线索候选页面快照。', 'builtin', 'leadBrowserHarnessTool', '🎯', TRUE, TRUE, NOW(), NOW(), 0);
-
 -- 示例 MCP Server：Filesystem（参考 MateClaw 文档中的 mcpServers.filesystem）
 MERGE INTO mate_mcp_server (
     id, name, description, transport, url, headers_json, command, args_json, env_json, cwd,

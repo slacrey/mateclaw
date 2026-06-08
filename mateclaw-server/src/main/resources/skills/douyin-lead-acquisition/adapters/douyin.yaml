@@ -1,0 +1,49 @@
+apiVersion: mateclaw.browser-adapter/v1
+kind: domain_browser
+target: douyin
+inputs:
+  - input
+outputs:
+  - lead-comment
+limits:
+  max_videos: 50
+  max_comments_per_video: 300
+  require_public_pages: true
+runtime_rules:
+  comment_region_key: douyin.comments
+  comment_scroll:
+    allowed_action: scroll_region
+    forbidden_actions:
+      - extension_browser_scroll
+      - page_scroll
+      - wheel_scroll_outside_region
+    preconditions:
+      - comment_panel_verified_open
+      - mouse_parked_inside_comment_region
+      - focus_inside_comment_region
+    recovery:
+      - park_mouse_inside_comment_region
+      - focus_comment_region
+      - reopen_comment_panel
+      - redetect_comment_region
+    terminal_failure: COMMENTS_PANEL_LOST
+  dm_draft:
+    send_requires_approval: true
+    type_only_when:
+      - active_tab_is_douyin
+      - dm_page_verified
+actions:
+  - search
+  - sort
+  - open_result_video
+  - open_comment_panel
+  - collect_comments
+  - engage_matched_comment_author
+notes:
+  - Collect only public business signals.
+  - Search starts from the Douyin video home page and submits the focused search input with Enter; do not use AI search buttons or direct /search URLs.
+  - Comment collection must not use generic page scroll; on Douyin video pages page scroll switches videos.
+  - The adapter must verify the comment panel is open before extraction and before/after every scroll.
+  - If comment-region scrolling fails, recover the region instead of scrolling the whole page.
+  - Keep comment_key, video_key, source URLs, and observed timestamps with every lead comment.
+  - Sending direct messages requires approval; default behavior is typing drafts only.

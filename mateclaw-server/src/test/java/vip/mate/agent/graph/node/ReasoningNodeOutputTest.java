@@ -5,14 +5,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.definition.ToolDefinition;
-import org.springframework.ai.tool.metadata.ToolMetadata;
 import vip.mate.agent.AgentToolSet;
 import vip.mate.agent.graph.NodeStreamingChatHelper;
 import vip.mate.agent.graph.state.SourceEvidenceLedger;
@@ -157,40 +152,6 @@ class ReasoningNodeOutputTest {
         assertLlmCallCountWritten(output, "toolCall");
     }
 
-    @Test
-    @DisplayName("完整抖音语义评论获客确定性路由：不自动传 maxScrolls。")
-    @SuppressWarnings("unchecked")
-    void douyinSemanticLeadRoute_omitsMaxScrollsByDefault() throws Exception {
-        ToolCallback harness = stubCallback(
-                "lead_browser_douyin_search_sort_first_video_match_comment_follow_open_dm_type_draft");
-        when(toolSet.callbacks()).thenReturn(List.of(harness));
-        when(toolSet.callbackByName()).thenReturn(Map.of(harness.getToolDefinition().name(), harness));
-        Map<String, Object> state = new HashMap<>();
-        state.put(CONVERSATION_ID, "test-conv");
-        state.put(SYSTEM_PROMPT, "you are a helper");
-        state.put(USER_MESSAGE, "用我的浏览器打开抖音，搜索 openclaw，点击筛选并按最多点赞排序，点开第一个视频，打开评论区，匹配评论语义“对于99%的人用豆包就行了。”，匹配上后点开这个评论用户主页，关注并点击私信，在私信输入框里输入“你好”，不要发送。");
-        state.put(MESSAGES, List.of());
-        state.put(CURRENT_ITERATION, 0);
-        state.put(MAX_ITERATIONS, 10);
-        state.put(TOOL_CALL_COUNT, 0);
-        state.put(LLM_CALL_COUNT, 0);
-        state.put(FORCED_TOOL_CALL, "");
-
-        Map<String, Object> output = createNode().apply(new OverAllState(state));
-
-        assertEquals(true, output.get(NEEDS_TOOL_CALL));
-        assertEquals(false, output.get(SHOULD_SUMMARIZE));
-        List<AssistantMessage.ToolCall> toolCalls = (List<AssistantMessage.ToolCall>) output.get(TOOL_CALLS);
-        assertEquals(1, toolCalls.size());
-        AssistantMessage.ToolCall call = toolCalls.getFirst();
-        assertEquals("lead_browser_douyin_search_sort_first_video_match_comment_follow_open_dm_type_draft",
-                call.name());
-        assertTrue(call.arguments().contains("\"query\":\"openclaw\""));
-        assertTrue(call.arguments().contains("\"commentQuery\":\"对于99%的人用豆包就行了\""));
-        assertTrue(call.arguments().contains("\"dmDraft\":\"你好\""));
-        assertFalse(call.arguments().contains("maxScrolls"));
-    }
-
     // ===== Fatal error =====
 
     @Test
@@ -274,33 +235,4 @@ class ReasoningNodeOutputTest {
         assertEquals("部分内容", output.get(FINAL_ANSWER));
     }
 
-    private static ToolCallback stubCallback(String name) {
-        ToolDefinition def = ToolDefinition.builder()
-                .name(name)
-                .description("test tool " + name)
-                .inputSchema("{\"type\":\"object\",\"properties\":{}}")
-                .build();
-        ToolMetadata md = ToolMetadata.builder().build();
-        return new ToolCallback() {
-            @Override
-            public ToolDefinition getToolDefinition() {
-                return def;
-            }
-
-            @Override
-            public ToolMetadata getToolMetadata() {
-                return md;
-            }
-
-            @Override
-            public String call(String toolInput) {
-                return "{}";
-            }
-
-            @Override
-            public String call(String toolInput, ToolContext toolContext) {
-                return "{}";
-            }
-        };
-    }
 }

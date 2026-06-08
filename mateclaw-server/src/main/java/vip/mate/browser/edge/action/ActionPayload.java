@@ -24,11 +24,19 @@ import com.fasterxml.jackson.annotation.JsonSubTypes;
         @JsonSubTypes.Type(value = PressKeyPayload.class,  name = "press_key"),
         @JsonSubTypes.Type(value = ScrollPayload.class,    name = "scroll"),
         @JsonSubTypes.Type(value = ScrollRegionPayload.class, name = "scroll_region"),
+        @JsonSubTypes.Type(value = RegisterRegionPayload.class, name = "register_region"),
+        @JsonSubTypes.Type(value = DetectRegionPayload.class, name = "detect_region"),
+        @JsonSubTypes.Type(value = ExtractRegionPayload.class, name = "extract_region"),
+        @JsonSubTypes.Type(value = OpenAuthorFromCommentPayload.class, name = "open_author_from_comment"),
+        @JsonSubTypes.Type(value = ClickProfileActionPayload.class, name = "click_profile_action"),
+        @JsonSubTypes.Type(value = TypeDmDraftPayload.class, name = "type_dm_draft"),
         @JsonSubTypes.Type(value = MoveMousePayload.class, name = "move_mouse"),
         @JsonSubTypes.Type(value = WaitPayload.class,      name = "wait")
 })
 public sealed interface ActionPayload
         permits NavigatePayload, ClickPayload, TypePayload,
                 PressKeyPayload, ScrollPayload, ScrollRegionPayload,
+                RegisterRegionPayload, DetectRegionPayload, ExtractRegionPayload,
+                OpenAuthorFromCommentPayload, ClickProfileActionPayload, TypeDmDraftPayload,
                 MoveMousePayload, WaitPayload {
 }

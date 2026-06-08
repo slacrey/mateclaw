@@ -155,8 +155,9 @@ public class DefaultPageSnapshotService implements PageSnapshotService {
         TabKey key = new TabKey(sessionId, resolvedTabId);
         cache.computeIfPresent(key, (k, c) -> switch (kind) {
             case NAVIGATE -> c.withState(SnapshotState.STALE);
-            case CLICK, TYPE, PRESS_KEY, SCROLL, SCROLL_REGION -> c.withState(SnapshotState.SUSPECT);
-            case MOVE_MOUSE, WAIT -> c; // no transition — DOM not mutated
+            case CLICK, TYPE, PRESS_KEY, SCROLL, SCROLL_REGION, CLICK_PROFILE_ACTION, TYPE_DM_DRAFT -> c.withState(SnapshotState.SUSPECT);
+            case OPEN_AUTHOR_FROM_COMMENT -> c.withState(SnapshotState.STALE);
+            case MOVE_MOUSE, WAIT, REGISTER_REGION, DETECT_REGION, EXTRACT_REGION -> c; // no transition — DOM not mutated
         });
     }
 

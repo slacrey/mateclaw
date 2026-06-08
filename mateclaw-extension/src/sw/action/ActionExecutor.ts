@@ -8,6 +8,12 @@ import type {
   PressKeyParams,
   ScrollParams,
   ScrollRegionParams,
+  RegisterRegionParams,
+  DetectRegionParams,
+  ExtractRegionParams,
+  OpenAuthorFromCommentParams,
+  ClickProfileActionParams,
+  TypeDmDraftParams,
   MoveMouseParams,
   WaitParams,
 } from './types'
@@ -32,6 +38,12 @@ export interface ActionHandlers {
   press_key:  ActionHandler<PressKeyParams>
   scroll:     ActionHandler<ScrollParams>
   scroll_region: ActionHandler<ScrollRegionParams>
+  register_region: ActionHandler<RegisterRegionParams>
+  detect_region: ActionHandler<DetectRegionParams>
+  extract_region: ActionHandler<ExtractRegionParams>
+  open_author_from_comment: ActionHandler<OpenAuthorFromCommentParams>
+  click_profile_action: ActionHandler<ClickProfileActionParams>
+  type_dm_draft: ActionHandler<TypeDmDraftParams>
   move_mouse: ActionHandler<MoveMouseParams>
   wait:       ActionHandler<WaitParams>
 }

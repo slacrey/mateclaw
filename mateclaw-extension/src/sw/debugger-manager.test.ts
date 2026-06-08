@@ -166,4 +166,60 @@ describe('DebuggerManager', () => {
       message: expect.stringContaining('Another debugger is already attached to the tab'),
     })
   })
+
+  it('stale extension debugger attach is cleaned with raw detach and retried once', async () => {
+    const env = fakeChrome()
+    let attachCalls = 0
+    env.chrome.debugger.attach = vi.fn((target: chrome.debugger.Debuggee, _version: string, cb?: () => void) => {
+      attachCalls += 1
+      env.calls.push({ method: 'attach', tabId: target.tabId! })
+      if (attachCalls === 1) {
+        env.setLastError('Another debugger is already attached to the tab with id: 101.')
+      }
+      cb?.()
+      env.setLastError(undefined)
+    }) as unknown as typeof env.chrome.debugger.attach
+    const manager = new DebuggerManager(env.chrome)
+
+    await manager.attach(101)
+
+    expect(manager.isAttached(101)).toBe(true)
+    expect(env.calls).toEqual([
+      { method: 'attach', tabId: 101 },
+      { method: 'detach', tabId: 101 },
+      { method: 'attach', tabId: 101 },
+    ])
+  })
+
+  it('send lastError clears attached state so a retry can re-attach', async () => {
+    const env = fakeChrome()
+    env.chrome.debugger.sendCommand = vi.fn(
+      (
+        target: chrome.debugger.Debuggee,
+        cdpMethod: string,
+        params?: unknown,
+        cb?: (result?: unknown) => void,
+      ) => {
+        env.calls.push({ method: 'send', tabId: target.tabId!, cdpMethod, params })
+        env.setLastError('Detached while handling command.')
+        cb?.({})
+        env.setLastError(undefined)
+      },
+    ) as unknown as typeof env.chrome.debugger.sendCommand
+    const manager = new DebuggerManager(env.chrome)
+
+    await manager.attach(101)
+    await expect(manager.send(101, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 }))
+      .rejects.toMatchObject({
+        name: 'SessionDetachedError',
+        tabId: 101,
+        reason: 'unknown',
+      })
+
+    expect(manager.isAttached(101)).toBe(false)
+
+    await manager.attach(101)
+
+    expect(env.calls.filter(call => call.method === 'attach')).toHaveLength(2)
+  })
 })

@@ -2,6 +2,6 @@ kind: file_export
 format: markdown
 template: templates/lead-report.md
 outputs:
-  - outreach-plan
+  - output
 notes:
-  - Export drafts for human review before any external contact.
+  - Export matched comments, engagement attempts, failures, and DM drafts for human review.

@@ -26,12 +26,15 @@ export function parseScrollRegionParams(raw: unknown): ScrollRegionParams | null
   if (!raw || typeof raw !== 'object') return null
   const p = raw as Record<string, unknown>
 
-  if (!isNonEmptyString(p.regionKey)) return null
+  const regionKey = p.regionKey ?? p.region_key
+  const stopWhenRaw = p.stopWhen ?? p.stop_when
+
+  if (!isNonEmptyString(regionKey)) return null
   if (!isDirection(p.direction)) return null
   if (!isPositiveFiniteNumber(p.amount)) return null
 
   const parsed: ScrollRegionParams = {
-    regionKey: p.regionKey,
+    regionKey,
     direction: p.direction,
     amount: p.amount,
   }
@@ -41,8 +44,8 @@ export function parseScrollRegionParams(raw: unknown): ScrollRegionParams | null
     parsed.segments = p.segments
   }
 
-  if (p.stopWhen !== undefined) {
-    const stopWhen = parseStopWhen(p.stopWhen)
+  if (stopWhenRaw !== undefined) {
+    const stopWhen = parseStopWhen(stopWhenRaw)
     if (!stopWhen) return null
     parsed.stopWhen = stopWhen
   }

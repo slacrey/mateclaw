@@ -26,7 +26,7 @@ class DefaultSkillRunCompilerTest {
         assertThat(run.capabilities()).hasSize(3);
         assertThat(run.adapters()).hasSize(2);
         assertThat(capabilityRegistry.find("douyin.lead_acquisition", "discover_leads")).isPresent();
-        assertThat(adapterRegistry.find("douyin.lead_acquisition", "douyin-research")).isPresent();
+        assertThat(adapterRegistry.find("douyin.lead_acquisition", "douyin")).isPresent();
     }
 
     @Test

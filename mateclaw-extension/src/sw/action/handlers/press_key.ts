@@ -14,7 +14,7 @@ export const pressKeyHandler = (deps: PressKeyHandlerDeps): ActionHandler<PressK
   return async (tabId, params) => {
     const startedAt = clock()
     const key = normalizeKey(params.key)
-    const descriptor = describeKey(key)
+    const descriptor = descriptorForPressKey(key)
 
     try {
       await deps.debugger.attach(tabId)
@@ -42,10 +42,28 @@ function normalizeKey(raw: string): string {
   if (key === 'Enter') return '\n'
   if (key === 'Tab') return '\t'
   if (key === 'Backspace') return '\b'
+  if (SUPPORTED_NAMED_KEYS.has(key)) return key
   if (Array.from(key).length !== 1) {
     throw new ActionFailureError('HANDLER_ERROR', `unsupported key '${key}'`, false)
   }
   return key
+}
+
+function descriptorForPressKey(key: string): KeyDescriptor {
+  const named = NAMED_KEY_DESCRIPTORS[key]
+  if (named) return named
+  return describeKey(key)
+}
+
+const SUPPORTED_NAMED_KEYS = new Set(['PageDown', 'PageUp', 'End', 'Home', 'ArrowDown', 'ArrowUp'])
+
+const NAMED_KEY_DESCRIPTORS: Record<string, KeyDescriptor> = {
+  PageDown: { text: '', key: 'PageDown', code: 'PageDown', windowsVirtualKeyCode: 34 },
+  PageUp: { text: '', key: 'PageUp', code: 'PageUp', windowsVirtualKeyCode: 33 },
+  End: { text: '', key: 'End', code: 'End', windowsVirtualKeyCode: 35 },
+  Home: { text: '', key: 'Home', code: 'Home', windowsVirtualKeyCode: 36 },
+  ArrowDown: { text: '', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 },
+  ArrowUp: { text: '', key: 'ArrowUp', code: 'ArrowUp', windowsVirtualKeyCode: 38 },
 }
 
 async function dispatchPressKeyEvent(

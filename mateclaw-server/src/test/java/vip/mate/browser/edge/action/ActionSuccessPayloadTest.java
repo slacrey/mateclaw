@@ -46,6 +46,15 @@ class ActionSuccessPayloadTest {
     }
 
     @Test
+    void pressKeySuccess_allowsEmptyPayloadForOlderExtensions() throws Exception {
+        ActionSuccessPayload back = mapper.readValue(
+                "{\"kind\":\"press_key\"}",
+                ActionSuccessPayload.class);
+
+        assertThat(back).isEqualTo(new PressKeySuccess(""));
+    }
+
+    @Test
     void scrollSuccess_roundTrip() throws Exception {
         var success = new ScrollSuccess();
 
@@ -54,6 +63,25 @@ class ActionSuccessPayloadTest {
 
         assertThat(json).isEqualTo("{}");
         assertThat(back).isEqualTo(success);
+    }
+
+    @Test
+    void scrollRegionSuccess_preservesMovedEvidence() throws Exception {
+        String json = """
+                {"kind":"scroll_region","regionKey":"douyin.comments","mode":"comment_region_wheel","moved":true,"reason":"comment_window_advanced","forwardProgress":true,"visibleItemCount":6,"newVisibleItemCount":2}
+                """;
+
+        ActionSuccessPayload back = mapper.readValue(json, ActionSuccessPayload.class);
+
+        assertThat(back).isInstanceOf(ScrollRegionSuccess.class);
+        ScrollRegionSuccess success = (ScrollRegionSuccess) back;
+        assertThat(success.regionKey()).isEqualTo("douyin.comments");
+        assertThat(success.mode()).isEqualTo("comment_region_wheel");
+        assertThat(success.moved()).isTrue();
+        assertThat(success.reason()).isEqualTo("comment_window_advanced");
+        assertThat(success.forwardProgress()).isTrue();
+        assertThat(success.visibleItemCount()).isEqualTo(6);
+        assertThat(success.newVisibleItemCount()).isEqualTo(2);
     }
 
     @Test
@@ -81,6 +109,47 @@ class ActionSuccessPayloadTest {
     }
 
     @Test
+    void extractRegionSuccess_roundTrip() throws Exception {
+        var item = new ExtractRegionSuccess.Item(
+                "hello",
+                "link",
+                "a",
+                "https://example.com",
+                new ExtractRegionSuccess.BBox(1, 2, 3, 4),
+                "douyin_comment",
+                "alice",
+                java.util.List.of("https://example.com"));
+        var success = new ExtractRegionSuccess("douyin.comments", java.util.List.of(item));
+
+        String json = mapper.writeValueAsString(success);
+        ExtractRegionSuccess back = mapper.readValue(json, ExtractRegionSuccess.class);
+
+        assertThat(json)
+                .contains("\"regionKey\":\"douyin.comments\"")
+                .contains("\"itemType\":\"douyin_comment\"")
+                .contains("\"bbox\":{\"x\":1.0,\"y\":2.0,\"width\":3.0,\"height\":4.0}");
+        assertThat(back).isEqualTo(success);
+    }
+
+    @Test
+    void detectRegionSuccess_roundTrip() throws Exception {
+        var success = new DetectRegionSuccess(
+                "douyin.comments",
+                new RegisterRegionPayload.Rect(10, 20, 300, 400),
+                new DetectRegionSuccess.SafePoint(220, 260),
+                "dom_detect:comment-panel");
+
+        String json = mapper.writeValueAsString(success);
+        DetectRegionSuccess back = mapper.readValue(json, DetectRegionSuccess.class);
+
+        assertThat(json)
+                .contains("\"regionKey\":\"douyin.comments\"")
+                .contains("\"rect\":{\"x\":10.0,\"y\":20.0,\"width\":300.0,\"height\":400.0}")
+                .contains("\"safePoint\":{\"x\":220.0,\"y\":260.0}");
+        assertThat(back).isEqualTo(success);
+    }
+
+    @Test
     void abstractInterfaceDispatch_byKindDiscriminator() throws Exception {
         // NAME-based dispatch: the "kind" property is the source of truth.
         // The empty ClickSuccess and ScrollSuccess records (no fields) are
@@ -97,5 +166,21 @@ class ActionSuccessPayloadTest {
         String scrollJson = "{\"kind\":\"scroll\"}";
         ActionSuccessPayload scrollBack = mapper.readValue(scrollJson, ActionSuccessPayload.class);
         assertThat(scrollBack).isInstanceOf(ScrollSuccess.class);
+
+        String extractJson = """
+            {"kind":"extract_region","regionKey":"douyin.comments","items":[]}
+            """;
+        ActionSuccessPayload extractBack = mapper.readValue(extractJson, ActionSuccessPayload.class);
+        assertThat(extractBack).isEqualTo(new ExtractRegionSuccess("douyin.comments", java.util.List.of()));
+
+        String detectJson = """
+            {"kind":"detect_region","regionKey":"douyin.comments","rect":{"x":10,"y":20,"width":300,"height":400},"safePoint":{"x":220,"y":260},"source":"dom"}
+            """;
+        ActionSuccessPayload detectBack = mapper.readValue(detectJson, ActionSuccessPayload.class);
+        assertThat(detectBack).isEqualTo(new DetectRegionSuccess(
+                "douyin.comments",
+                new RegisterRegionPayload.Rect(10, 20, 300, 400),
+                new DetectRegionSuccess.SafePoint(220, 260),
+                "dom"));
     }
 }

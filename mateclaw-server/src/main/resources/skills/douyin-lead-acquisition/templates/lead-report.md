@@ -1,16 +1,32 @@
 # Douyin Lead Report
 
-## Search
+## Campaign
 
-- Industry: {{industry}}
-- ICP: {{icp}}
+- Query: {{query}}
+- Sort: {{sort}}
+- Videos processed: {{summary.videosProcessed}}
+- Comments collected: {{summary.commentsCollected}}
+- Declared comments: {{summary.declaredCommentCount}}
+- Remaining declared comments: {{summary.remainingDeclaredComments}}
+- Collection complete: {{summary.collectionComplete}}
+- Collection coverage: {{summary.collectionCoverage}}
+- Collection stop reason: {{summary.collectionStopReason}}
+- Comments matched: {{summary.commentsMatched}}
+- DM drafts typed: {{summary.dmDraftsTyped}}
 
-## Leads
+## Matched Comments
 
-{{#leads}}
-### {{account_name}}
+{{#matchedComments}}
+### {{comment.authorName}}
 
-- Source: {{source_url}}
-- Fit score: {{fit_score}}
-- Angle: {{recommended_angle}}
-{{/leads}}
+- Video: {{video.url}}
+- Comment: {{comment.text}}
+- Match score: {{match.score}}
+- Reason: {{match.reason}}
+{{/matchedComments}}
+
+## Engagements
+
+{{#engagements}}
+- {{actionType}} / {{status}} / {{commentKey}} / {{failureCode}}
+{{/engagements}}

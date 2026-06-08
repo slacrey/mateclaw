@@ -10,6 +10,12 @@ public enum ActionKind {
     PRESS_KEY("press_key"),
     SCROLL("scroll"),
     SCROLL_REGION("scroll_region"),
+    REGISTER_REGION("register_region"),
+    DETECT_REGION("detect_region"),
+    EXTRACT_REGION("extract_region"),
+    OPEN_AUTHOR_FROM_COMMENT("open_author_from_comment"),
+    CLICK_PROFILE_ACTION("click_profile_action"),
+    TYPE_DM_DRAFT("type_dm_draft"),
     MOVE_MOUSE("move_mouse"),
     WAIT("wait");
 

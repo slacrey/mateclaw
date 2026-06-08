@@ -11,18 +11,30 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 import vip.mate.browser.edge.action.ActionKind;
 import vip.mate.browser.edge.action.ActionRequest;
+import vip.mate.browser.edge.action.ClickProfileActionPayload;
+import vip.mate.browser.edge.action.ClickProfileActionSuccess;
 import vip.mate.browser.edge.action.ClickSuccess;
 import vip.mate.browser.edge.action.ClickPayload;
+import vip.mate.browser.edge.action.DetectRegionPayload;
+import vip.mate.browser.edge.action.DetectRegionSuccess;
+import vip.mate.browser.edge.action.ExtractRegionPayload;
+import vip.mate.browser.edge.action.ExtractRegionSuccess;
 import vip.mate.browser.edge.action.MoveMousePayload;
 import vip.mate.browser.edge.action.MoveMouseSuccess;
 import vip.mate.browser.edge.action.NavigatePayload;
 import vip.mate.browser.edge.action.NavigateSuccess;
+import vip.mate.browser.edge.action.OpenAuthorFromCommentPayload;
+import vip.mate.browser.edge.action.OpenAuthorFromCommentSuccess;
 import vip.mate.browser.edge.action.PressKeyPayload;
+import vip.mate.browser.edge.action.RegisterRegionPayload;
+import vip.mate.browser.edge.action.RegisterRegionSuccess;
 import vip.mate.browser.edge.action.ScrollPayload;
 import vip.mate.browser.edge.action.ScrollRegionPayload;
 import vip.mate.browser.edge.action.ScrollRegionSuccess;
 import vip.mate.browser.edge.action.ScrollSuccess;
 import vip.mate.browser.edge.action.TabRef;
+import vip.mate.browser.edge.action.TypeDmDraftPayload;
+import vip.mate.browser.edge.action.TypeDmDraftSuccess;
 import vip.mate.browser.edge.action.TypePayload;
 import vip.mate.browser.edge.action.TypeSuccess;
 import vip.mate.browser.edge.action.WaitPayload;
@@ -200,6 +212,14 @@ public class ExtensionBrowserTool {
             @ToolParam(description = "Optional containing-section heading text — used by the A11y engine to disambiguate when hint_text matches multiple elements. Provide the visible text of the nearest enclosing heading/section/landmark/article/region (e.g. 'Comments', 'Search results').",
                        required = false) String nearLabel,
             @Nullable ToolContext ctx) {
+        return extension_browser_click_tab(new TabRef.Main(), hintText, role, nearLabel, ctx);
+    }
+
+    private String extension_browser_click_tab(TabRef tabRef,
+                                               String hintText,
+                                               String role,
+                                               @Nullable String nearLabel,
+                                               @Nullable ToolContext ctx) {
         BrowserSession session = resolveSession();
         if (session == null) return noSession();
 
@@ -210,10 +230,10 @@ public class ExtensionBrowserTool {
                 "interactive",
                 emptyToNull(nearLabel));
 
-        GroundingResult ground = dispatcher.ground(session, new TabRef.Main(), hint);
+        GroundingResult ground = dispatcher.ground(session, tabRef, hint);
         return switch (ground) {
             case GroundingResult.Hit hit -> executePlan(session,
-                    planner.plan(new Step.ClickStep(new TabRef.Main(), ground)));
+                    planner.plan(new Step.ClickStep(tabRef, ground)));
             case GroundingResult.Ambiguous a -> error("GROUNDING_AMBIGUOUS",
                     "found " + a.candidates().size() + " candidates: " + a.evidence()
                             + " — try refining with a near_label");
@@ -304,10 +324,9 @@ public class ExtensionBrowserTool {
             is matched case-insensitively as a substring of the element's accessible name,
             which for an unlabeled input is its PLACEHOLDER text.
 
-            ★ TO SUBMIT A SEARCH / FORM: end your text with a newline, e.g.
-            text="openclaw\\n". The trailing \\n is sent as the ENTER key, which submits
-            the search in one step — you do NOT need to separately click the search button.
-            (You may still click the search button instead if Enter doesn't apply.)
+            ★ TO SUBMIT A SEARCH / FORM: end your text with a newline only when the user did
+            not ask for a visible submit click. If the user explicitly says to click the search
+            button, type plain text without "\\n", then click the visible search button.
             After typing, call extension_browser_observe and confirm the submit worked by its
             EFFECT, not by one fixed signal: results / new content appeared, OR the `url` /
             `title` changed, OR the field now holds your text. Many sites (especially SPAs)
@@ -355,12 +374,16 @@ public class ExtensionBrowserTool {
     }
 
     String extension_browser_press_key(String key, @Nullable ToolContext ctx) {
+        return extension_browser_press_key_at_tab(new TabRef.Main(), key, ctx);
+    }
+
+    String extension_browser_press_key_at_tab(TabRef tabRef, String key, @Nullable ToolContext ctx) {
         BrowserSession session = resolveSession();
         if (session == null) return noSession();
 
         ActionRequest req = new ActionRequest(
                 newMsgId(),
-                new TabRef.Main(),
+                tabRef,
                 ActionKind.PRESS_KEY,
                 new PressKeyPayload(key),
                 DEFAULT_DEADLINE_MS);
@@ -488,6 +511,16 @@ public class ExtensionBrowserTool {
                                                    @Nullable Double x,
                                                    @Nullable Double y,
                                                    @Nullable ToolContext ctx) {
+        return extension_browser_scroll_at_tab(tabRef, direction, distancePx, x, y, ctx, DEFAULT_DEADLINE_MS);
+    }
+
+    private String extension_browser_scroll_at_tab(TabRef tabRef,
+                                                   String direction,
+                                                   Integer distancePx,
+                                                   @Nullable Double x,
+                                                   @Nullable Double y,
+                                                   @Nullable ToolContext ctx,
+                                                   long deadlineMs) {
         BrowserSession session = resolveSession();
         if (session == null) return noSession();
 
@@ -496,7 +529,7 @@ public class ExtensionBrowserTool {
                 tabRef,
                 ActionKind.SCROLL,
                 new ScrollPayload(direction, distancePx == null ? 600 : distancePx, 5, x, y),
-                DEFAULT_DEADLINE_MS);
+                deadlineMs);
 
         return executePlan(session, List.of(req));
     }
@@ -524,6 +557,19 @@ public class ExtensionBrowserTool {
             @ToolParam(description = "Text for stop_when.type=text_visible", required = false)
             String text,
             @Nullable ToolContext ctx) {
+        return extension_browser_scroll_region_at_tab(new TabRef.Main(), regionKey, direction, amount,
+                stopWhenType, selector, text, ctx);
+    }
+
+    public String extension_browser_scroll_region_at_tab(
+            TabRef tabRef,
+            String regionKey,
+            String direction,
+            Double amount,
+            String stopWhenType,
+            String selector,
+            String text,
+            @Nullable ToolContext ctx) {
         BrowserSession session = resolveSession();
         if (session == null) return noSession();
 
@@ -533,10 +579,36 @@ public class ExtensionBrowserTool {
         }
         ActionRequest req = new ActionRequest(
                 newMsgId(),
-                new TabRef.Main(),
+                tabRef,
                 ActionKind.SCROLL_REGION,
                 new ScrollRegionPayload(regionKey, direction, amount == null ? 600.0 : amount, stopWhen, 5),
                 DEFAULT_DEADLINE_MS);
+        return executePlan(session, List.of(req));
+    }
+
+    public String service_scroll_region_main(String regionKey, String direction, double amount, long deadlineMs) {
+        return service_scroll_region(new TabRef.Main(), regionKey, direction, amount, deadlineMs);
+    }
+
+    public String service_scroll_region_active(String regionKey, String direction, double amount, long deadlineMs) {
+        return service_scroll_region(new TabRef.Active(), regionKey, direction, amount, deadlineMs);
+    }
+
+    private String service_scroll_region(
+            TabRef tabRef,
+            String regionKey,
+            String direction,
+            double amount,
+            long deadlineMs) {
+        BrowserSession session = resolveSession();
+        if (session == null) return noSession();
+
+        ActionRequest req = new ActionRequest(
+                newMsgId(),
+                tabRef,
+                ActionKind.SCROLL_REGION,
+                new ScrollRegionPayload(regionKey, direction, amount, null, 1),
+                Math.max(1_000L, deadlineMs));
         return executePlan(session, List.of(req));
     }
 
@@ -633,6 +705,197 @@ public class ExtensionBrowserTool {
 
     String extension_browser_observe_active(String filter, @Nullable ToolContext ctx) {
         return extension_browser_observe_tab(new TabRef.Active(), filter, ctx);
+    }
+
+    public String service_observe_active(String filter) {
+        return extension_browser_observe_tab(new TabRef.Active(), filter, null);
+    }
+
+    public String service_observe_main(String filter) {
+        return extension_browser_observe_tab(new TabRef.Main(), filter, null);
+    }
+
+    public String service_click_main(double x, double y) {
+        return extension_browser_click_at_tab(new TabRef.Main(), x, y, "linear", null);
+    }
+
+    public String service_hover_main(double x, double y) {
+        return extension_browser_hover_at_tab(new TabRef.Main(), x, y, "linear", null);
+    }
+
+    public String service_hover_text_main(String hintText, String role, @Nullable String nearLabel) {
+        return extension_browser_hover(hintText, role, nearLabel, null);
+    }
+
+    public String service_click_text_main(String hintText, String role, @Nullable String nearLabel) {
+        return extension_browser_click(hintText, role, nearLabel, null);
+    }
+
+    public String service_click_text_active(String hintText, String role, @Nullable String nearLabel) {
+        return extension_browser_click_tab(new TabRef.Active(), hintText, role, nearLabel, null);
+    }
+
+    public String service_click_active(double x, double y) {
+        return extension_browser_click_at_tab(new TabRef.Active(), x, y, "linear", null);
+    }
+
+    public String service_hover_active(double x, double y) {
+        return extension_browser_hover_at_tab(new TabRef.Active(), x, y, "linear", null);
+    }
+
+    public String service_type_active(String text, @Nullable TypePayload.FocusTarget focusTarget) {
+        return extension_browser_type_at_tab(new TabRef.Active(), text, focusTarget, null);
+    }
+
+    public String service_type_main(String text, @Nullable TypePayload.FocusTarget focusTarget) {
+        return extension_browser_type_at_tab(new TabRef.Main(), text, focusTarget, null);
+    }
+
+    public String service_press_key_main(String key) {
+        return extension_browser_press_key(key, null);
+    }
+
+    public String service_press_key_active(String key) {
+        return extension_browser_press_key_at_tab(new TabRef.Active(), key, null);
+    }
+
+    public String service_scroll_region_main(String regionKey, String direction, double amount) {
+        return extension_browser_scroll_region(regionKey, direction, amount, null, null, null, null);
+    }
+
+    public String service_scroll_region_active(String regionKey, String direction, double amount) {
+        return extension_browser_scroll_region_at_tab(new TabRef.Active(), regionKey, direction, amount, null, null, null, null);
+    }
+
+    public String service_scroll_main(String direction, double distancePx, double x, double y) {
+        return extension_browser_scroll_at_tab(new TabRef.Main(), direction, (int) Math.round(distancePx), x, y, null);
+    }
+
+    public String service_scroll_active(String direction, double distancePx, double x, double y) {
+        return extension_browser_scroll_at_tab(new TabRef.Active(), direction, (int) Math.round(distancePx), x, y, null);
+    }
+
+    public String service_scroll_main(String direction, double distancePx, double x, double y, long deadlineMs) {
+        return extension_browser_scroll_at_tab(
+                new TabRef.Main(), direction, (int) Math.round(distancePx), x, y, null, deadlineMs);
+    }
+
+    public String service_scroll_active(String direction, double distancePx, double x, double y, long deadlineMs) {
+        return extension_browser_scroll_at_tab(
+                new TabRef.Active(), direction, (int) Math.round(distancePx), x, y, null, deadlineMs);
+    }
+
+    public String service_register_region_main(String regionKey, double x, double y,
+                                               double width, double height, String source) {
+        return service_register_region(new TabRef.Main(), regionKey, x, y, width, height, source);
+    }
+
+    public String service_register_region_active(String regionKey, double x, double y,
+                                                 double width, double height, String source) {
+        return service_register_region(new TabRef.Active(), regionKey, x, y, width, height, source);
+    }
+
+    private String service_register_region(TabRef tabRef, String regionKey, double x, double y,
+                                           double width, double height, String source) {
+        BrowserSession session = resolveSession();
+        if (session == null) return noSession();
+
+        ActionRequest req = new ActionRequest(
+                newMsgId(),
+                tabRef,
+                ActionKind.REGISTER_REGION,
+                new RegisterRegionPayload(regionKey, new RegisterRegionPayload.Rect(x, y, width, height), source),
+                DEFAULT_DEADLINE_MS);
+        return executePlan(session, List.of(req));
+    }
+
+    public String service_detect_region_main(String regionKey, String strategy) {
+        return service_detect_region(new TabRef.Main(), regionKey, strategy);
+    }
+
+    public String service_detect_region_active(String regionKey, String strategy) {
+        return service_detect_region(new TabRef.Active(), regionKey, strategy);
+    }
+
+    private String service_detect_region(TabRef tabRef, String regionKey, String strategy) {
+        BrowserSession session = resolveSession();
+        if (session == null) return noSession();
+
+        ActionRequest req = new ActionRequest(
+                newMsgId(),
+                tabRef,
+                ActionKind.DETECT_REGION,
+                new DetectRegionPayload(regionKey, strategy),
+                DEFAULT_DEADLINE_MS);
+        return executePlan(session, List.of(req));
+    }
+
+    public String service_extract_region_main(String regionKey, int maxItems) {
+        return service_extract_region(new TabRef.Main(), regionKey, maxItems);
+    }
+
+    public String service_extract_region_active(String regionKey, int maxItems) {
+        return service_extract_region(new TabRef.Active(), regionKey, maxItems);
+    }
+
+    private String service_extract_region(TabRef tabRef, String regionKey, int maxItems) {
+        BrowserSession session = resolveSession();
+        if (session == null) return noSession();
+
+        ActionRequest req = new ActionRequest(
+                newMsgId(),
+                tabRef,
+                ActionKind.EXTRACT_REGION,
+                new ExtractRegionPayload(regionKey, maxItems),
+                DEFAULT_DEADLINE_MS);
+        return executePlan(session, List.of(req));
+    }
+
+    public String service_open_author_from_comment_main(String commentText, String authorName) {
+        BrowserSession session = resolveSession();
+        if (session == null) return noSession();
+
+        ActionRequest req = new ActionRequest(
+                newMsgId(),
+                new TabRef.Main(),
+                ActionKind.OPEN_AUTHOR_FROM_COMMENT,
+                new OpenAuthorFromCommentPayload(commentText, authorName),
+                DEFAULT_DEADLINE_MS);
+        return executePlan(session, List.of(req));
+    }
+
+    public String service_click_profile_action_active(List<String> labels) {
+        BrowserSession session = resolveSession();
+        if (session == null) return noSession();
+
+        ActionRequest req = new ActionRequest(
+                newMsgId(),
+                new TabRef.Active(),
+                ActionKind.CLICK_PROFILE_ACTION,
+                new ClickProfileActionPayload(labels),
+                DEFAULT_DEADLINE_MS);
+        return executePlan(session, List.of(req));
+    }
+
+    public String service_type_dm_draft_active(String text) {
+        String active = service_type_dm_draft(new TabRef.Active(), text);
+        if (!active.contains("\"NO_TARGET_TAB\"") && !active.contains("tab_ref=\\\"active\\\"")) {
+            return active;
+        }
+        return service_type_dm_draft(new TabRef.Main(), text);
+    }
+
+    private String service_type_dm_draft(TabRef tabRef, String text) {
+        BrowserSession session = resolveSession();
+        if (session == null) return noSession();
+
+        ActionRequest req = new ActionRequest(
+                newMsgId(),
+                tabRef,
+                ActionKind.TYPE_DM_DRAFT,
+                new TypeDmDraftPayload(text),
+                DEFAULT_DEADLINE_MS);
+        return executePlan(session, List.of(req));
     }
 
     String extension_browser_observe_tab(TabRef tabRef, String filter, @Nullable ToolContext ctx) {
@@ -741,6 +1004,12 @@ public class ExtensionBrowserTool {
             case vip.mate.browser.edge.action.PressKeySuccess ignored -> "press_key";
             case ScrollSuccess ignored -> "scroll";
             case ScrollRegionSuccess ignored -> "scroll_region";
+            case RegisterRegionSuccess ignored -> "register_region";
+            case DetectRegionSuccess ignored -> "detect_region";
+            case ExtractRegionSuccess ignored -> "extract_region";
+            case OpenAuthorFromCommentSuccess ignored -> "open_author_from_comment";
+            case ClickProfileActionSuccess ignored -> "click_profile_action";
+            case TypeDmDraftSuccess ignored -> "type_dm_draft";
             case MoveMouseSuccess ignored -> "move_mouse";
             case WaitSuccess ignored -> "wait";
         };

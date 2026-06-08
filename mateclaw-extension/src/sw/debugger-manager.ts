@@ -42,6 +42,23 @@ export class DebuggerManager {
   async attach(tabId: number): Promise<void> {
     if (this.sessions.has(tabId)) return
 
+    try {
+      await this.attachOnce(tabId)
+    } catch (error) {
+      if (!isAlreadyAttachedError(error)) throw error
+
+      // MV3 service workers can be restarted while Chrome still considers the
+      // extension's debugger attached to the tab. Our in-memory map is then
+      // empty, and the next attach fails with "Another debugger is already
+      // attached". Try a raw detach to release that stale binding, then attach
+      // exactly once more. If DevTools or another extension owns it, retry still
+      // fails and the caller sees the original class of error.
+      await this.forceDetach(tabId)
+      await this.attachOnce(tabId)
+    }
+  }
+
+  private async attachOnce(tabId: number): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       this.chrome.debugger.attach({ tabId }, '1.3', () => {
         const lastError = this.chrome.runtime.lastError
@@ -63,10 +80,20 @@ export class DebuggerManager {
   async detach(tabId: number): Promise<void> {
     if (!this.sessions.has(tabId)) return
 
+    await this.detachChrome(tabId)
+    this.sessions.delete(tabId)
+    this.detachedReasons.delete(tabId)
+  }
+
+  private async forceDetach(tabId: number): Promise<void> {
+    await this.detachChrome(tabId)
+    this.sessions.delete(tabId)
+    this.detachedReasons.delete(tabId)
+  }
+
+  private async detachChrome(tabId: number): Promise<void> {
     await new Promise<void>(resolve => {
       this.chrome.debugger.detach({ tabId }, () => {
-        this.sessions.delete(tabId)
-        this.detachedReasons.delete(tabId)
         resolve()
       })
     })
@@ -94,7 +121,11 @@ export class DebuggerManager {
 
         const lastError = this.chrome.runtime.lastError
         if (lastError) {
-          reject(new SessionDetachedError(tabId, reasonFromLastError(lastError.message), lastError.message))
+          const reason = reasonFromLastError(lastError.message)
+          this.detachedReasons.set(tabId, reason)
+          this.sessions.delete(tabId)
+          session.pending.length = 0
+          reject(new SessionDetachedError(tabId, reason, lastError.message))
           return
         }
 
@@ -147,6 +178,11 @@ function reasonFromLastError(message: string | undefined): DetachReason {
   if (lower.includes('debugger') || lower.includes('devtools') || lower.includes('user')) return 'canceled_by_user'
   if (lower.includes('target') || lower.includes('tab')) return 'target_closed'
   return 'unknown'
+}
+
+function isAlreadyAttachedError(error: unknown): boolean {
+  if (!(error instanceof SessionDetachedError)) return false
+  return error.message.toLowerCase().includes('another debugger is already attached')
 }
 
 function removePending(session: AttachedSession, pending: PendingSend): void {

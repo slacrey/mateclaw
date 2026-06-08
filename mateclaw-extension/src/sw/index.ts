@@ -38,6 +38,12 @@ import { typeHandler } from './action/handlers/type'
 import { pressKeyHandler } from './action/handlers/press_key'
 import { scrollHandler } from './action/handlers/scroll'
 import { scrollRegionHandler } from './action/handlers/scroll_region'
+import { registerRegionHandler } from './action/handlers/register_region'
+import { detectRegionHandler } from './action/handlers/detect_region'
+import { extractRegionHandler } from './action/handlers/extract_region'
+import { openAuthorFromCommentHandler } from './action/handlers/open_author_from_comment'
+import { clickProfileActionHandler } from './action/handlers/click_profile_action'
+import { typeDmDraftHandler } from './action/handlers/type_dm_draft'
 import { moveMouseHandler, viewportCenterFromDebugger } from './action/handlers/move_mouse'
 import { waitHandler } from './action/handlers/wait'
 import type { Point } from '../lib/windmouse'
@@ -63,6 +69,10 @@ const SUBJECT = 'default'
 const ALLOWED_EXTERNAL_ORIGINS = new Set<string>([
   'http://localhost:18088',
   'http://localhost:5173',
+  'http://localhost:18080',
+  'http://127.0.0.1:18088',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:18080',
 ])
 
 // -----------------------------------------------------------------
@@ -241,10 +251,16 @@ const baseScrollHandler = scrollHandler({ debugger: debuggerManager })
 const handlers: ActionHandlers = {
   navigate:   navigateHandler(chrome),
   click:      clickHandler({ debugger: debuggerManager }),
-  type:       typeHandler({ debugger: debuggerManager, clearFirst: true }),
+  type:       typeHandler({ debugger: debuggerManager, chrome, clearFirst: true }),
   press_key:  pressKeyHandler({ debugger: debuggerManager }),
   scroll:     baseScrollHandler,
   scroll_region: scrollRegionHandler({ regions: regionRegistry, scroll: baseScrollHandler }),
+  register_region: registerRegionHandler({ regions: regionRegistry }),
+  detect_region: detectRegionHandler({ regions: regionRegistry, chrome }),
+  extract_region: extractRegionHandler({ regions: regionRegistry, chrome }),
+  open_author_from_comment: openAuthorFromCommentHandler({ chrome }),
+  click_profile_action: clickProfileActionHandler({ chrome }),
+  type_dm_draft: typeDmDraftHandler({ debugger: debuggerManager, chrome }),
   move_mouse: moveMouseHandler({
     debugger: debuggerManager,
     cursorState,

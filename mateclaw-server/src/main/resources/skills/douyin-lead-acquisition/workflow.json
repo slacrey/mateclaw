@@ -1,25 +1,183 @@
 {
-  "id": "douyin.lead_acquisition.workflow",
-  "version": "0.1.0",
-  "entry": "discover",
+  "apiVersion": "mateclaw.workflow/v2",
+  "kind": "Workflow",
+  "metadata": {
+    "id": "douyin-lead-acquisition",
+    "name": "douyin-lead-acquisition",
+    "displayName": "抖音获客",
+    "version": "1.0.0",
+    "description": "Search Douyin videos, collect comments, match comment text, then follow and draft DM for the author bound to each matched comment."
+  },
+  "inputs": [
+    {
+      "name": "query",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "commentRule",
+      "type": "object",
+      "required": true
+    },
+    {
+      "name": "messageTemplate",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "commentContent",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "videoCount",
+      "type": "integer",
+      "default": 50
+    },
+    {
+      "name": "sort",
+      "type": "string",
+      "default": "most_liked"
+    },
+    {
+      "name": "includeReplies",
+      "type": "boolean",
+      "default": false
+    },
+    {
+      "name": "sendMode",
+      "type": "string",
+      "default": "draft_only"
+    },
+    {
+      "name": "engage",
+      "type": "boolean",
+      "default": true
+    }
+  ],
+  "vars": {
+    "platform": "douyin",
+    "adapter": "douyin",
+    "dmSendRequiresApproval": true
+  },
   "steps": [
     {
-      "id": "discover",
-      "capability": "discover_leads",
-      "adapter": "douyin-research",
-      "next": "qualify"
+      "id": "open_search",
+      "type": "browser.step",
+      "adapter": "douyin",
+      "action": "search",
+      "with": {
+        "query": "{{ inputs.query }}"
+      },
+      "output": "searchPage"
     },
     {
-      "id": "qualify",
-      "capability": "qualify_leads",
-      "adapter": "douyin-research",
-      "next": "draft_outreach"
+      "id": "sort_results",
+      "type": "browser.step",
+      "adapter": "douyin",
+      "action": "sort",
+      "with": {
+        "sort": "{{ inputs.sort }}"
+      },
+      "output": "sortedResults"
     },
     {
-      "id": "draft_outreach",
-      "capability": "draft_outreach",
-      "adapter": "crm-export",
-      "next": null
+      "id": "video_loop",
+      "type": "loop",
+      "range": {
+        "from": 0,
+        "to": "{{ inputs.videoCount }}"
+      },
+      "body": [
+        {
+          "id": "open_video",
+          "type": "browser.step",
+          "adapter": "douyin",
+          "action": "open_result_video",
+          "with": {
+            "index": "{{ loop.index }}"
+          },
+          "output": "video"
+        },
+        {
+          "id": "open_comment_panel",
+          "type": "browser.step",
+          "adapter": "douyin",
+          "action": "open_comment_panel",
+          "verify": {
+            "commentPanelOpen": true,
+            "regionKey": "douyin.comments"
+          },
+          "with": {
+            "video": "{{ steps.open_video.output }}"
+          }
+        },
+        {
+          "id": "collect_comments",
+          "type": "browser.extract",
+          "adapter": "douyin",
+          "extractor": "comments.full",
+          "with": {
+            "includeReplies": "{{ inputs.includeReplies }}",
+            "dedupe": true,
+            "regionKey": "douyin.comments",
+            "forbidGenericPageScroll": true,
+            "verifyBeforeScroll": true,
+            "verifyAfterScroll": true,
+            "recoverPanelBeforeFail": true,
+            "expandReplies": false
+          },
+          "output": "comments"
+        },
+        {
+          "id": "match_comments",
+          "type": "llm.classify.batch",
+          "with": {
+            "items": "{{ steps.collect_comments.output.comments }}",
+            "rule": "{{ inputs.commentRule }}",
+            "outputSchema": "schemas/lead-comment.schema.json"
+          },
+          "output": "matchedComments"
+        },
+        {
+          "id": "engage_loop",
+          "type": "loop.items",
+          "items": "{{ steps.match_comments.output.matchedComments }}",
+          "body": [
+            {
+              "id": "engage_user",
+              "type": "browser.step",
+              "adapter": "douyin",
+              "action": "engage_matched_comment_author",
+              "policy": [
+                "external_contact",
+                "social_follow",
+                "dm_draft"
+              ],
+              "with": {
+                "comment": "{{ item }}",
+                "message": "{{ inputs.messageTemplate }}",
+                "commentContent": "{{ inputs.commentContent }}",
+                "send": "{{ inputs.sendMode == 'send_after_approval' }}"
+              },
+              "output": "engagement"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "summarize",
+      "type": "agent.ask",
+      "with": {
+        "prompt": "Summarize the Douyin lead-acquisition run as strict JSON matching schemas/output.schema.json. Include counts, declaredCommentCount, remainingDeclaredComments, collectionComplete, collectionCoverage, collectionStopReason, matched comments, engagement results, evidence refs, failures, and reviewRequired=true unless no external contact occurred.",
+        "input": "{{ steps.video_loop.output }}"
+      },
+      "output": "result"
     }
-  ]
+  ],
+  "outputs": {
+    "schema": "schemas/output.schema.json",
+    "value": "{{ steps.summarize.output.result }}"
+  }
 }

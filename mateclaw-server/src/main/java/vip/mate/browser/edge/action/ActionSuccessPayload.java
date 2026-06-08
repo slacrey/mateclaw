@@ -23,11 +23,19 @@ import com.fasterxml.jackson.annotation.JsonSubTypes;
         @JsonSubTypes.Type(value = PressKeySuccess.class,  name = "press_key"),
         @JsonSubTypes.Type(value = ScrollSuccess.class,    name = "scroll"),
         @JsonSubTypes.Type(value = ScrollRegionSuccess.class, name = "scroll_region"),
+        @JsonSubTypes.Type(value = RegisterRegionSuccess.class, name = "register_region"),
+        @JsonSubTypes.Type(value = DetectRegionSuccess.class, name = "detect_region"),
+        @JsonSubTypes.Type(value = ExtractRegionSuccess.class, name = "extract_region"),
+        @JsonSubTypes.Type(value = OpenAuthorFromCommentSuccess.class, name = "open_author_from_comment"),
+        @JsonSubTypes.Type(value = ClickProfileActionSuccess.class, name = "click_profile_action"),
+        @JsonSubTypes.Type(value = TypeDmDraftSuccess.class, name = "type_dm_draft"),
         @JsonSubTypes.Type(value = MoveMouseSuccess.class, name = "move_mouse"),
         @JsonSubTypes.Type(value = WaitSuccess.class,      name = "wait")
 })
 public sealed interface ActionSuccessPayload
         permits NavigateSuccess, ClickSuccess, TypeSuccess,
                 PressKeySuccess, ScrollSuccess, ScrollRegionSuccess,
+                RegisterRegionSuccess, DetectRegionSuccess, ExtractRegionSuccess,
+                OpenAuthorFromCommentSuccess, ClickProfileActionSuccess, TypeDmDraftSuccess,
                 MoveMouseSuccess, WaitSuccess {
 }

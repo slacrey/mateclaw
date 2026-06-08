@@ -6,6 +6,8 @@
 
 export const BrowserRuntimeV2ActionKind = {
   ScrollRegion: 'scroll_region',
+  DetectRegion: 'detect_region',
+  ExtractRegion: 'extract_region',
 } as const
 
 export const BrowserRuntimeV2MessageKind = {
@@ -44,6 +46,26 @@ export interface ScrollRegionParams {
 export interface ScrollRegionActionRequest {
   kind: typeof BrowserRuntimeV2ActionKind.ScrollRegion
   params: ScrollRegionParams
+}
+
+export interface ExtractRegionParams {
+  regionKey: string
+  maxItems?: number
+}
+
+export interface DetectRegionParams {
+  regionKey: string
+  strategy?: 'auto' | 'dom'
+}
+
+export interface DetectRegionActionRequest {
+  kind: typeof BrowserRuntimeV2ActionKind.DetectRegion
+  params: DetectRegionParams
+}
+
+export interface ExtractRegionActionRequest {
+  kind: typeof BrowserRuntimeV2ActionKind.ExtractRegion
+  params: ExtractRegionParams
 }
 
 export interface RuntimeRegionRegisterMessage {

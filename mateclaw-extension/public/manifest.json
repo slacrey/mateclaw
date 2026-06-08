@@ -27,7 +27,14 @@
   ],
   "host_permissions": ["<all_urls>"],
   "externally_connectable": {
-    "matches": ["http://localhost:18088/*", "http://localhost:5173/*"]
+    "matches": [
+      "http://localhost:18088/*",
+      "http://localhost:5173/*",
+      "http://localhost:18080/*",
+      "http://127.0.0.1:18088/*",
+      "http://127.0.0.1:5173/*",
+      "http://127.0.0.1:18080/*"
+    ]
   },
   "content_scripts": [
     {
@@ -44,6 +51,6 @@
     }
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' ws://localhost:18088 wss://localhost:18088 ws://localhost:5173 wss://*"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' ws://localhost:18088 ws://127.0.0.1:18088 ws://localhost:5173 ws://127.0.0.1:5173 ws://localhost:18080 ws://127.0.0.1:18080 wss://localhost:18088 wss://127.0.0.1:18088 wss://*"
   }
 }

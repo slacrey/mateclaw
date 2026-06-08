@@ -60,6 +60,35 @@ export interface ScrollRegionParams {
   segments?: number
 }
 
+export interface RegisterRegionParams {
+  regionKey: string
+  rect: { x: number; y: number; width: number; height: number }
+  source?: string
+}
+
+export interface DetectRegionParams {
+  regionKey: string
+  strategy?: 'auto' | 'dom'
+}
+
+export interface ExtractRegionParams {
+  regionKey: string
+  maxItems?: number
+}
+
+export interface OpenAuthorFromCommentParams {
+  commentText: string
+  authorName?: string
+}
+
+export interface ClickProfileActionParams {
+  labels: string[]
+}
+
+export interface TypeDmDraftParams {
+  text: string
+}
+
 export interface MoveMouseParams {
   x: number
   y: number
@@ -77,7 +106,7 @@ export interface WaitParams {
 // ActionKind discriminated union
 // -----------------------------------------------------------------
 
-export type ActionKind = 'navigate' | 'click' | 'type' | 'press_key' | 'scroll' | 'scroll_region' | 'move_mouse' | 'wait'
+export type ActionKind = 'navigate' | 'click' | 'type' | 'press_key' | 'scroll' | 'scroll_region' | 'register_region' | 'detect_region' | 'extract_region' | 'open_author_from_comment' | 'click_profile_action' | 'type_dm_draft' | 'move_mouse' | 'wait'
 
 export type ActionParams =
   | { kind: 'navigate';   params: NavigateParams }
@@ -86,6 +115,12 @@ export type ActionParams =
   | { kind: 'press_key';  params: PressKeyParams }
   | { kind: 'scroll';     params: ScrollParams }
   | { kind: 'scroll_region'; params: ScrollRegionParams }
+  | { kind: 'register_region'; params: RegisterRegionParams }
+  | { kind: 'detect_region'; params: DetectRegionParams }
+  | { kind: 'extract_region'; params: ExtractRegionParams }
+  | { kind: 'open_author_from_comment'; params: OpenAuthorFromCommentParams }
+  | { kind: 'click_profile_action'; params: ClickProfileActionParams }
+  | { kind: 'type_dm_draft'; params: TypeDmDraftParams }
   | { kind: 'move_mouse'; params: MoveMouseParams }
   | { kind: 'wait';       params: WaitParams }
 

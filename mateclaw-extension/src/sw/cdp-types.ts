@@ -38,6 +38,12 @@ export interface CDP {
     }
     result: Record<string, never>
   }
+  'Input.insertText': {
+    params: {
+      text: string
+    }
+    result: Record<string, never>
+  }
   'Page.captureScreenshot': {
     params: {
       format?: 'jpeg' | 'png' | 'webp'

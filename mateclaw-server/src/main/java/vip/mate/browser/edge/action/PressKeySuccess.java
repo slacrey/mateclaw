@@ -8,8 +8,6 @@ public record PressKeySuccess(
 ) implements ActionSuccessPayload {
 
     public PressKeySuccess {
-        if (key == null || key.isBlank()) {
-            throw new IllegalArgumentException("key is required");
-        }
+        key = key == null ? "" : key;
     }
 }

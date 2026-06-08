@@ -77,7 +77,7 @@ public class StepLedgerService {
         step.setOutputRef(request.outputRef());
         step.setCheckpointRef(request.checkpointRef());
         step.setFailureCode(request.failureCode());
-        step.setFailureMessage(request.failureMessage());
+        step.setFailureMessage(truncate(request.failureMessage(), 1900));
         step.setTokenInput(request.tokenInput());
         step.setTokenOutput(request.tokenOutput());
         step.setCompletedAt(completedAt);
@@ -98,5 +98,12 @@ public class StepLedgerService {
             throw new IllegalArgumentException("agent run not found: " + runId);
         }
         return run;
+    }
+
+    private String truncate(String value, int maxChars) {
+        if (value == null || value.length() <= maxChars) {
+            return value;
+        }
+        return value.substring(0, Math.max(0, maxChars - 32)) + "...[truncated " + value.length() + " chars]";
     }
 }

@@ -76,76 +76,79 @@ export class ScreenshotCaptureHandler {
       // input + read the AX tree over CDP. JPEG keeps the base64 under the WS
       // text-frame limit.
       await this.deps.debuggerManager.attach(tabId)
-
-      // Pin the capture to CSS-pixel scale. Page.captureScreenshot renders at the
-      // display's device-pixel ratio by default (e.g. 1.5× on a scaled Windows
-      // display), so the JPEG would be physically larger than the CSS viewport.
-      // SoM recomputes its own scale and survives that, but the coord-fallback
-      // path in VisionEngine reads the model's x,y straight off the image and
-      // would be off by the DPR factor. So we read the visible viewport via
-      // Page.getLayoutMetrics and capture it with a clip at scale:1 — image px ==
-      // CSS px == the a11y bbox space every grounding path expects. If metrics
-      // are unavailable we fall back to a plain capture (native DPR): SoM still
-      // works, only the coord path loses precision.
-      const cssViewport = await this.readCssViewport(tabId)
-      const captureParams: CDP['Page.captureScreenshot']['params'] = {
-        format: 'jpeg',
-        quality: JPEG_QUALITY,
-      }
-      if (cssViewport) {
-        captureParams.clip = {
-          x: cssViewport.x,
-          y: cssViewport.y,
-          width: cssViewport.w,
-          height: cssViewport.h,
-          scale: 1,
-        }
-        captureParams.captureBeyondViewport = false
-      }
-      const shot = await this.deps.debuggerManager.send(tabId, 'Page.captureScreenshot', captureParams)
-      const base64 = shot?.data ?? ''
-      if (!base64) {
-        this.respondError(
-          msg, snapshotId, capturedAt, 'PERMISSION_DENIED',
-          'Page.captureScreenshot returned empty data',
-        )
-        return
-      }
-      if (base64.length > MAX_BASE64_LENGTH) {
-        this.respondError(
-          msg,
-          snapshotId,
-          capturedAt,
-          'SCREENSHOT_TOO_LARGE',
-          `payload ${base64.length} bytes exceeds ${MAX_BASE64_LENGTH}`,
-        )
-        return
-      }
-
-      // Report the CSS viewport the clip used (image px == CSS px at scale:1).
-      // When metrics were unavailable, fall back to tab metadata dims (tabs.get
-      // needs no capture permission and tolerates failure).
-      let viewport: { w: number; h: number }
-      if (cssViewport) {
-        viewport = { w: cssViewport.w, h: cssViewport.h }
-      } else {
-        const tab = await this.chrome().tabs.get(tabId).catch(() => null)
-        viewport = { w: tab?.width ?? 1280, h: tab?.height ?? 800 }
-      }
-      this.deps.sendUp(makeEdgeMessage({
-        kind: EdgeMessageKind.ScreenshotCaptureResponse,
-        traceId: msg.trace_id,
-        inReplyTo: msg.msg_id,
-        payload: {
-          snapshot_id: snapshotId,
-          captured_at_ms: capturedAt,
-          tab_ref: tabId,
+      try {
+        // Pin the capture to CSS-pixel scale. Page.captureScreenshot renders at the
+        // display's device-pixel ratio by default (e.g. 1.5× on a scaled Windows
+        // display), so the JPEG would be physically larger than the CSS viewport.
+        // SoM recomputes its own scale and survives that, but the coord-fallback
+        // path in VisionEngine reads the model's x,y straight off the image and
+        // would be off by the DPR factor. So we read the visible viewport via
+        // Page.getLayoutMetrics and capture it with a clip at scale:1 — image px ==
+        // CSS px == the a11y bbox space every grounding path expects. If metrics
+        // are unavailable we fall back to a plain capture (native DPR): SoM still
+        // works, only the coord path loses precision.
+        const cssViewport = await this.readCssViewport(tabId)
+        const captureParams: CDP['Page.captureScreenshot']['params'] = {
           format: 'jpeg',
-          data_base64: base64,
-          viewport,
-          actual_dimensions: viewport,
-        },
-      }))
+          quality: JPEG_QUALITY,
+        }
+        if (cssViewport) {
+          captureParams.clip = {
+            x: cssViewport.x,
+            y: cssViewport.y,
+            width: cssViewport.w,
+            height: cssViewport.h,
+            scale: 1,
+          }
+          captureParams.captureBeyondViewport = false
+        }
+        const shot = await this.deps.debuggerManager.send(tabId, 'Page.captureScreenshot', captureParams)
+        const base64 = shot?.data ?? ''
+        if (!base64) {
+          this.respondError(
+            msg, snapshotId, capturedAt, 'PERMISSION_DENIED',
+            'Page.captureScreenshot returned empty data',
+          )
+          return
+        }
+        if (base64.length > MAX_BASE64_LENGTH) {
+          this.respondError(
+            msg,
+            snapshotId,
+            capturedAt,
+            'SCREENSHOT_TOO_LARGE',
+            `payload ${base64.length} bytes exceeds ${MAX_BASE64_LENGTH}`,
+          )
+          return
+        }
+
+        // Report the CSS viewport the clip used (image px == CSS px at scale:1).
+        // When metrics were unavailable, fall back to tab metadata dims (tabs.get
+        // needs no capture permission and tolerates failure).
+        let viewport: { w: number; h: number }
+        if (cssViewport) {
+          viewport = { w: cssViewport.w, h: cssViewport.h }
+        } else {
+          const tab = await this.chrome().tabs.get(tabId).catch(() => null)
+          viewport = { w: tab?.width ?? 1280, h: tab?.height ?? 800 }
+        }
+        this.deps.sendUp(makeEdgeMessage({
+          kind: EdgeMessageKind.ScreenshotCaptureResponse,
+          traceId: msg.trace_id,
+          inReplyTo: msg.msg_id,
+          payload: {
+            snapshot_id: snapshotId,
+            captured_at_ms: capturedAt,
+            tab_ref: tabId,
+            format: 'jpeg',
+            data_base64: base64,
+            viewport,
+            actual_dimensions: viewport,
+          },
+        }))
+      } finally {
+        await this.deps.debuggerManager.detach(tabId)
+      }
     } catch (err) {
       this.respondError(
         msg,

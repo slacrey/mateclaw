@@ -84,7 +84,7 @@ public class AgentRunKernel {
     public AgentRunEntity finishFailed(Long runId, String failureCode, String failureMessage) {
         AgentRunEntity run = requireRun(runId);
         run.setFailureCode(failureCode);
-        run.setFailureMessage(failureMessage);
+        run.setFailureMessage(truncate(failureMessage, 1900));
         runMapper.updateById(run);
         return transition(runId, AgentRunStatus.FAILED);
     }
@@ -103,5 +103,12 @@ public class AgentRunKernel {
             throw new IllegalArgumentException("agent run not found: " + runId);
         }
         return run;
+    }
+
+    private String truncate(String value, int maxChars) {
+        if (value == null || value.length() <= maxChars) {
+            return value;
+        }
+        return value.substring(0, Math.max(0, maxChars - 32)) + "...[truncated " + value.length() + " chars]";
     }
 }
