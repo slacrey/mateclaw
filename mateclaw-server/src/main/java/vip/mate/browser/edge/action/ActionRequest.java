@@ -92,6 +92,7 @@ public record ActionRequest(
             case OPEN_AUTHOR_FROM_COMMENT -> p instanceof OpenAuthorFromCommentPayload;
             case CLICK_PROFILE_ACTION -> p instanceof ClickProfileActionPayload;
             case TYPE_DM_DRAFT -> p instanceof TypeDmDraftPayload;
+            case DOUYIN_COMMENT_NETWORK -> p instanceof DouyinCommentNetworkPayload;
             case MOVE_MOUSE -> p instanceof MoveMousePayload;
             case WAIT       -> p instanceof WaitPayload;
         };

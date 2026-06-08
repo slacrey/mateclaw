@@ -30,6 +30,7 @@ import com.fasterxml.jackson.annotation.JsonSubTypes;
         @JsonSubTypes.Type(value = OpenAuthorFromCommentPayload.class, name = "open_author_from_comment"),
         @JsonSubTypes.Type(value = ClickProfileActionPayload.class, name = "click_profile_action"),
         @JsonSubTypes.Type(value = TypeDmDraftPayload.class, name = "type_dm_draft"),
+        @JsonSubTypes.Type(value = DouyinCommentNetworkPayload.class, name = "douyin_comment_network"),
         @JsonSubTypes.Type(value = MoveMousePayload.class, name = "move_mouse"),
         @JsonSubTypes.Type(value = WaitPayload.class,      name = "wait")
 })
@@ -38,5 +39,5 @@ public sealed interface ActionPayload
                 PressKeyPayload, ScrollPayload, ScrollRegionPayload,
                 RegisterRegionPayload, DetectRegionPayload, ExtractRegionPayload,
                 OpenAuthorFromCommentPayload, ClickProfileActionPayload, TypeDmDraftPayload,
-                MoveMousePayload, WaitPayload {
+                DouyinCommentNetworkPayload, MoveMousePayload, WaitPayload {
 }

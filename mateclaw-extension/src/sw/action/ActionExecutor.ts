@@ -16,6 +16,7 @@ import type {
   TypeDmDraftParams,
   MoveMouseParams,
   WaitParams,
+  DouyinCommentNetworkParams,
 } from './types'
 
 /**
@@ -46,6 +47,7 @@ export interface ActionHandlers {
   type_dm_draft: ActionHandler<TypeDmDraftParams>
   move_mouse: ActionHandler<MoveMouseParams>
   wait:       ActionHandler<WaitParams>
+  douyin_comment_network: ActionHandler<DouyinCommentNetworkParams>
 }
 
 /**

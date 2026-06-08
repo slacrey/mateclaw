@@ -46,6 +46,7 @@ import { clickProfileActionHandler } from './action/handlers/click_profile_actio
 import { typeDmDraftHandler } from './action/handlers/type_dm_draft'
 import { moveMouseHandler, viewportCenterFromDebugger } from './action/handlers/move_mouse'
 import { waitHandler } from './action/handlers/wait'
+import { douyinCommentNetworkHandler } from './action/handlers/douyin_comment_network'
 import type { Point } from '../lib/windmouse'
 import { RegionRegistry } from '../runtime/region-registry'
 import { parseRegionClearMessage, parseRegionRegistrationMessage } from '../runtime/messages'
@@ -268,6 +269,7 @@ const handlers: ActionHandlers = {
     initialCursorPosition: tabId => viewportCenterFromDebugger(debuggerManager, tabId),
   }),
   wait:       waitHandler({ chrome }),
+  douyin_comment_network: douyinCommentNetworkHandler({ debugger: debuggerManager }),
 }
 
 const executor = new ActionExecutor(handlers)

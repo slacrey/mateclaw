@@ -6,12 +6,16 @@ import vip.mate.lead.douyin.browser.DouyinBrowserAdapter;
 import vip.mate.lead.douyin.model.DouyinCommentItem;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -192,6 +196,252 @@ public class DouyinCommentCollector {
             best = Math.max(best, item.path("text").asInt(0));
         }
         return best;
+    }
+
+    public NetworkCommentPage commentsFromNetworkPage(JsonNode page, String fallbackVideoKey) {
+        JsonNode body = networkResponseBody(page);
+        if (body == null || body.isMissingNode() || body.isNull()) {
+            return NetworkCommentPage.empty();
+        }
+        String videoKey = firstTextValue(body, "aweme_id", "awemeId", "group_id", "groupId", "item_id", "itemId");
+        if (videoKey.isBlank()) {
+            videoKey = fallbackVideoKey;
+        }
+        String cursor = firstTextValue(body, "cursor", "current_cursor", "currentCursor", "offset");
+        String nextCursor = firstTextValue(body, "next_cursor", "nextCursor", "cursor", "offset");
+        boolean hasMore = firstBooleanValue(body, "has_more", "hasMore", "has_next", "hasNext", "more");
+        int declared = firstIntValue(body, "total", "total_count", "totalCount", "comment_total", "commentTotal");
+
+        LinkedHashMap<String, DouyinCommentItem> out = new LinkedHashMap<>();
+        Set<String> visited = new HashSet<>();
+        collectNetworkCommentObjects(body, videoKey, out, visited);
+        return new NetworkCommentPage(
+                new ArrayList<>(out.values()),
+                declared,
+                cursor,
+                nextCursor,
+                hasMore,
+                page == null ? "" : page.path("url").asText(""));
+    }
+
+    private JsonNode networkResponseBody(JsonNode page) {
+        if (page == null || page.isMissingNode() || page.isNull()) {
+            return null;
+        }
+        String body = page.path("body").asText("");
+        if (body.isBlank()) {
+            body = page.path("responseBody").asText("");
+        }
+        if (body.isBlank()) {
+            return null;
+        }
+        if (page.path("base64Encoded").asBoolean(false)) {
+            try {
+                body = new String(Base64.getDecoder().decode(body), StandardCharsets.UTF_8);
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
+        try {
+            return com.fasterxml.jackson.databind.json.JsonMapper.builder().build().readTree(body);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private void collectNetworkCommentObjects(
+            JsonNode node,
+            String videoKey,
+            LinkedHashMap<String, DouyinCommentItem> out,
+            Set<String> visited) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return;
+        }
+        if (node.isObject()) {
+            String nodeId = objectIdentity(node);
+            if (!nodeId.isBlank() && !visited.add(nodeId)) {
+                return;
+            }
+            networkCommentFromObject(node, videoKey).ifPresent(item -> out.putIfAbsent(item.commentKey(), item));
+            node.fields().forEachRemaining(entry -> collectNetworkCommentObjects(entry.getValue(), videoKey, out, visited));
+            return;
+        }
+        if (node.isArray()) {
+            for (JsonNode child : node) {
+                collectNetworkCommentObjects(child, videoKey, out, visited);
+            }
+        }
+    }
+
+    private Optional<DouyinCommentItem> networkCommentFromObject(JsonNode node, String videoKey) {
+        String text = clean(firstTextValue(node,
+                "text",
+                "content",
+                "comment_text",
+                "commentText",
+                "reply_text",
+                "replyText"));
+        if (!isLikelyNetworkCommentText(text)) {
+            return Optional.empty();
+        }
+        String commentId = firstTextValue(node,
+                "cid",
+                "comment_id",
+                "commentId",
+                "reply_id",
+                "replyId",
+                "id");
+        JsonNode user = firstObjectValue(node, "user", "user_info", "userInfo", "author", "author_info", "authorInfo");
+        String author = clean(firstTextValue(user,
+                "nickname",
+                "nick_name",
+                "nickName",
+                "unique_id",
+                "uniqueId",
+                "short_id",
+                "shortId",
+                "name"));
+        if (commentId.isBlank() && author.isBlank()) {
+            return Optional.empty();
+        }
+        String secUid = firstTextValue(user, "sec_uid", "secUid");
+        String uid = firstTextValue(user, "uid", "user_id", "userId");
+        String profileHref = "";
+        if (!secUid.isBlank()) {
+            profileHref = "https://www.douyin.com/user/" + secUid;
+        } else if (!uid.isBlank()) {
+            profileHref = "https://www.douyin.com/user/" + uid;
+        }
+        String avatar = firstUrlFromNode(firstObjectValue(user, "avatar_thumb", "avatarThumb", "avatar_medium", "avatarMedium"));
+        Integer likeCount = boxedPositiveInt(firstIntValue(node, "digg_count", "diggCount", "like_count", "likeCount"));
+        Integer replyCount = boxedPositiveInt(firstIntValue(node, "reply_comment_total", "replyCommentTotal", "reply_count", "replyCount"));
+        String parentId = firstTextValue(node, "reply_to_reply_id", "replyToReplyId", "parent_comment_id", "parentCommentId");
+        String key = !commentId.isBlank()
+                ? stableNetworkCommentKey(videoKey, commentId)
+                : stableCommentKey(videoKey, author, profileHref, text);
+        Map<String, Object> metadata = Map.of(
+                "source", "network_observed",
+                "rawCommentId", commentId,
+                "rawUserId", uid,
+                "rawSecUid", secUid);
+        return Optional.of(new DouyinCommentItem(
+                videoKey,
+                key,
+                parentId.isBlank() ? null : stableNetworkCommentKey(videoKey, parentId),
+                author,
+                profileHref.isBlank() ? null : profileHref,
+                avatar.isBlank() ? null : avatar,
+                text,
+                likeCount,
+                replyCount,
+                null,
+                metadata));
+    }
+
+    private boolean isLikelyNetworkCommentText(String text) {
+        String value = clean(text);
+        return !value.isBlank()
+                && value.length() <= 600
+                && !isControlText(value)
+                && !value.endsWith("头像")
+                && !value.contains("验证码")
+                && !value.contains("登录后");
+    }
+
+    private String objectIdentity(JsonNode node) {
+        String id = firstTextValue(node, "cid", "comment_id", "commentId", "reply_id", "replyId", "id");
+        if (!id.isBlank()) {
+            return id;
+        }
+        return "";
+    }
+
+    private JsonNode firstObjectValue(JsonNode node, String... names) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        for (String name : names) {
+            JsonNode value = node.path(name);
+            if (value.isObject()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private String firstTextValue(JsonNode node, String... names) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return "";
+        }
+        for (String name : names) {
+            JsonNode value = node.path(name);
+            if (value.isValueNode() && !value.asText("").isBlank()) {
+                return clean(value.asText(""));
+            }
+        }
+        return "";
+    }
+
+    private boolean firstBooleanValue(JsonNode node, String... names) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return false;
+        }
+        for (String name : names) {
+            JsonNode value = node.path(name);
+            if (value.isBoolean()) {
+                return value.asBoolean(false);
+            }
+            if (value.isNumber()) {
+                return value.asInt(0) > 0;
+            }
+            if (value.isTextual() && !value.asText("").isBlank()) {
+                return "true".equalsIgnoreCase(value.asText("")) || "1".equals(value.asText(""));
+            }
+        }
+        return false;
+    }
+
+    private int firstIntValue(JsonNode node, String... names) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return 0;
+        }
+        for (String name : names) {
+            JsonNode value = node.path(name);
+            if (value.isNumber()) {
+                return value.asInt(0);
+            }
+            if (value.isTextual() && value.asText("").matches("\\d+")) {
+                return Integer.parseInt(value.asText(""));
+            }
+        }
+        return 0;
+    }
+
+    private String firstUrlFromNode(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return "";
+        }
+        String direct = firstTextValue(node, "url", "uri");
+        if (!direct.isBlank() && direct.startsWith("http")) {
+            return direct;
+        }
+        JsonNode urls = node.path("url_list");
+        if (!urls.isArray()) {
+            urls = node.path("urlList");
+        }
+        if (urls.isArray()) {
+            for (JsonNode url : urls) {
+                String value = url.asText("");
+                if (value.startsWith("http")) {
+                    return value;
+                }
+            }
+        }
+        return "";
+    }
+
+    private Integer boxedPositiveInt(int value) {
+        return value > 0 ? value : null;
     }
 
     public int declaredCommentCount(String tree) {
@@ -552,6 +802,10 @@ public class DouyinCommentCollector {
         return "douyin-comment-" + Integer.toHexString((normalizeVideoKey(videoKey) + "|" + identity + "|" + clean(text)).hashCode());
     }
 
+    private String stableNetworkCommentKey(String videoKey, String commentId) {
+        return "douyin-comment-" + Integer.toHexString((normalizeVideoKey(videoKey) + "|cid:" + clean(commentId)).hashCode());
+    }
+
     private String normalizeVideoKey(String videoKey) {
         String value = clean(videoKey);
         if (value.isBlank()) {
@@ -593,6 +847,25 @@ public class DouyinCommentCollector {
     }
 
     public record ExtensionPoint(double x, double y) {
+    }
+
+    public record NetworkCommentPage(
+            List<DouyinCommentItem> comments,
+            int declaredCommentCount,
+            String cursor,
+            String nextCursor,
+            boolean hasMore,
+            String sourceUrl) {
+        public NetworkCommentPage {
+            comments = comments == null ? List.of() : List.copyOf(comments);
+            cursor = cursor == null ? "" : cursor;
+            nextCursor = nextCursor == null ? "" : nextCursor;
+            sourceUrl = sourceUrl == null ? "" : sourceUrl;
+        }
+
+        static NetworkCommentPage empty() {
+            return new NetworkCommentPage(List.of(), 0, "", "", false, "");
+        }
     }
 
     private record TreeLine(String role, String ref, String name, int x, int y, int w, int h) {

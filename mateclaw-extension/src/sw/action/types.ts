@@ -102,11 +102,18 @@ export interface WaitParams {
   load_state?: 'load' | 'domcontentloaded' | 'network_idle'
 }
 
+export interface DouyinCommentNetworkParams {
+  op: 'start' | 'drain' | 'stop'
+  maxPages?: number
+  maxBodyBytes?: number
+  ttlMs?: number
+}
+
 // -----------------------------------------------------------------
 // ActionKind discriminated union
 // -----------------------------------------------------------------
 
-export type ActionKind = 'navigate' | 'click' | 'type' | 'press_key' | 'scroll' | 'scroll_region' | 'register_region' | 'detect_region' | 'extract_region' | 'open_author_from_comment' | 'click_profile_action' | 'type_dm_draft' | 'move_mouse' | 'wait'
+export type ActionKind = 'navigate' | 'click' | 'type' | 'press_key' | 'scroll' | 'scroll_region' | 'register_region' | 'detect_region' | 'extract_region' | 'open_author_from_comment' | 'click_profile_action' | 'type_dm_draft' | 'move_mouse' | 'wait' | 'douyin_comment_network'
 
 export type ActionParams =
   | { kind: 'navigate';   params: NavigateParams }
@@ -123,6 +130,7 @@ export type ActionParams =
   | { kind: 'type_dm_draft'; params: TypeDmDraftParams }
   | { kind: 'move_mouse'; params: MoveMouseParams }
   | { kind: 'wait';       params: WaitParams }
+  | { kind: 'douyin_comment_network'; params: DouyinCommentNetworkParams }
 
 // -----------------------------------------------------------------
 // ActionRequest envelope (matches Java `ActionRequest` record)

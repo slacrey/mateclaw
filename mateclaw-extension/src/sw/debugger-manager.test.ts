@@ -3,6 +3,7 @@ import { DebuggerManager } from './debugger-manager'
 
 function fakeChrome() {
   const detachListeners: Array<(source: chrome.debugger.Debuggee, reason: string) => void> = []
+  const eventListeners: Array<(source: chrome.debugger.Debuggee, method: string, params?: unknown) => void> = []
   const calls: Array<{ method: string; tabId: number; cdpMethod?: string; params?: unknown }> = []
   let sendResult: unknown = {}
   let holdNextSend = false
@@ -29,6 +30,7 @@ function fakeChrome() {
         },
       ),
       onDetach: { addListener: (fn: (source: chrome.debugger.Debuggee, reason: string) => void) => detachListeners.push(fn) },
+      onEvent: { addListener: (fn: (source: chrome.debugger.Debuggee, method: string, params?: unknown) => void) => eventListeners.push(fn) },
     },
     runtime: { lastError: undefined as chrome.runtime.LastError | undefined },
   } as unknown as typeof globalThis.chrome
@@ -37,6 +39,9 @@ function fakeChrome() {
     chrome: chromeMock,
     triggerDetach: (tabId: number, reason: string) => {
       detachListeners.forEach(fn => fn({ tabId } as chrome.debugger.Debuggee, reason))
+    },
+    triggerEvent: (tabId: number, method: string, params?: unknown) => {
+      eventListeners.forEach(fn => fn({ tabId } as chrome.debugger.Debuggee, method, params))
     },
     calls,
     setSendResult: (result: unknown) => {
@@ -133,6 +138,24 @@ describe('DebuggerManager', () => {
     env.triggerDetach(101, 'target_closed')
 
     expect(manager.isAttached(101)).toBe(false)
+  })
+
+  it('forwards CDP events to the matching tab listener until unsubscribed', () => {
+    const env = fakeChrome()
+    const manager = new DebuggerManager(env.chrome)
+    const listener = vi.fn()
+
+    const unsubscribe = manager.addEventListener(101, listener)
+    env.triggerEvent(202, 'Network.loadingFinished', { requestId: 'other' })
+    env.triggerEvent(101, 'Network.loadingFinished', { requestId: 'r1' })
+    unsubscribe()
+    env.triggerEvent(101, 'Network.loadingFinished', { requestId: 'r2' })
+
+    expect(listener).toHaveBeenCalledExactlyOnceWith({
+      tabId: 101,
+      method: 'Network.loadingFinished',
+      params: { requestId: 'r1' },
+    })
   })
 
   it('replaced_with_devtools normalises to canceled_by_user', async () => {

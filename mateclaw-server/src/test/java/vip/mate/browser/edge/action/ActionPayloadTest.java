@@ -141,6 +141,21 @@ class ActionPayloadTest {
     }
 
     @Test
+    void douyinCommentNetworkPayload_roundTrip() throws Exception {
+        var payload = new DouyinCommentNetworkPayload("start", 8, 262144, 45000);
+
+        String json = mapper.writeValueAsString(payload);
+        DouyinCommentNetworkPayload back = mapper.readValue(json, DouyinCommentNetworkPayload.class);
+
+        assertThat(json)
+                .contains("\"op\":\"start\"")
+                .contains("\"maxPages\":8")
+                .contains("\"maxBodyBytes\":262144")
+                .contains("\"ttlMs\":45000");
+        assertThat(back).isEqualTo(payload);
+    }
+
+    @Test
     void clickPayload_clickCountDefaultsTo1() throws Exception {
         String json = "{\"x\":10,\"y\":20}";
 
@@ -264,6 +279,18 @@ class ActionPayloadTest {
         assertThat(p).isInstanceOf(ExtractRegionPayload.class);
         assertThat(((ExtractRegionPayload) p).regionKey()).isEqualTo("douyin.comments");
         assertThat(((ExtractRegionPayload) p).maxItems()).isEqualTo(25);
+    }
+
+    @Test
+    void abstractInterfaceDispatch_douyinCommentNetwork() throws Exception {
+        String json = """
+            {"kind":"douyin_comment_network","op":"drain","maxPages":5}
+            """;
+
+        ActionPayload p = mapper.readValue(json, ActionPayload.class);
+
+        assertThat(p).isInstanceOf(DouyinCommentNetworkPayload.class);
+        assertThat(((DouyinCommentNetworkPayload) p).op()).isEqualTo("drain");
     }
 
     @Test

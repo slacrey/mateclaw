@@ -44,6 +44,27 @@ export interface CDP {
     }
     result: Record<string, never>
   }
+  'Network.enable': {
+    params: {
+      maxTotalBufferSize?: number
+      maxResourceBufferSize?: number
+      maxPostDataSize?: number
+    }
+    result: Record<string, never>
+  }
+  'Network.disable': {
+    params: Record<string, never>
+    result: Record<string, never>
+  }
+  'Network.getResponseBody': {
+    params: {
+      requestId: string
+    }
+    result: {
+      body: string
+      base64Encoded: boolean
+    }
+  }
   'Page.captureScreenshot': {
     params: {
       format?: 'jpeg' | 'png' | 'webp'
@@ -144,6 +165,45 @@ export interface CDP {
       model: BoxModel
     }
   }
+}
+
+export interface CDPEvents {
+  'Network.responseReceived': NetworkResponseReceivedEvent
+  'Network.loadingFinished': NetworkLoadingFinishedEvent
+  'Network.loadingFailed': NetworkLoadingFailedEvent
+}
+
+export interface NetworkResponseReceivedEvent {
+  requestId: string
+  loaderId?: string
+  timestamp?: number
+  type?: string
+  response: NetworkResponse
+}
+
+export interface NetworkResponse {
+  url: string
+  status: number
+  statusText?: string
+  headers?: Record<string, string | number | boolean>
+  mimeType?: string
+  encodedDataLength?: number
+  fromDiskCache?: boolean
+  fromServiceWorker?: boolean
+}
+
+export interface NetworkLoadingFinishedEvent {
+  requestId: string
+  timestamp?: number
+  encodedDataLength?: number
+}
+
+export interface NetworkLoadingFailedEvent {
+  requestId: string
+  timestamp?: number
+  type?: string
+  errorText?: string
+  canceled?: boolean
 }
 
 /** A single property attached to an {@link AXNode} (state/relation/etc.). */

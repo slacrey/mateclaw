@@ -17,6 +17,8 @@ import vip.mate.browser.edge.action.ClickSuccess;
 import vip.mate.browser.edge.action.ClickPayload;
 import vip.mate.browser.edge.action.DetectRegionPayload;
 import vip.mate.browser.edge.action.DetectRegionSuccess;
+import vip.mate.browser.edge.action.DouyinCommentNetworkPayload;
+import vip.mate.browser.edge.action.DouyinCommentNetworkSuccess;
 import vip.mate.browser.edge.action.ExtractRegionPayload;
 import vip.mate.browser.edge.action.ExtractRegionSuccess;
 import vip.mate.browser.edge.action.MoveMousePayload;
@@ -898,6 +900,23 @@ public class ExtensionBrowserTool {
         return executePlan(session, List.of(req));
     }
 
+    public String service_douyin_comment_network_main(
+            String op,
+            Integer maxPages,
+            Integer maxBodyBytes,
+            Integer ttlMs) {
+        BrowserSession session = resolveSession();
+        if (session == null) return noSession();
+
+        ActionRequest req = new ActionRequest(
+                newMsgId(),
+                new TabRef.Main(),
+                ActionKind.DOUYIN_COMMENT_NETWORK,
+                new DouyinCommentNetworkPayload(op, maxPages, maxBodyBytes, ttlMs),
+                DEFAULT_DEADLINE_MS);
+        return executePlan(session, List.of(req));
+    }
+
     String extension_browser_observe_tab(TabRef tabRef, String filter, @Nullable ToolContext ctx) {
         BrowserSession session = resolveSession();
         if (session == null) return noSession();
@@ -1010,6 +1029,7 @@ public class ExtensionBrowserTool {
             case OpenAuthorFromCommentSuccess ignored -> "open_author_from_comment";
             case ClickProfileActionSuccess ignored -> "click_profile_action";
             case TypeDmDraftSuccess ignored -> "type_dm_draft";
+            case DouyinCommentNetworkSuccess ignored -> "douyin_comment_network";
             case MoveMouseSuccess ignored -> "move_mouse";
             case WaitSuccess ignored -> "wait";
         };

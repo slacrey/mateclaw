@@ -1,4 +1,4 @@
-import type { CDP } from './cdp-types'
+import type { CDP, CDPEvents } from './cdp-types'
 
 /**
  * Typed error thrown when a chrome.debugger session is detached
@@ -26,13 +26,23 @@ export type DetachReason =
   | 'replaced_with_devtools'
   | 'unknown'
 
+export interface DebuggerEvent<M extends keyof CDPEvents = keyof CDPEvents> {
+  tabId: number
+  method: M
+  params: CDPEvents[M]
+}
+
+export type DebuggerEventListener = (event: DebuggerEvent) => void
+
 export class DebuggerManager {
   /** Per-tab attached state. Absence = not attached. */
   private readonly sessions = new Map<number, AttachedSession>()
   private readonly detachedReasons = new Map<number, DetachReason>()
+  private readonly eventListeners = new Map<number, Set<DebuggerEventListener>>()
 
   constructor(private readonly chrome: typeof globalThis.chrome) {
     this.chrome.debugger.onDetach.addListener(this.onDetach)
+    this.chrome.debugger.onEvent?.addListener?.(this.onEvent)
   }
 
   /**
@@ -137,6 +147,49 @@ export class DebuggerManager {
   /** True if we have a live debugger session for this tab. */
   isAttached(tabId: number): boolean {
     return this.sessions.has(tabId)
+  }
+
+  /**
+   * Subscribe to CDP events for one tab. The caller owns the returned cleanup
+   * function; DebuggerManager only multiplexes Chrome's single onEvent stream.
+   */
+  addEventListener(tabId: number, listener: DebuggerEventListener): () => void {
+    let listeners = this.eventListeners.get(tabId)
+    if (!listeners) {
+      listeners = new Set()
+      this.eventListeners.set(tabId, listeners)
+    }
+    listeners.add(listener)
+
+    return () => {
+      const current = this.eventListeners.get(tabId)
+      if (!current) return
+      current.delete(listener)
+      if (current.size === 0) this.eventListeners.delete(tabId)
+    }
+  }
+
+  private readonly onEvent = (
+    source: chrome.debugger.Debuggee,
+    method: string,
+    params?: unknown,
+  ) => {
+    if (source.tabId == null) return
+    const listeners = this.eventListeners.get(source.tabId)
+    if (!listeners || listeners.size === 0) return
+
+    const event = {
+      tabId: source.tabId,
+      method,
+      params: params ?? {},
+    } as DebuggerEvent
+    for (const listener of [...listeners]) {
+      try {
+        listener(event)
+      } catch (err) {
+        console.warn('[mateclaw][sw] debugger event listener threw', err)
+      }
+    }
   }
 
   private readonly onDetach = (source: chrome.debugger.Debuggee, reason: string) => {

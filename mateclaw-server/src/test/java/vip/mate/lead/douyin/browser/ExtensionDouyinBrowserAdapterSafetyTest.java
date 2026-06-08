@@ -1031,6 +1031,42 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
     }
 
     @Test
+    void collectAllCommentsUsesObservedNetworkCommentsWhenDomExtractionIsEmpty() {
+        ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
+        ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
+                browser,
+                new ObjectMapper(),
+                new DouyinCommentCollector());
+        DouyinBrowserAdapter.RegionInfo region = DouyinBrowserAdapter.RegionInfo.comments(
+                960d, 80d, 520d, 760d, "test");
+        String page = """
+                {"ok":true,"url":"https://www.douyin.com/search/openclaw?modal_id=733","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 1 @{980,88 140x28}\\nTextbox[ref=ref_2, frame=0]: 说点什么 @{980,800 280x44}"}
+                """;
+        when(browser.service_observe_main("all")).thenReturn(page);
+        when(browser.service_douyin_comment_network_main("drain", null, null, null)).thenReturn("""
+                {"ok":true,"results":[{"payload":{"pages":[
+                  {"url":"https://www.douyin.com/aweme/v1/web/comment/list/?aweme_id=733&cursor=0","requestId":"r1","status":200,"base64Encoded":false,"body":"{\\"aweme_id\\":\\"733\\",\\"total\\":1,\\"has_more\\":false,\\"comments\\":[{\\"cid\\":\\"c1\\",\\"text\\":\\"支持\\",\\"user\\":{\\"nickname\\":\\"Ly\\",\\"sec_uid\\":\\"MS4w\\"}}]}"}
+                ]}}]}
+                """);
+        when(browser.service_extract_region_main("douyin.comments", 160)).thenReturn("""
+                {"ok":true,"results":[{"payload":{"items":[]}}]}
+                """);
+        when(browser.service_hover_main(anyDouble(), anyDouble())).thenReturn("{\"ok\":true}");
+
+        var result = adapter.collectAllComments(region);
+
+        assertThat(result.comments()).hasSize(1);
+        assertThat(result.comments().getFirst().text()).isEqualTo("支持");
+        assertThat(result.comments().getFirst().authorName()).isEqualTo("Ly");
+        assertThat(result.complete()).isTrue();
+        assertThat(result.stopReason()).isEqualTo("DECLARED_COUNT_REACHED");
+        assertThat(result.metadata()).containsEntry("networkObservedComments", 1L);
+        assertThat(result.metadata()).containsEntry("primaryCollectionSource", "network_observed");
+        verify(browser, never()).service_scroll_region_main(
+                eq("douyin.comments"), eq("down"), anyDouble(), org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
     void collectAllCommentsStopsWhenWheelAdvancesButExtractionDoesNotGainNewComments() {
         ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
         ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(

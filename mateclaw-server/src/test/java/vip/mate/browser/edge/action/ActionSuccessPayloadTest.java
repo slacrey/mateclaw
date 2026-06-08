@@ -183,4 +183,36 @@ class ActionSuccessPayloadTest {
                 new DetectRegionSuccess.SafePoint(220, 260),
                 "dom"));
     }
+
+    @Test
+    void douyinCommentNetworkSuccess_roundTrip() throws Exception {
+        var page = new DouyinCommentNetworkSuccess.Page(
+                "https://www.douyin.com/aweme/v1/web/comment/list/",
+                "request-1",
+                200,
+                "{\"comments\":[]}",
+                false,
+                123L);
+        var success = new DouyinCommentNetworkSuccess("drain", java.util.List.of(page), 1, 0);
+
+        String json = mapper.writeValueAsString(success);
+        DouyinCommentNetworkSuccess back = mapper.readValue(json, DouyinCommentNetworkSuccess.class);
+
+        assertThat(json)
+                .contains("\"op\":\"drain\"")
+                .contains("\"requestId\":\"request-1\"")
+                .contains("\"base64Encoded\":false");
+        assertThat(back).isEqualTo(success);
+    }
+
+    @Test
+    void abstractInterfaceDispatch_douyinCommentNetworkIgnoresExtensionExtras() throws Exception {
+        String json = """
+            {"kind":"douyin_comment_network","op":"drain","pages":[],"drainedCount":0,"capturing":true,"expiresAtMs":123}
+            """;
+
+        ActionSuccessPayload back = mapper.readValue(json, ActionSuccessPayload.class);
+
+        assertThat(back).isEqualTo(new DouyinCommentNetworkSuccess("drain", java.util.List.of(), 0, 0));
+    }
 }

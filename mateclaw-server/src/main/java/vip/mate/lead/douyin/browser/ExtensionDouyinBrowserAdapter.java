@@ -248,6 +248,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
 
     @Override
     public BrowserObservation openComments() {
+        startCommentNetworkCapture();
         BrowserObservation observed = observeMain("all");
         if (commentsPanelReady(observed)) {
             return commentsOpenedObservation(observed, "already_open");
@@ -513,16 +514,24 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
             }
             int before = seen.size();
             lastWindowBeforeCount = before;
+            ExtractedComments networkResult = drainNetworkComments(current.url());
+            for (DouyinCommentItem item : networkResult.comments()) {
+                if (!item.text().isBlank()) {
+                    mergeComment(seen, item);
+                }
+            }
             ExtractedComments extractedResult = extractRegionComments(region, current.url());
             List<DouyinCommentItem> extracted = extractedResult.comments();
-            lastExtractedCount = extracted.size();
+            lastExtractedCount = networkResult.comments().size() + extracted.size();
             for (DouyinCommentItem item : extracted) {
                 if (!item.text().isBlank()) {
                     mergeComment(seen, item);
                 }
             }
             lastVisibleCount = 0;
-            declared = Math.max(declared, extractedResult.declaredCommentCount());
+            declared = Math.max(declared, Math.max(
+                    networkResult.declaredCommentCount(),
+                    extractedResult.declaredCommentCount()));
             lastWindowAfterCount = seen.size();
             lastNewItems = Math.max(0, lastWindowAfterCount - lastWindowBeforeCount);
             lastCollectionAdvanced = lastNewItems > 0;
@@ -719,10 +728,20 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         metadata.put("lastBeforeLastItemSignature", evidence.beforeLastItemSignature());
         metadata.put("lastAfterFirstItemSignature", evidence.afterFirstItemSignature());
         metadata.put("lastAfterLastItemSignature", evidence.afterLastItemSignature());
+        long networkObservedComments = seen.values().stream()
+                .filter(item -> "network_observed".equals(String.valueOf(item.metadata().get("source"))))
+                .count();
+        long extractedRegionComments = seen.values().stream()
+                .filter(item -> "extract_region".equals(String.valueOf(item.metadata().get("source"))))
+                .count();
+        metadata.put("networkObservedComments", networkObservedComments);
+        metadata.put("extractedRegionComments", extractedRegionComments);
+        metadata.put("primaryCollectionSource", networkObservedComments > 0 ? "network_observed" : "extract_region");
         metadata.put("fullCollectionExpected", declared > 0 && declared <= seen.size());
         metadata.put("partialCollection", declared > 0 && seen.size() < declared);
         metadata.put("replyExpansionEnabled", false);
         metadata.put("replyExpansionMode", "disabled_v1_quality_first");
+        stopCommentNetworkCapture();
         return new CommentCollectionResult(
                 new ArrayList<>(seen.values()),
                 declared,
@@ -734,9 +753,39 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
 
     private void mergeComment(LinkedHashMap<String, DouyinCommentItem> seen, DouyinCommentItem item) {
         DouyinCommentItem existing = seen.get(item.commentKey());
+        String existingKey = item.commentKey();
+        if (existing == null) {
+            existingKey = equivalentCommentKey(seen, item).orElse(item.commentKey());
+            existing = seen.get(existingKey);
+        }
         if (existing == null || commentQualityScore(item) > commentQualityScore(existing)) {
+            if (!existingKey.equals(item.commentKey())) {
+                seen.remove(existingKey);
+            }
             seen.put(item.commentKey(), item);
         }
+    }
+
+    private Optional<String> equivalentCommentKey(LinkedHashMap<String, DouyinCommentItem> seen, DouyinCommentItem item) {
+        String video = normalizeForEquivalence(item.videoKey());
+        String author = normalizeForEquivalence(item.authorName());
+        String text = normalizeForEquivalence(item.text());
+        if (text.isBlank() || author.isBlank()) {
+            return Optional.empty();
+        }
+        return seen.entrySet().stream()
+                .filter(entry -> {
+                    DouyinCommentItem existing = entry.getValue();
+                    return normalizeForEquivalence(existing.videoKey()).equals(video)
+                            && normalizeForEquivalence(existing.authorName()).equals(author)
+                            && normalizeForEquivalence(existing.text()).equals(text);
+                })
+                .map(Map.Entry::getKey)
+                .findFirst();
+    }
+
+    private String normalizeForEquivalence(String value) {
+        return value == null ? "" : value.replaceAll("\\s+", "").trim();
     }
 
     private int commentQualityScore(DouyinCommentItem item) {
@@ -744,6 +793,9 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         if (item.authorProfileUrl() != null) score += 40;
         if (item.authorTarget() != null && item.authorTarget().hasPoint()) score += 30;
         if (!item.authorName().isBlank()) score += 20;
+        if (item.metadata().containsKey("source") && "network_observed".equals(String.valueOf(item.metadata().get("source")))) {
+            score += 25;
+        }
         if (item.metadata().containsKey("source") && "extract_region".equals(String.valueOf(item.metadata().get("source")))) {
             score += 15;
         }
@@ -988,6 +1040,50 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
             return new ExtractedComments(
                     collector.commentsFromExtractedRegion(root, videoKey),
                     collector.declaredCommentCountFromExtractedRegion(root));
+        } catch (Exception ignored) {
+            return new ExtractedComments(List.of(), 0);
+        }
+    }
+
+    private void startCommentNetworkCapture() {
+        try {
+            browser.service_douyin_comment_network_main("start", 20, 512 * 1024, 120_000);
+        } catch (Exception ignored) {
+            // Network observation is an enhancement path. DOM/region extraction remains the fallback.
+        }
+    }
+
+    private void stopCommentNetworkCapture() {
+        try {
+            browser.service_douyin_comment_network_main("stop", null, null, null);
+        } catch (Exception ignored) {
+            // Best-effort cleanup only.
+        }
+    }
+
+    private ExtractedComments drainNetworkComments(String videoKey) {
+        try {
+            JsonNode root = parse(browser.service_douyin_comment_network_main("drain", null, null, null));
+            if (!root.path("ok").asBoolean(false)) {
+                return new ExtractedComments(List.of(), 0);
+            }
+            JsonNode pages = root.path("results").path(0).path("payload").path("pages");
+            if (!pages.isArray()) {
+                return new ExtractedComments(List.of(), 0);
+            }
+            LinkedHashMap<String, DouyinCommentItem> comments = new LinkedHashMap<>();
+            int declared = 0;
+            for (JsonNode page : pages) {
+                DouyinCommentCollector.NetworkCommentPage parsed =
+                        collector.commentsFromNetworkPage(page, videoKey);
+                declared = Math.max(declared, parsed.declaredCommentCount());
+                for (DouyinCommentItem item : parsed.comments()) {
+                    if (!item.text().isBlank()) {
+                        comments.putIfAbsent(item.commentKey(), item);
+                    }
+                }
+            }
+            return new ExtractedComments(new ArrayList<>(comments.values()), declared);
         } catch (Exception ignored) {
             return new ExtractedComments(List.of(), 0);
         }

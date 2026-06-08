@@ -6,6 +6,8 @@ import vip.mate.lead.douyin.browser.DouyinBrowserAdapter;
 import vip.mate.lead.douyin.model.DouyinCommentItem;
 
 import java.util.List;
+import java.util.Base64;
+import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -141,6 +143,54 @@ class DouyinCommentCollectorTest {
         DouyinCommentItem secondComment = collector.commentsFromExtractedRegion(second, "https://www.douyin.com/search/openclaw?modal_id=1").get(1);
 
         assertThat(firstComment.commentKey()).isEqualTo(secondComment.commentKey());
+    }
+
+    @Test
+    void parsesObservedNetworkCommentPage() throws Exception {
+        var page = mapper.readTree("""
+                {
+                  "url": "https://www.douyin.com/aweme/v1/web/comment/list/?aweme_id=733&cursor=0",
+                  "status": 200,
+                  "body": "{\\"aweme_id\\":\\"733\\",\\"cursor\\":\\"0\\",\\"next_cursor\\":\\"20\\",\\"has_more\\":true,\\"total\\":129,\\"comments\\":[{\\"cid\\":\\"c1\\",\\"text\\":\\"支持\\",\\"digg_count\\":12,\\"reply_comment_total\\":3,\\"user\\":{\\"nickname\\":\\"Ly\\",\\"sec_uid\\":\\"MS4w\\",\\"avatar_thumb\\":{\\"url_list\\":[\\"https://p.example/avatar.jpeg\\"]}}}]}"
+                }
+                """);
+
+        var parsed = collector.commentsFromNetworkPage(page, "fallback-video");
+
+        assertThat(parsed.comments()).hasSize(1);
+        assertThat(parsed.declaredCommentCount()).isEqualTo(129);
+        assertThat(parsed.cursor()).isEqualTo("0");
+        assertThat(parsed.nextCursor()).isEqualTo("20");
+        assertThat(parsed.hasMore()).isTrue();
+        DouyinCommentItem comment = parsed.comments().getFirst();
+        assertThat(comment.videoKey()).isEqualTo("733");
+        assertThat(comment.authorName()).isEqualTo("Ly");
+        assertThat(comment.authorProfileUrl()).isEqualTo("https://www.douyin.com/user/MS4w");
+        assertThat(comment.authorAvatarUrl()).isEqualTo("https://p.example/avatar.jpeg");
+        assertThat(comment.text()).isEqualTo("支持");
+        assertThat(comment.likeCount()).isEqualTo(12);
+        assertThat(comment.replyCount()).isEqualTo(3);
+        assertThat(comment.metadata()).containsEntry("source", "network_observed");
+    }
+
+    @Test
+    void parsesBase64ObservedNetworkBody() throws Exception {
+        String body = """
+                {"data":{"hasMore":false,"comments":[
+                  {"commentId":"c2","content":"哈哈","authorInfo":{"nickName":"A1"}}
+                ]}}
+                """;
+        var page = mapper.createObjectNode()
+                .put("url", "https://www.douyin.com/comment/list")
+                .put("base64Encoded", true)
+                .put("body", Base64.getEncoder().encodeToString(body.getBytes(StandardCharsets.UTF_8)));
+
+        var parsed = collector.commentsFromNetworkPage(page, "https://www.douyin.com/search/openclaw?modal_id=733");
+
+        assertThat(parsed.comments()).hasSize(1);
+        assertThat(parsed.comments().getFirst().authorName()).isEqualTo("A1");
+        assertThat(parsed.comments().getFirst().text()).isEqualTo("哈哈");
+        assertThat(parsed.hasMore()).isFalse();
     }
 
     @Test
