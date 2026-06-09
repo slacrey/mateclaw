@@ -12,6 +12,17 @@ function chromeWithDomExecution() {
   } as unknown as typeof chrome
 }
 
+function chromeWithIsolatedDomExecution() {
+  return {
+    scripting: {
+      executeScript: vi.fn(async ({ func, args }) => {
+        const isolated = (0, eval)(`(${func.toString()})`) as (...values: unknown[]) => unknown
+        return [{ result: isolated(...args) }]
+      }),
+    },
+  } as unknown as typeof chrome
+}
+
 function mockRect(el: Element, rect: Partial<DOMRect>): void {
   vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
     x: rect.x ?? rect.left ?? 0,
@@ -165,7 +176,7 @@ describe('extract_region handler', () => {
 
     const regions = new RegionRegistry()
     regions.register({ key: 'douyin.comments', tabId: 9, rect: { x: 980, y: 60, width: 560, height: 740 } })
-    const handler = extractRegionHandler({ regions, chrome: chromeWithDomExecution() })
+    const handler = extractRegionHandler({ regions, chrome: chromeWithIsolatedDomExecution() })
 
     const result = await handler(9, { regionKey: 'douyin.comments' }, 1000)
 
@@ -304,6 +315,7 @@ describe('extract_region handler', () => {
       requestedRegionKey: 'douyin.comments',
       runtimeRegionKey: undefined,
       effectiveRegionKey: 'douyin.comments',
+      injectedProbe: 'douyin_comments_self_contained_v1',
       selectedListDirectDivs: 1,
       extractedDomCommentCount: 1,
     }))
