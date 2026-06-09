@@ -120,8 +120,16 @@ public class DouyinLeadAcquisitionTool {
         out.put("totalNewItems", collected.path("totalNewItems").asInt(0));
         out.put("stableNoNewWindows", collected.path("stableNoNewWindows").asInt(0));
         boolean bottomConfirmed = stopReason != null && stopReason.startsWith("END_OF_LIST");
+        boolean topLevelComplete = collected.path("topLevelCollectionComplete").asBoolean(false);
+        boolean declaredTotalMayIncludeReplies = collected.path("declaredTotalMayIncludeReplies").asBoolean(false);
+        out.put("topLevelCollectionComplete", topLevelComplete);
+        out.put("declaredCountMismatch", collected.path("declaredCountMismatch").asBoolean(false));
+        out.put("declaredTotalMayIncludeReplies", declaredTotalMayIncludeReplies);
+        out.put("replyExpansionMode", collected.path("replyExpansionMode").asText(""));
         out.put("bottomConfirmed", bottomConfirmed);
-        out.put("allowedSummary", complete
+        out.put("allowedSummary", complete && declaredTotalMayIncludeReplies
+                ? "The comment list bottom marker was observed and V1 completed top-level DOM comment collection. The declared total may include collapsed replies because reply expansion is disabled; report declaredCommentCount, commentsCollected, stopReason, and that replies were not expanded."
+                : complete
                 ? "Comment collection reached a defined completion condition. Report the exact stopReason."
                 : bottomConfirmed
                 ? "The bottom marker was observed, but declared and collected counts do not match. Report it as incomplete and include declaredCommentCount, commentsCollected, remainingDeclaredComments, and stopReason."

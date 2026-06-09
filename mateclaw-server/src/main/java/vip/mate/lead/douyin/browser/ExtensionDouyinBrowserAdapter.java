@@ -752,17 +752,32 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         boolean a11yOnlyCollection = a11yTreeComments > 0
                 && extractedRegionComments == 0
                 && networkObservedComments == 0;
-        boolean reportedComplete = complete && !a11yOnlyCollection;
-        String reportedStopReason = a11yOnlyCollection && "END_OF_LIST".equals(stopReason)
-                ? "END_OF_LIST_A11Y_ONLY"
+        boolean declaredCountMismatch = declared > 0 && seen.size() < declared;
+        boolean endOfListStop = stopReason != null && stopReason.startsWith("END_OF_LIST");
+        boolean domTopLevelEndReached = endOfListStop
+                && declaredCountMismatch
+                && extractedRegionComments > 0
+                && !a11yOnlyCollection;
+        boolean effectiveComplete = complete || domTopLevelEndReached;
+        String effectiveStopReason = domTopLevelEndReached && !complete
+                ? "END_OF_LIST_TOP_LEVEL"
                 : stopReason;
+        boolean reportedComplete = effectiveComplete && !a11yOnlyCollection;
+        String reportedStopReason = a11yOnlyCollection && "END_OF_LIST".equals(effectiveStopReason)
+                ? "END_OF_LIST_A11Y_ONLY"
+                : effectiveStopReason;
         metadata.put("primaryCollectionSource", extractedRegionComments > 0
                 ? "extract_region"
                 : networkObservedComments > 0 ? "network_observed" : "a11y_tree");
         metadata.put("domExtractionUnavailable", a11yOnlyCollection);
         metadata.put("fullCollectionExpected", reportedComplete && declared > 0 && declared <= seen.size());
-        metadata.put("partialCollection", a11yOnlyCollection || declared > 0 && seen.size() < declared);
-        metadata.put("declaredCountMismatch", declared > 0 && seen.size() < declared);
+        metadata.put("topLevelCollectionComplete", reportedComplete && endOfListStop);
+        metadata.put("declaredTotalMayIncludeReplies", domTopLevelEndReached);
+        metadata.put("partialCollection", a11yOnlyCollection || declaredCountMismatch && !domTopLevelEndReached);
+        metadata.put("declaredCountMismatch", declaredCountMismatch);
+        if (domTopLevelEndReached) {
+            metadata.put("declaredCountMismatchReason", "declared_count_may_include_collapsed_replies_v1_reply_expansion_disabled");
+        }
         metadata.put("replyExpansionEnabled", false);
         metadata.put("replyExpansionMode", "disabled_v1_quality_first");
         stopCommentNetworkCapture();

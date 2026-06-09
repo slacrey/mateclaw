@@ -78,4 +78,63 @@ class DouyinLeadAcquisitionToolTest {
                 .contains("loading limit");
         assertThat(guidance.path("bottomConfirmed").asBoolean()).isFalse();
     }
+
+    @Test
+    void topLevelDomCompletionGuidanceMentionsCollapsedReplies() throws Exception {
+        DouyinLeadAcquisitionRunService runService = mock(DouyinLeadAcquisitionRunService.class);
+        DouyinLeadAcquisitionQueryService queryService = mock(DouyinLeadAcquisitionQueryService.class);
+        DouyinLeadAcquisitionTool tool = new DouyinLeadAcquisitionTool(runService, queryService, mapper);
+        var response = new DouyinLeadAcquisitionRunResponse(
+                "1",
+                "2",
+                "succeeded",
+                65,
+                0,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(new RunTimelineEventDTO(
+                        "3",
+                        null,
+                        "lead.comments.collected",
+                        "info",
+                        """
+                        {
+                          "commentsCollected": 65,
+                          "declaredCommentCount": 90,
+                          "complete": true,
+                          "scrollAttempts": 16,
+                          "stopReason": "END_OF_LIST_TOP_LEVEL",
+                          "collectionCoverage": 0.7222,
+                          "effectiveScrolls": 16,
+                          "advancedWindows": 7,
+                          "totalNewItems": 65,
+                          "stableNoNewWindows": 1,
+                          "topLevelCollectionComplete": true,
+                          "declaredCountMismatch": true,
+                          "declaredTotalMayIncludeReplies": true,
+                          "replyExpansionMode": "disabled_v1_quality_first"
+                        }
+                        """)));
+        when(runService.runSync(eq(1L), eq(1L), any(DouyinLeadAcquisitionInput.class), eq(queryService)))
+                .thenReturn(response);
+
+        String raw = tool.douyinLeadAcquisitionRun(
+                "易企秀",
+                "most_liked",
+                1,
+                "",
+                "你好",
+                false,
+                false,
+                null);
+
+        var guidance = mapper.readTree(raw).path("reportingGuidance");
+        assertThat(guidance.path("collectionStatus").asText()).isEqualTo("complete");
+        assertThat(guidance.path("topLevelCollectionComplete").asBoolean()).isTrue();
+        assertThat(guidance.path("declaredTotalMayIncludeReplies").asBoolean()).isTrue();
+        assertThat(guidance.path("allowedSummary").asText())
+                .contains("top-level DOM comment collection")
+                .contains("reply expansion is disabled");
+    }
 }

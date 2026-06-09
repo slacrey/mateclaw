@@ -1091,11 +1091,13 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
 
         var result = adapter.collectAllComments(region);
 
-        assertThat(result.complete()).isFalse();
-        assertThat(result.stopReason()).isEqualTo("END_OF_LIST_DECLARED_MISMATCH");
+        assertThat(result.complete()).isTrue();
+        assertThat(result.stopReason()).isEqualTo("END_OF_LIST_TOP_LEVEL");
         assertThat(result.metadata()).containsEntry("stableEndMarkerWindows", 2);
         assertThat(result.metadata()).containsEntry("collectedCount", 1);
         assertThat(result.metadata()).containsEntry("declaredCountMismatch", true);
+        assertThat(result.metadata()).containsEntry("declaredTotalMayIncludeReplies", true);
+        assertThat(result.metadata()).containsEntry("partialCollection", false);
     }
 
     @Test
