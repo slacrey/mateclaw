@@ -244,6 +244,10 @@ describe('extract_region handler', () => {
       selectedListCommentItems: 0,
       selectedListDirectDivs: 3,
       extractedDomCommentCount: 2,
+      selectedListOuterHtmlSample: expect.stringContaining('data-e2e="comment-list"'),
+      selectedListDirectChildHtmlSamples: expect.arrayContaining([
+        expect.stringContaining('嘴大心宽'),
+      ]),
     }))
     const comments = items.filter(item => item.itemType === 'douyin_comment')
     expect(comments).toEqual([

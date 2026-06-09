@@ -63,6 +63,12 @@ export const extractRegionHandler = (deps: ExtractRegionHandlerDeps): ActionHand
       ? pageResult
       : Array.isArray(pageResult?.items) ? pageResult.items : []
     const diagnostics = !Array.isArray(pageResult) ? pageResult?.diagnostics : undefined
+    if (parsed.regionKey === 'douyin.comments') {
+      console.info('[mateclaw][extract_region][douyin.comments]', {
+        items: items.length,
+        diagnostics,
+      })
+    }
 
     return {
       ok: true,
@@ -1145,11 +1151,25 @@ function douyinCommentDomDiagnostics(items: ExtractedRegionItem[]): Record<strin
     endMarkerItems: items.filter(item => item.itemType === 'comment_end').map(item => item.text),
     firstAuthors: comments.slice(0, 5).map(item => item.author || ''),
     firstTexts: comments.slice(0, 5).map(item => item.text),
+    selectedListTextSample: truncateDiagnosticText(cleanDiagnosticText(selectedList?.el.innerText || selectedList?.el.textContent || ''), 1200),
+    selectedListOuterHtmlSample: truncateDiagnosticText(selectedList?.el.outerHTML || '', 3200),
+    selectedListDirectChildHtmlSamples: selectedList
+      ? Array.from(selectedList.el.children)
+        .filter(child => child instanceof HTMLElement && child.tagName.toLowerCase() === 'div')
+        .slice(0, 5)
+        .map(child => truncateDiagnosticText((child as HTMLElement).outerHTML || '', 1200))
+      : [],
   }
 }
 
 function cleanDiagnosticText(text: string): string {
   return text.replace(/\s+/g, ' ').trim()
+}
+
+function truncateDiagnosticText(text: string, maxLength: number): string {
+  const value = cleanDiagnosticText(text)
+  if (value.length <= maxLength) return value
+  return `${value.slice(0, maxLength)}...[truncated:${value.length}]`
 }
 
 function extractDouyinSearchResults(
