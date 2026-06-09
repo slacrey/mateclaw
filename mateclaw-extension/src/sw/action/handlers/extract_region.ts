@@ -56,7 +56,7 @@ export const extractRegionHandler = (deps: ExtractRegionHandlerDeps): ActionHand
     const results = await chromeApi.scripting.executeScript({
       target: { tabId, allFrames: false },
       func: extractRegionInPage,
-      args: [region, parsed.maxItems],
+      args: [region, parsed.regionKey, parsed.maxItems],
     })
     const pageResult = results?.[0]?.result as ExtractedRegionItem[] | ExtractRegionPageResult | undefined
     const items = Array.isArray(pageResult)
@@ -67,6 +67,11 @@ export const extractRegionHandler = (deps: ExtractRegionHandlerDeps): ActionHand
       console.info('[mateclaw][extract_region][douyin.comments]', {
         items: items.length,
         diagnostics,
+        parsedRegionKey: parsed.regionKey,
+        runtimeRegionKey: region.key,
+        pageResultShape: Array.isArray(pageResult)
+          ? 'array'
+          : pageResult && typeof pageResult === 'object' ? Object.keys(pageResult) : typeof pageResult,
       })
     }
 
@@ -91,7 +96,10 @@ function parseExtractRegionParams(params: ExtractRegionParams): { regionKey: str
   }
 }
 
-function extractRegionInPage(region: RuntimeRegion, maxItems: number): ExtractRegionPageResult {
+function extractRegionInPage(region: RuntimeRegion, regionKey: string, maxItems: number): ExtractRegionPageResult {
+  const effectiveRegionKey = typeof region.key === 'string' && region.key.trim().length > 0
+    ? region.key
+    : regionKey
   const regionRect = {
     left: region.x,
     top: region.y,
@@ -100,17 +108,21 @@ function extractRegionInPage(region: RuntimeRegion, maxItems: number): ExtractRe
   }
   const max = Math.min(Math.max(Math.floor(maxItems || 80), 1), 500)
 
-  if (region.key === 'douyin.search_results') {
+  if (effectiveRegionKey === 'douyin.search_results') {
     return { items: extractDouyinSearchResults(regionRect, max) }
   }
-  if (region.key === 'douyin.comments') {
+  if (effectiveRegionKey === 'douyin.comments') {
     const items = extractDouyinComments(regionRect, max)
     return {
       items,
-      diagnostics: douyinCommentDomDiagnostics(items),
+      diagnostics: douyinCommentDomDiagnostics(items, {
+        effectiveRegionKey,
+        runtimeRegionKey: region.key,
+        requestedRegionKey: regionKey,
+      }),
     }
   }
-  if (region.key === 'douyin.dm') {
+  if (effectiveRegionKey === 'douyin.dm') {
     return { items: extractDouyinDm(regionRect, max) }
   }
 
@@ -1121,7 +1133,14 @@ function extractDouyinComments(
   }
 }
 
-function douyinCommentDomDiagnostics(items: ExtractedRegionItem[]): Record<string, unknown> {
+function douyinCommentDomDiagnostics(
+  items: ExtractedRegionItem[],
+  context: {
+    effectiveRegionKey?: string
+    runtimeRegionKey?: string
+    requestedRegionKey?: string
+  } = {},
+): Record<string, unknown> {
   const lists = Array.from(document.querySelectorAll<HTMLElement>('[data-e2e="comment-list"]'))
   const selectedList = lists
     .map((el, index) => ({
@@ -1134,6 +1153,9 @@ function douyinCommentDomDiagnostics(items: ExtractedRegionItem[]): Record<strin
   const comments = items.filter(item => item.itemType === 'douyin_comment')
   const listSelector = '[data-e2e="comment-list"]'
   return {
+    requestedRegionKey: context.requestedRegionKey,
+    runtimeRegionKey: context.runtimeRegionKey,
+    effectiveRegionKey: context.effectiveRegionKey,
     commentListCount: lists.length,
     selectedListCommentItems: selectedList?.commentItems ?? 0,
     selectedListDirectDivs: selectedList?.directDivs ?? 0,

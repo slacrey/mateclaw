@@ -263,6 +263,58 @@ describe('extract_region handler', () => {
     expect(comments.map(comment => comment.text).join(' ')).not.toContain('分享')
   })
 
+  it('uses requested region key for Douyin DOM extraction when runtime region key is absent', async () => {
+    document.body.innerHTML = `
+      <div id="merge-all-comment-container">
+        <span id="count">全部评论(2)</span>
+        <div data-e2e="comment-list" id="list">
+          <div id="slot-1">
+            <a id="author-1" href="//www.douyin.com/user/MS4wTitle"><span data-click-from="title">嘴大心宽</span></a>
+            <div id="body-1"><span>别人的易企秀，怎么可以修改一下变成自己的？</span></div>
+            <div class="comment-item-stats-container"><span>回复</span><span>分享</span></div>
+          </div>
+        </div>
+      </div>
+    `
+    mockRect(document.querySelector('#merge-all-comment-container')!, { x: 96, y: 20, width: 670, height: 760 })
+    mockRect(document.querySelector('#count')!, { x: 130, y: 58, width: 150, height: 30 })
+    mockRect(document.querySelector('#list')!, { x: 98, y: 100, width: 660, height: 650 })
+    mockRect(document.querySelector('#slot-1')!, { x: 128, y: 122, width: 610, height: 170 })
+    mockRect(document.querySelector('#author-1')!, { x: 230, y: 124, width: 90, height: 28 })
+    mockRect(document.querySelector('#body-1')!, { x: 230, y: 164, width: 500, height: 56 })
+
+    const regions = {
+      get: vi.fn(() => ({
+        tabId: 9,
+        x: 98,
+        y: 100,
+        width: 660,
+        height: 650,
+        updatedAt: 1,
+      })),
+    } as unknown as RegionRegistry
+    const handler = extractRegionHandler({ regions, chrome: chromeWithDomExecution() })
+
+    const result = await handler(9, { regionKey: 'douyin.comments' }, 1000)
+
+    expect(result.ok).toBe(true)
+    const items = result.ok ? result.payload.items as any[] : []
+    const diagnostics = result.ok ? result.payload.diagnostics as any : {}
+    expect(diagnostics).toEqual(expect.objectContaining({
+      requestedRegionKey: 'douyin.comments',
+      runtimeRegionKey: undefined,
+      effectiveRegionKey: 'douyin.comments',
+      selectedListDirectDivs: 1,
+      extractedDomCommentCount: 1,
+    }))
+    expect(items.filter(item => item.itemType === 'douyin_comment')).toEqual([
+      expect.objectContaining({
+        author: '嘴大心宽',
+        text: '别人的易企秀，怎么可以修改一下变成自己的？',
+      }),
+    ])
+  })
+
   it('extracts Douyin comment items before scrolling even when the detected region is misaligned', async () => {
     document.body.innerHTML = `
       <div id="merge-all-comment-container">
