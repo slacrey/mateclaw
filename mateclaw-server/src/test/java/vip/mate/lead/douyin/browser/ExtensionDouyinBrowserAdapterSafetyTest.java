@@ -1253,10 +1253,11 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
                 .containsExactly(
                         "听了半天就是在卖广告",
                         "又是转折点，又是财富！你们这些博主天天的服了");
-        assertThat(result.complete()).isTrue();
-        assertThat(result.stopReason()).isEqualTo("END_OF_LIST");
+        assertThat(result.complete()).isFalse();
+        assertThat(result.stopReason()).isEqualTo("END_OF_LIST_A11Y_ONLY");
         assertThat(result.metadata()).containsEntry("a11yTreeComments", 2L);
         assertThat(result.metadata()).containsEntry("primaryCollectionSource", "a11y_tree");
+        assertThat(result.metadata()).containsEntry("domExtractionUnavailable", true);
         verify(browser, atLeastOnce()).service_scroll_region_main(
                 eq("douyin.comments"), eq("down"), anyDouble(), org.mockito.ArgumentMatchers.anyLong());
     }

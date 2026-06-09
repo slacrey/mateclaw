@@ -745,11 +745,19 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         metadata.put("networkObservedComments", networkObservedComments);
         metadata.put("extractedRegionComments", extractedRegionComments);
         metadata.put("a11yTreeComments", a11yTreeComments);
+        boolean a11yOnlyCollection = a11yTreeComments > 0
+                && extractedRegionComments == 0
+                && networkObservedComments == 0;
+        boolean reportedComplete = complete && !a11yOnlyCollection;
+        String reportedStopReason = a11yOnlyCollection && "END_OF_LIST".equals(stopReason)
+                ? "END_OF_LIST_A11Y_ONLY"
+                : stopReason;
         metadata.put("primaryCollectionSource", extractedRegionComments > 0
                 ? "extract_region"
                 : networkObservedComments > 0 ? "network_observed" : "a11y_tree");
-        metadata.put("fullCollectionExpected", declared > 0 && declared <= seen.size());
-        metadata.put("partialCollection", declared > 0 && seen.size() < declared);
+        metadata.put("domExtractionUnavailable", a11yOnlyCollection);
+        metadata.put("fullCollectionExpected", reportedComplete && declared > 0 && declared <= seen.size());
+        metadata.put("partialCollection", a11yOnlyCollection || declared > 0 && seen.size() < declared);
         metadata.put("declaredCountMismatch", declared > 0 && seen.size() < declared);
         metadata.put("replyExpansionEnabled", false);
         metadata.put("replyExpansionMode", "disabled_v1_quality_first");
@@ -757,8 +765,8 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         return new CommentCollectionResult(
                 new ArrayList<>(seen.values()),
                 declared,
-                complete,
-                stopReason,
+                reportedComplete,
+                reportedStopReason,
                 scrolls,
                 metadata);
     }

@@ -553,6 +553,10 @@ public class DouyinCommentCollector {
             if (!authorName.isBlank() && clean(authorName).equals(clean(line.name()))) {
                 continue;
             }
+            String commentText = stripAuthorPrefix(line.name(), authorName);
+            if (!isPossibleA11yCommentText(commentText)) {
+                continue;
+            }
             DouyinCommentItem.ClickTarget authorTarget = !isHighConfidenceAuthorTarget(author)
                     || !isVisibleViewportTarget(author)
                     ? null
@@ -561,7 +565,7 @@ public class DouyinCommentCollector {
                     (double) author.centerY(),
                     author.ref(),
                     Map.of("x", author.x(), "y", author.y(), "width", author.w(), "height", author.h()));
-            String key = stableCommentKey(videoKey, authorName, null, line.name());
+            String key = stableCommentKey(videoKey, authorName, null, commentText);
             out.putIfAbsent(key, new DouyinCommentItem(
                     videoKey,
                     key,
@@ -569,7 +573,7 @@ public class DouyinCommentCollector {
                     authorName,
                     null,
                     null,
-                    line.name(),
+                    commentText,
                     null,
                     null,
                     authorTarget,
@@ -581,6 +585,9 @@ public class DouyinCommentCollector {
     private boolean isPossibleA11yCommentText(String text) {
         String value = clean(text);
         if (value.length() < 4 || value.length() > 600) {
+            return false;
+        }
+        if (value.matches("^转发\\s*[·・•]?$")) {
             return false;
         }
         String normalized = value.toLowerCase(Locale.ROOT);

@@ -96,6 +96,30 @@ class DouyinCommentCollectorTest {
     }
 
     @Test
+    void visibleCommentsIgnoreA11yForwardOnlyFragments() {
+        DouyinBrowserAdapter.BrowserObservation obs = new DouyinBrowserAdapter.BrowserObservation(
+                true,
+                "https://www.douyin.com/search/yqx?modal_id=1",
+                "发现更多精彩视频 - 抖音搜索",
+                """
+                Link[ref=ref_1, frame=0]: 易企秀 作者 @{760,124 120x28}
+                StaticText[ref=ref_2, frame=0]: 转发 · @{810,164 80x24}
+                StaticText[ref=ref_3, frame=0]: 快闪H5制作，如此简单！ @{810,200 260x32}
+                """,
+                1280,
+                720,
+                "",
+                "");
+        DouyinBrowserAdapter.RegionInfo region = DouyinBrowserAdapter.RegionInfo.comments(
+                720, 100, 500, 520, "test");
+
+        List<DouyinCommentItem> comments = collector.visibleComments(obs, region);
+
+        assertThat(comments).extracting(DouyinCommentItem::text)
+                .containsExactly("快闪H5制作，如此简单！");
+    }
+
+    @Test
     void detectsCommentRegionFromCommentItemsInsteadOfRightActionBar() {
         DouyinBrowserAdapter.BrowserObservation obs = new DouyinBrowserAdapter.BrowserObservation(
                 true,
