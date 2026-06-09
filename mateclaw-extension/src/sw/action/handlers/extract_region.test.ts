@@ -141,13 +141,14 @@ describe('extract_region handler', () => {
         <div id="slot-1">
           <div data-e2e="comment-item" id="item-1">
             <a id="author-1" href="//www.douyin.com/user/MS4wTitle"><span data-click-from="title">全先生</span></a>
-            <div class="LvAtyU_f" id="body-1">帮忙做两个吗？多少钱</div>
+            <div id="body-1"><span>别人的</span><a href="//www.douyin.com/search/%E6%98%93%E4%BC%81%E7%A7%80">易企秀</a><span>，怎么可以修改一下变成自己的？</span></div>
+            <div id="time-1"><span>6年前</span></div>
             <div class="comment-item-stats-container"><span>回复</span><span>分享</span></div>
           </div>
         </div>
         <div id="slot-2">
           <a id="author-2" href="//www.douyin.com/user/MS4wOtherTitle"><span data-click-from="title">用户8659427775691</span></a>
-          <div class="LvAtyU_f" id="body-2">可以用自己的模板素材制作H5吗</div>
+          <div id="body-2"><span>可以用自己的模板素材制作H5吗</span></div>
         </div>
         <div id="end">暂时没有更多评论</div>
       </div>
@@ -173,7 +174,7 @@ describe('extract_region handler', () => {
     expect(comments).toEqual([
       expect.objectContaining({
         author: '全先生',
-        text: '帮忙做两个吗？多少钱',
+        text: '别人的易企秀，怎么可以修改一下变成自己的？',
       }),
       expect.objectContaining({
         author: '用户8659427775691',

@@ -411,8 +411,9 @@ function extractDouyinComments(
       .map(a => absoluteHref(a.getAttribute('href') || a.href))
       .filter((href): href is string => Boolean(href))
     const profileHref = Array.from(new Set(hrefs)).find(looksLikeDouyinProfileHref)
-    const textEl = findCommentItemBodyElement(item)
-    const text = cleanCommentBody(textFromElementWithoutControls(textEl ?? item), author)
+    const hierarchyText = commentBodyTextFromHierarchy(item, authorEl, author)
+    const textEl = hierarchyText ? null : findCommentItemBodyElement(item)
+    const text = hierarchyText || cleanCommentBody(textFromElementWithoutControls(textEl ?? item), author)
     if (!isStructuredCommentBody(text, author)) return null
 
     return {
@@ -458,6 +459,90 @@ function extractDouyinComments(
       .sort((a, b) => scoreCommentTextElement(b.el, b.text, b.rect) - scoreCommentTextElement(a.el, a.text, a.rect))[0]?.el
     if (preferred) return preferred
     return findCommentTextElement(item, findCommentItemAuthorElement(item), normalizeAuthor(cleanText(findCommentItemAuthorElement(item)?.innerText || '')))
+  }
+
+  function commentBodyTextFromHierarchy(
+    item: HTMLElement,
+    authorEl: HTMLElement | null,
+    author: string,
+  ): string {
+    const pieces: string[] = []
+    let afterAuthor = authorEl === null
+    let stopped = false
+
+    const visit = (node: Node): void => {
+      if (stopped) return
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const el = node as HTMLElement
+        if (authorEl && el === authorEl) {
+          afterAuthor = true
+          return
+        }
+        if (el !== item && afterAuthor && isCommentHierarchyBoundary(el)) {
+          stopped = true
+          return
+        }
+        if (el !== item && afterAuthor && isIgnoredCommentControlElement(el)) {
+          return
+        }
+        if (afterAuthor && el instanceof HTMLImageElement) {
+          const alt = cleanText(el.getAttribute('alt') || '')
+          if (alt && !shouldSkipHierarchyText(alt, author)) {
+            pieces.push(alt)
+          }
+          return
+        }
+        for (const child of Array.from(el.childNodes)) {
+          visit(child)
+          if (stopped) return
+        }
+        return
+      }
+
+      if (node.nodeType !== Node.TEXT_NODE || !afterAuthor) return
+      const value = cleanText(node.textContent || '')
+      if (!value) return
+      if (isCommentMetadataText(value)) {
+        stopped = true
+        return
+      }
+      if (!shouldSkipHierarchyText(value, author)) {
+        pieces.push(value)
+      }
+    }
+
+    visit(item)
+    return cleanCommentBody(pieces.join(''), author)
+  }
+
+  function isCommentHierarchyBoundary(el: HTMLElement): boolean {
+    if (el.matches('.comment-item-stats-container, .comment-reply-expand-btn, .comment-input-container')) return true
+    if (el.matches('[data-e2e="video-comment-more"]')) return false
+    const ownText = cleanText(Array.from(el.childNodes)
+      .filter(node => node.nodeType === Node.TEXT_NODE)
+      .map(node => node.textContent || '')
+      .join(' '))
+    if (ownText && (isCommentMetadataText(ownText) || isTerminalCommentControlText(ownText))) return true
+    const compact = cleanText(el.innerText || el.textContent || '').replace(/\s+/g, '')
+    return isCommentMetadataText(compact) || isTerminalCommentControlText(compact)
+  }
+
+  function shouldSkipHierarchyText(text: string, author: string): boolean {
+    const value = cleanText(text)
+    if (!value || value === '...') return true
+    if (normalizeAuthor(value) === normalizeAuthor(author)) return true
+    if (value.endsWith('头像') || value.includes('头像')) return true
+    return isCommentControlText(value) || isCommentMetadataText(value) || isTerminalCommentControlText(value)
+  }
+
+  function isCommentMetadataText(text: string): boolean {
+    const value = cleanText(text).replace(/\s+/g, '')
+    return /^(?:刚刚|昨天|前天|\d{1,3}(?:秒|分钟|小时|天|周|个?月|年)前)(?:[·・•].{1,16})?$/.test(value)
+  }
+
+  function isTerminalCommentControlText(text: string): boolean {
+    const value = cleanText(text).replace(/\s+/g, '')
+    return /^(前往西瓜视频回复评论|展开\d*条?回复|展开回复|回复|分享|点赞|收藏|加载中|暂时没有更多评论|没有更多评论)$/.test(value)
   }
 
   function belongsToCommentCandidate(el: HTMLElement, item: HTMLElement): boolean {
