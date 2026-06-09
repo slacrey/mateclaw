@@ -147,6 +147,16 @@
               <span v-if="skill.author" class="skill-author">by {{ skill.author }}</span>
               <div class="skill-actions">
                 <button
+                  v-if="isDouyinLeadAcquisitionSkill(skill)"
+                  class="skill-btn skill-btn-launch"
+                  :title="t('skills.douyinLead.launch')"
+                  @click="openDouyinLaunch(skill)"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M8 5v14l11-7z"/>
+                  </svg>
+                </button>
+                <button
                   v-if="needsSetup(skill)"
                   class="skill-btn skill-btn-setup"
                   :title="t('skills.actions.setUp')"
@@ -212,6 +222,163 @@
       :skill-id="preflightSkillId"
       :skill-name="preflightSkillName"
     />
+
+    <!-- Douyin lead-acquisition launch parameters. Scoped to the bundled
+         douyin-lead-acquisition card; other skills still use the normal
+         drawer/configuration flow. -->
+    <div v-if="douyinLaunchVisible" class="modal-overlay" @click.self="closeDouyinLaunch">
+      <form class="modal modal-douyin" @submit.prevent="submitDouyinLaunch">
+        <div class="modal-header">
+          <h2>{{ t('skills.douyinLead.title') }}</h2>
+          <button type="button" class="modal-close" @click="closeDouyinLaunch" :disabled="douyinLaunching">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="form-grid form-grid-tight">
+            <div class="form-group full-width">
+              <label class="form-label" for="douyin-keyword">{{ t('skills.douyinLead.keyword') }} *</label>
+              <input
+                id="douyin-keyword"
+                v-model.trim="douyinForm.keyword"
+                class="form-input"
+                type="text"
+                maxlength="120"
+                :placeholder="t('skills.douyinLead.keywordPlaceholder')"
+                :disabled="douyinLaunching"
+                required
+              />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="douyin-sort">{{ t('skills.douyinLead.sort') }}</label>
+              <select
+                id="douyin-sort"
+                v-model="douyinForm.sort"
+                class="form-input"
+                :disabled="douyinLaunching"
+              >
+                <option value="most_liked">{{ t('skills.douyinLead.sortMostLiked') }}</option>
+                <option value="latest">{{ t('skills.douyinLead.sortLatest') }}</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="douyin-video-limit">
+                {{ t('skills.douyinLead.videoLimit') }}
+                <span class="form-hint">1..50</span>
+              </label>
+              <div class="douyin-limit-row">
+                <input
+                  id="douyin-video-limit"
+                  v-model.number="douyinForm.videoLimit"
+                  class="form-input douyin-limit-input"
+                  type="number"
+                  min="1"
+                  max="50"
+                  :disabled="douyinLaunching"
+                  @change="normalizeDouyinVideoLimit"
+                />
+                <input
+                  v-model.number="douyinForm.videoLimit"
+                  class="douyin-limit-range"
+                  type="range"
+                  min="1"
+                  max="50"
+                  :disabled="douyinLaunching"
+                />
+              </div>
+            </div>
+
+            <div class="form-group full-width">
+              <label class="form-label" for="douyin-comment-rule">
+                {{ t('skills.douyinLead.commentMatchRule') }}
+                <span class="form-hint">{{ t('skills.douyinLead.commentRuleOptional') }}</span>
+              </label>
+              <textarea
+                id="douyin-comment-rule"
+                v-model.trim="douyinForm.commentMatchRule"
+                class="form-textarea"
+                rows="3"
+                maxlength="2000"
+                :placeholder="t('skills.douyinLead.commentMatchRulePlaceholder')"
+                :disabled="douyinLaunching"
+              ></textarea>
+            </div>
+
+            <div class="form-group full-width">
+              <label class="form-label" for="douyin-dm-draft">{{ t('skills.douyinLead.dmDraft') }}</label>
+              <textarea
+                id="douyin-dm-draft"
+                v-model.trim="douyinForm.dmDraft"
+                class="form-textarea"
+                rows="3"
+                maxlength="1000"
+                :disabled="douyinLaunching"
+              ></textarea>
+            </div>
+
+            <div class="form-group full-width">
+              <div class="douyin-toggle-row">
+                <label class="douyin-checkbox">
+                  <input
+                    v-model="douyinForm.engage"
+                    type="checkbox"
+                    :disabled="douyinLaunching"
+                  />
+                  <span>{{ t('skills.douyinLead.engage') }}</span>
+                </label>
+                <label class="douyin-checkbox" :class="{ disabled: !douyinForm.engage }">
+                  <input
+                    v-model="douyinForm.sendDm"
+                    type="checkbox"
+                    :disabled="douyinLaunching || !douyinForm.engage"
+                  />
+                  <span>{{ t('skills.douyinLead.sendDm') }}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="douyinLaunchResult" class="douyin-result">
+            <div class="douyin-result-head">
+              <span>{{ t('skills.douyinLead.resultTitle') }}</span>
+              <span class="status-pill" :class="douyinResultStatusClass">
+                {{ douyinLaunchResult.status || '—' }}
+              </span>
+            </div>
+            <dl class="douyin-result-grid">
+              <div>
+                <dt>{{ t('skills.douyinLead.runId') }}</dt>
+                <dd><code>{{ douyinLaunchResult.runId || '—' }}</code></dd>
+              </div>
+              <div>
+                <dt>{{ t('skills.douyinLead.taskId') }}</dt>
+                <dd><code>{{ douyinLaunchResult.taskId || '—' }}</code></dd>
+              </div>
+              <div>
+                <dt>{{ t('skills.douyinLead.commentsCollected') }}</dt>
+                <dd>{{ douyinLaunchResult.commentsCollected ?? 0 }}</dd>
+              </div>
+              <div>
+                <dt>{{ t('skills.douyinLead.matchedComments') }}</dt>
+                <dd>{{ douyinLaunchResult.matchedComments ?? 0 }}</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-secondary" @click="closeDouyinLaunch" :disabled="douyinLaunching">
+            {{ t('common.cancel') }}
+          </button>
+          <button type="submit" class="btn-primary" :disabled="!canSubmitDouyinLaunch">
+            {{ douyinLaunching ? t('skills.douyinLead.running') : t('skills.douyinLead.submit') }}
+          </button>
+        </div>
+      </form>
+    </div>
 
     <!-- Skill detail/edit drawer — frosted shell comes from MateDrawer;
          the existing .mc-drawer-content wrapper below stays so the
@@ -704,8 +871,15 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { mcToast } from '@/composables/useMcToast'
-import { skillApi, skillInstallApi } from '@/api/index'
+import {
+  leadAcquisitionApi,
+  skillApi,
+  skillInstallApi,
+  type DouyinLeadAcquisitionRunResponse,
+  type DouyinLeadAcquisitionStartPayload,
+} from '@/api/index'
 import type { Skill, SkillRuntimeStatus, SkillSecurityFinding } from '@/types/index'
 import ImportHubDialog from '@/components/skill/ImportHubDialog.vue'
 import PreflightInstallDialog from '@/components/skill/PreflightInstallDialog.vue'
@@ -719,6 +893,7 @@ import { mcConfirm } from '@/components/common/useConfirm'
 import { useSkillName } from '@/composables/useSkillName'
 
 const { t } = useI18n()
+const router = useRouter()
 const { resolveSkillName, hasI18nName } = useSkillName()
 
 /** Two independently-paginated sections: enabled vs disabled. The per-card
@@ -843,6 +1018,153 @@ function openPreflight(skill: Skill) {
   preflightSkillId.value = skill.id
   preflightSkillName.value = resolveSkillName(skill)
   preflightVisible.value = true
+}
+
+interface DouyinLaunchForm {
+  keyword: string
+  sort: 'most_liked' | 'latest'
+  videoLimit: number
+  commentMatchRule: string
+  dmDraft: string
+  engage: boolean
+  sendDm: boolean
+}
+
+function defaultDouyinForm(): DouyinLaunchForm {
+  return {
+    keyword: '',
+    sort: 'most_liked',
+    videoLimit: 50,
+    commentMatchRule: '',
+    dmDraft: '你好',
+    engage: true,
+    sendDm: false,
+  }
+}
+
+const douyinLaunchVisible = ref(false)
+const douyinLaunchSkill = ref<Skill | null>(null)
+const douyinLaunching = ref(false)
+const douyinForm = ref<DouyinLaunchForm>(defaultDouyinForm())
+const douyinLaunchResult = ref<DouyinLeadAcquisitionRunResponse | null>(null)
+
+const canSubmitDouyinLaunch = computed(() => {
+  if (douyinLaunching.value) return false
+  if (!douyinForm.value.keyword.trim()) return false
+  return true
+})
+
+watch(() => douyinForm.value.engage, (engage) => {
+  if (!engage) douyinForm.value.sendDm = false
+})
+
+const douyinResultStatusClass = computed(() => {
+  const status = (douyinLaunchResult.value?.status || '').toLowerCase()
+  if (status.includes('success') || status.includes('complete') || status === 'succeeded') return 'st-ready'
+  if (status.includes('fail') || status.includes('abort') || status.includes('cancel')) return 'st-blocked'
+  return 'st-checking'
+})
+
+function normalizeSkillIdentity(value: unknown): string {
+  return String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+function isDouyinLeadAcquisitionSkill(skill: Skill): boolean {
+  const rt = getRuntimeStatus(skill)
+  const identities = [
+    skill.name,
+    skill.nameZh,
+    skill.nameEn,
+    resolveSkillName(skill),
+    rt?.manifest?.id,
+    rt?.manifest?.name,
+  ].map(normalizeSkillIdentity)
+  if (identities.some(v => [
+    'douyin-lead-acquisition',
+    'douyin.lead_acquisition',
+    'douyin.lead_acquisition.v2',
+    'douyin lead acquisition',
+    'skill.douyin.lead_acquisition.v1',
+    'skill.douyin.lead_acquisition.v2',
+    '抖音获客',
+  ].includes(v))) {
+    return true
+  }
+  const tags = parseTags(skill.tags || '').map(normalizeSkillIdentity)
+  return tags.includes('douyin') && tags.includes('lead-acquisition')
+}
+
+function openDouyinLaunch(skill: Skill) {
+  douyinLaunchSkill.value = skill
+  douyinForm.value = defaultDouyinForm()
+  douyinLaunchResult.value = null
+  douyinLaunchVisible.value = true
+}
+
+function closeDouyinLaunch() {
+  if (douyinLaunching.value) return
+  douyinLaunchVisible.value = false
+}
+
+function normalizeDouyinVideoLimit() {
+  const raw = Number(douyinForm.value.videoLimit)
+  const next = Number.isFinite(raw) ? Math.trunc(raw) : 50
+  douyinForm.value.videoLimit = Math.min(50, Math.max(1, next))
+}
+
+async function submitDouyinLaunch() {
+  if (!canSubmitDouyinLaunch.value) return
+  normalizeDouyinVideoLimit()
+  if (!douyinForm.value.engage) {
+    douyinForm.value.sendDm = false
+  }
+  douyinLaunching.value = true
+  douyinLaunchResult.value = null
+  try {
+    const payload: DouyinLeadAcquisitionStartPayload = {
+      keyword: douyinForm.value.keyword.trim(),
+      sort: douyinForm.value.sort,
+      videoLimit: douyinForm.value.videoLimit,
+      commentMatchRule: douyinForm.value.commentMatchRule.trim(),
+      dmDraft: douyinForm.value.dmDraft.trim() || '你好',
+      engage: douyinForm.value.engage,
+      sendDm: douyinForm.value.sendDm,
+    }
+    const res: any = await leadAcquisitionApi.startDouyinRun(payload)
+    const result = (res?.data || null) as DouyinLeadAcquisitionRunResponse | null
+    douyinLaunchResult.value = result
+    mcToast.success(t('skills.douyinLead.launchSuccess'))
+    if (result && await openDouyinRunRouteIfAvailable(result)) {
+      douyinLaunchVisible.value = false
+    }
+  } catch (e: any) {
+    mcToast.error(typeof e === 'string' ? e : e?.message || t('skills.douyinLead.launchFailed'))
+  } finally {
+    douyinLaunching.value = false
+  }
+}
+
+async function openDouyinRunRouteIfAvailable(result: DouyinLeadAcquisitionRunResponse): Promise<boolean> {
+  if (!result.runId) return false
+  const query = result.taskId ? { taskId: result.taskId } : undefined
+  for (const name of ['DouyinLeadRunDetail', 'LeadAcquisitionRunDetail', 'LeadRunDetail']) {
+    if (router.hasRoute(name)) {
+      await router.push({ name, params: { runId: result.runId }, query })
+      return true
+    }
+  }
+  const candidates = [
+    `/lead-acquisition/douyin/runs/${encodeURIComponent(result.runId)}`,
+    `/lead-acquisition/runs/${encodeURIComponent(result.runId)}`,
+  ]
+  for (const path of candidates) {
+    const resolved = router.resolve({ path, query })
+    if (resolved.matched.length > 0) {
+      await router.push({ path, query })
+      return true
+    }
+  }
+  return false
 }
 
 /**
@@ -2035,6 +2357,9 @@ html.dark .scan-finding-item { background: rgba(255, 255, 255, 0.05); }
 .skill-actions { display: flex; gap: 6px; }
 .skill-btn { display: flex; align-items: center; gap: 4px; padding: 7px 11px; border: 1px solid var(--mc-border); background: var(--mc-bg-muted); border-radius: 10px; font-size: 12px; color: var(--mc-text-primary); cursor: pointer; transition: all 0.15s; font-weight: 600; }
 .skill-btn:hover { background: var(--mc-bg-sunken); }
+.skill-btn-launch { color: #047857; border-color: rgba(5, 150, 105, 0.25); background: rgba(5, 150, 105, 0.08); }
+.skill-btn-launch:hover { background: rgba(5, 150, 105, 0.14); border-color: rgba(5, 150, 105, 0.42); }
+html.dark .skill-btn-launch { color: #34d399; background: rgba(52, 211, 153, 0.12); border-color: rgba(52, 211, 153, 0.25); }
 .skill-btn.danger:hover { background: var(--mc-danger-bg); border-color: var(--mc-danger); color: var(--mc-danger); }
 
 /* Empty */
@@ -2062,10 +2387,43 @@ html.dark .scan-finding-item { background: rgba(255, 255, 255, 0.05); }
 .form-textarea { resize: vertical; font-family: inherit; }
 .form-textarea.code { font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; font-size: 13px; background: var(--mc-bg-sunken); }
 .modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding: 16px 24px; border-top: 1px solid var(--mc-border-light); }
+.modal-douyin { max-width: 640px; }
+.douyin-limit-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.douyin-limit-input { width: 88px; flex: 0 0 88px; }
+.douyin-limit-range { flex: 1; min-width: 0; accent-color: var(--mc-primary); }
+.douyin-toggle-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding-top: 2px; }
+.douyin-checkbox { display: inline-flex; align-items: center; gap: 8px; color: var(--mc-text-primary); font-size: 13px; font-weight: 600; cursor: pointer; }
+.douyin-checkbox input { width: 15px; height: 15px; accent-color: var(--mc-primary); }
+.douyin-checkbox.disabled { color: var(--mc-text-tertiary); cursor: not-allowed; }
+.douyin-result { margin-top: 18px; padding: 14px; border: 1px solid var(--mc-border-light); border-radius: 10px; background: var(--mc-bg-muted); }
+.douyin-result-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--mc-text-primary); font-weight: 700; font-size: 13px; margin-bottom: 12px; }
+.douyin-result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin: 0; }
+.douyin-result-grid div { min-width: 0; }
+.douyin-result-grid dt { color: var(--mc-text-tertiary); font-size: 11px; margin-bottom: 4px; }
+.douyin-result-grid dd { margin: 0; color: var(--mc-text-primary); font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
+.douyin-result-grid code { font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; font-size: 12px; background: var(--mc-bg-sunken); padding: 2px 6px; border-radius: 6px; }
 
 @media (max-width: 900px) {
   .header-actions {
     width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+  .douyin-toggle-row,
+  .douyin-limit-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .douyin-limit-input {
+    width: 100%;
+    flex-basis: auto;
+  }
+  .douyin-result-grid {
+    grid-template-columns: 1fr;
   }
 }
 

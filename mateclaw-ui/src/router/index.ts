@@ -85,6 +85,17 @@ const router = createRouter({
           component: () => import('@/views/SkillMarket.vue'),
           meta: { title: 'Skills', requiredCapability: 'manage:skills' },
         },
+        {
+          path: 'lead-acquisition/douyin/runs/:runId',
+          alias: 'lead-acquisition/runs/:runId',
+          name: 'DouyinLeadRunDetail',
+          component: () => import('@/components/lead/DouyinLeadRunDetail.vue'),
+          props: route => ({
+            runId: route.params.runId,
+            taskId: route.query.taskId,
+          }),
+          meta: { title: 'Douyin Lead Run', requiredCapability: 'manage:skills' },
+        },
         // Tools 顶层入口已降级到 Settings ▸ Tools (Catalog) (RFC-090 Phase 1)
         // 旧路径 /tools 由下方 redirect 兼容
         {

@@ -1,6 +1,8 @@
 package vip.mate.lead.douyin.api;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import vip.mate.os.run.model.AgentEventEntity;
 import vip.mate.os.run.model.AgentRunEntity;
@@ -26,19 +28,22 @@ public class DouyinLeadAcquisitionQueryService {
     private final LeadCommentMapper commentMapper;
     private final LeadProfileMapper profileMapper;
     private final LeadEngagementMapper engagementMapper;
+    private final ObjectMapper objectMapper;
 
     public DouyinLeadAcquisitionQueryService(AgentRunMapper runMapper,
                                              AgentEventMapper eventMapper,
                                              LeadTaskMapper taskMapper,
                                              LeadCommentMapper commentMapper,
                                              LeadProfileMapper profileMapper,
-                                             LeadEngagementMapper engagementMapper) {
+                                             LeadEngagementMapper engagementMapper,
+                                             ObjectMapper objectMapper) {
         this.runMapper = runMapper;
         this.eventMapper = eventMapper;
         this.taskMapper = taskMapper;
         this.commentMapper = commentMapper;
         this.profileMapper = profileMapper;
         this.engagementMapper = engagementMapper;
+        this.objectMapper = objectMapper;
     }
 
     public DouyinLeadAcquisitionRunResponse byRun(Long runId) {
@@ -50,12 +55,18 @@ public class DouyinLeadAcquisitionQueryService {
         List<LeadCommentDTO> comments = taskId == null ? List.of() : comments(taskId);
         List<LeadCommentDTO> matches = comments.stream().filter(LeadCommentDTO::matched).toList();
         List<LeadEngagementDTO> engagements = taskId == null ? List.of() : engagements(taskId);
+        JsonNode summary = parseSummary(task);
         return new DouyinLeadAcquisitionRunResponse(
                 String.valueOf(run.getId()),
                 taskId == null ? null : String.valueOf(taskId),
                 run.getStatus(),
-                comments.size(),
-                matches.size(),
+                summary.path("commentsCollected").asInt(comments.size()),
+                summary.path("matchedComments").asInt(matches.size()),
+                summary.path("requestedVideoLimit").asInt(0),
+                summary.path("processedVideos").asInt(0),
+                summary.path("succeededVideos").asInt(0),
+                summary.path("failedVideos").asInt(0),
+                summary.path("engagementsCreated").asInt(engagements.size()),
                 comments,
                 matches,
                 engagements,
@@ -117,5 +128,16 @@ public class DouyinLeadAcquisitionQueryService {
             throw new IllegalArgumentException("lead task not found: " + taskId);
         }
         return task;
+    }
+
+    private JsonNode parseSummary(LeadTaskEntity task) {
+        if (task == null || task.getSummaryJson() == null || task.getSummaryJson().isBlank()) {
+            return objectMapper.createObjectNode();
+        }
+        try {
+            return objectMapper.readTree(task.getSummaryJson());
+        } catch (Exception ignored) {
+            return objectMapper.createObjectNode();
+        }
     }
 }

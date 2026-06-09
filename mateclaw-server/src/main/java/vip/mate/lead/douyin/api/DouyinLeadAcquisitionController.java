@@ -42,9 +42,7 @@ public class DouyinLeadAcquisitionController {
             @RequestHeader(value = "X-Workspace-Id", required = false) Long workspaceId,
             Authentication auth) {
         UserEntity user = requireUser(auth);
-        DouyinLeadAcquisitionInput input = request == null
-                ? DouyinLeadAcquisitionInput.defaults()
-                : request.normalized();
+        DouyinLeadAcquisitionInput input = normalizeStartRequest(request);
         return R.ok(runService.runSync(workspaceId == null ? 1L : workspaceId, user.getId(), input, queryService));
     }
 
@@ -94,5 +92,12 @@ public class DouyinLeadAcquisitionController {
             throw new MateClawException("err.auth.user_not_found", "Authenticated user not found");
         }
         return user;
+    }
+
+    private DouyinLeadAcquisitionInput normalizeStartRequest(DouyinLeadAcquisitionStartRequest request) {
+        if (request == null) {
+            throw new MateClawException("err.lead.douyin.keyword_required", "Douyin keyword is required");
+        }
+        return request.normalized();
     }
 }

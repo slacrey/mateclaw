@@ -41,6 +41,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
     private static final double COMMENT_COLLECTION_TARGET_COVERAGE = 1.0d;
     private static final long FILTER_PANEL_SETTLE_DELAY_MS = 600L;
     private static final long SORT_SELECT_SETTLE_DELAY_MS = 1_200L;
+    private static final long SORTED_VIDEO_SNAPSHOT_TTL_MS = 30 * 60 * 1000L;
     private static final List<String> DOUYIN_LIKE_SORT_LABELS =
             List.of("最多点赞", "点赞最多", "按点赞", "点赞量");
     private static final Pattern TREE_LINE_PATTERN = Pattern.compile(
@@ -192,15 +193,29 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
     public BrowserObservation openVideo(int zeroBasedIndex) {
         BrowserObservation current = observeMain("all");
         if (looksLikeVideoOpenHard(current)) {
-            return new BrowserObservation(
-                    current.ok(),
-                    current.url(),
-                    current.title(),
-                    current.tree(),
-                    current.viewportWidth(),
-                    current.viewportHeight(),
-                    "VIDEO_TARGET",
-                    "reused_existing_video_page");
+            if (zeroBasedIndex > 0) {
+                SortedVideoSnapshot snapshot = lastSortedVideoSnapshot;
+                if (snapshot.isEmpty()) {
+                    throw new DouyinBrowserException("VIDEO_SEARCH_CONTEXT_LOST",
+                            "当前仍在视频页，且没有可复用的搜索结果快照，无法打开第 "
+                                    + (zeroBasedIndex + 1) + " 个视频");
+                }
+                current = ensurePlainSearchResultPage(current, snapshot.keyword());
+            } else {
+                return new BrowserObservation(
+                        current.ok(),
+                        current.url(),
+                        current.title(),
+                        current.tree(),
+                        current.viewportWidth(),
+                        current.viewportHeight(),
+                        "VIDEO_TARGET",
+                        "reused_existing_video_page");
+            }
+        }
+        if (looksLikeVideoOpenHard(current)) {
+            throw new DouyinBrowserException("VIDEO_SEARCH_CONTEXT_LOST",
+                    "无法从当前视频页恢复到搜索结果页以打开第 " + (zeroBasedIndex + 1) + " 个视频");
         }
         VideoCandidates candidates = sortedVideoSnapshotCandidates(current);
         if (candidates.isEmpty()) {
@@ -2207,7 +2222,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                     "no sorted snapshot");
         }
         current = current == null ? observeMain("all") : current;
-        if (System.currentTimeMillis() - snapshot.capturedAtMs() > 45_000L) {
+        if (System.currentTimeMillis() - snapshot.capturedAtMs() > SORTED_VIDEO_SNAPSHOT_TTL_MS) {
             clearSortedVideoSnapshot();
             return new VideoCandidates(List.of(), current, "sorted snapshot expired");
         }

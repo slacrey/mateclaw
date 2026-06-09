@@ -2,10 +2,12 @@ package vip.mate.lead.douyin;
 
 import org.junit.jupiter.api.Test;
 import vip.mate.lead.douyin.browser.DouyinBrowserAdapter;
+import vip.mate.lead.douyin.browser.DouyinBrowserException;
 import vip.mate.lead.douyin.match.CommentMatcher;
 import vip.mate.lead.douyin.model.CommentCollectionResult;
 import vip.mate.lead.douyin.model.DouyinCommentItem;
 import vip.mate.lead.douyin.model.DouyinLeadAcquisitionInput;
+import vip.mate.lead.douyin.model.DouyinLeadRunSummary;
 import vip.mate.lead.douyin.model.EngagementResult;
 import vip.mate.lead.douyin.store.LeadPersistenceService;
 import vip.mate.os.run.model.AgentStepEntity;
@@ -23,6 +25,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -32,7 +35,7 @@ import static org.mockito.Mockito.when;
 class DouyinLeadAcquisitionExecutorTest {
 
     @Test
-    void executesEngagementForAuthorBoundToExactMatchedCommentText() {
+    void videoLimitOneKeepsSingleVideoCompatibilityPathAndEngagesExactMatch() {
         FakeDouyinBrowserAdapter browser = new FakeDouyinBrowserAdapter();
         LeadPersistenceService persistence = mock(LeadPersistenceService.class);
         AgentRunKernel runKernel = mock(AgentRunKernel.class);
@@ -83,12 +86,98 @@ class DouyinLeadAcquisitionExecutorTest {
         verify(persistence).markMatches(eq(20L), any());
         verify(persistence).saveEngagement(eq(20L), eq(10L), eq(33L), eq(44L),
                 eq("dm_draft"), any(), eq("你好"));
+        verify(persistence).completeTask(eq(20L), eq("succeeded"),
+                argThat((DouyinLeadRunSummary summary) -> summary != null
+                        && summary.requestedVideoLimit() == 1
+                        && summary.processedVideos() == 1
+                        && summary.succeededVideos() == 1
+                        && summary.failedVideos() == 0
+                        && summary.engagementsCreated() == 1));
         verify(runKernel).finishSucceeded(eq(10L), eq("lead-task:20"));
         verify(runKernel, never()).finishFailed(eq(10L), any(), any());
     }
 
     @Test
-    void collectionOnlyDebugRunSkipsFollowAndDmEvenWhenCommentsMatch() {
+    void multiVideoRunContinuesAfterOneVideoOpenFailure() {
+        FakeDouyinBrowserAdapter browser = new FakeDouyinBrowserAdapter();
+        browser.failingVideoIndexes.add(0);
+        browser.collectionsByVideo.put(1, new CommentCollectionResult(
+                List.of(browser.secondExact),
+                1,
+                true,
+                "END_OF_LIST",
+                1));
+        LeadPersistenceService persistence = mock(LeadPersistenceService.class);
+        AgentRunKernel runKernel = mock(AgentRunKernel.class);
+        StepLedgerService steps = mock(StepLedgerService.class);
+        RunEventPublisher events = mock(RunEventPublisher.class);
+        RunCancellationService cancellation = mock(RunCancellationService.class);
+        AtomicLong stepIds = new AtomicLong(1);
+        when(cancellation.isCancellationRequested(10L)).thenReturn(false);
+        when(steps.openStep(any(AgentStepRequest.class))).thenAnswer(invocation -> {
+            AgentStepEntity step = new AgentStepEntity();
+            step.setId(stepIds.getAndIncrement());
+            step.setRunId(10L);
+            step.setStepKey(invocation.getArgument(0, AgentStepRequest.class).stepKey());
+            return step;
+        });
+        LeadProfileEntity profile = new LeadProfileEntity();
+        profile.setId(34L);
+        when(persistence.saveProfile(eq(20L), eq(10L), any())).thenReturn(profile);
+        when(persistence.findCommentId(eq(20L), eq("second-exact"))).thenReturn(45L);
+
+        DouyinLeadAcquisitionExecutor executor = new DouyinLeadAcquisitionExecutor(
+                browser,
+                new CommentMatcher(),
+                persistence,
+                runKernel,
+                steps,
+                events,
+                cancellation);
+
+        executor.execute(10L, 20L, new DouyinLeadAcquisitionInput(
+                "openclaw",
+                "most_liked",
+                2,
+                "第二条目标评论",
+                "你好",
+                false,
+                true));
+
+        assertThat(browser.calls).containsExactly(
+                "search",
+                "sort",
+                "open_video:0",
+                "open_video:1",
+                "open_comments",
+                "detect_region",
+                "collect_comments",
+                "engage:Kai");
+        verify(persistence).saveComments(eq(20L), eq(10L),
+                argThat(comments -> comments != null && comments.size() == 1
+                        && "second-exact".equals(comments.getFirst().commentKey())));
+        verify(persistence).markMatches(eq(20L),
+                argThat(matches -> matches != null && matches.size() == 1
+                        && "second-exact".equals(matches.getFirst().comment().commentKey())));
+        verify(persistence).saveEngagement(eq(20L), eq(10L), eq(34L), eq(45L),
+                eq("dm_draft"), any(), eq("你好"));
+        verify(persistence).completeTask(eq(20L), eq("succeeded"),
+                argThat((DouyinLeadRunSummary summary) -> summary != null
+                        && summary.requestedVideoLimit() == 2
+                        && summary.processedVideos() == 2
+                        && summary.succeededVideos() == 1
+                        && summary.failedVideos() == 1
+                        && summary.commentsCollected() == 1
+                        && summary.matchedComments() == 1
+                        && summary.engagementsCreated() == 1
+                        && "VIDEO_OPEN_FAILED".equals(summary.videoResults().getFirst().get("failureCode"))
+                        && "succeeded".equals(summary.videoResults().get(1).get("status"))));
+        verify(runKernel).finishSucceeded(eq(10L), eq("lead-task:20"));
+        verify(runKernel, never()).finishFailed(eq(10L), any(), any());
+    }
+
+    @Test
+    void engageFalseSkipsInteractionsEvenWhenCommentsMatch() {
         FakeDouyinBrowserAdapter browser = new FakeDouyinBrowserAdapter();
         LeadPersistenceService persistence = mock(LeadPersistenceService.class);
         AgentRunKernel runKernel = mock(AgentRunKernel.class);
@@ -134,6 +223,11 @@ class DouyinLeadAcquisitionExecutorTest {
         verify(persistence).markMatches(eq(20L), any());
         verify(persistence, never()).saveProfile(any(), any(), any());
         verify(persistence, never()).saveEngagement(any(), any(), any(), any(), any(), any(), any());
+        verify(persistence).completeTask(eq(20L), eq("succeeded"),
+                argThat((DouyinLeadRunSummary summary) -> summary != null
+                        && summary.requestedVideoLimit() == 1
+                        && summary.matchedComments() == 1
+                        && summary.engagementsCreated() == 0));
         verify(runKernel).finishSucceeded(eq(10L), eq("lead-task:20"));
         verify(runKernel, never()).finishFailed(eq(10L), any(), any());
     }
@@ -184,6 +278,11 @@ class DouyinLeadAcquisitionExecutorTest {
         verify(persistence).saveComments(eq(20L), eq(10L), any());
         verify(persistence, never()).markMatches(eq(20L), any());
         verify(persistence, never()).saveProfile(any(), any(), any());
+        verify(persistence).completeTask(eq(20L), eq("succeeded"),
+                argThat((DouyinLeadRunSummary summary) -> summary != null
+                        && summary.requestedVideoLimit() == 1
+                        && summary.matchedComments() == 0
+                        && summary.engagementsCreated() == 0));
         verify(runKernel).finishSucceeded(eq(10L), eq("lead-task:20"));
         verify(runKernel, never()).finishFailed(eq(10L), any(), any());
     }
@@ -249,8 +348,18 @@ class DouyinLeadAcquisitionExecutorTest {
                 "collect_comments",
                 "engage:Ly");
         verify(persistence).saveEngagement(eq(20L), eq(10L), eq(33L), eq(44L),
-                eq("dm_draft"), any(), eq("你好"));
-        verify(persistence).completeTask(eq(20L), eq("failed"), any(), any(), any());
+                eq("dm_draft"),
+                argThat(result -> "failed".equals(result.status())
+                        && "DM_SEND_NOT_CONFIRMED".equals(result.failureCode())),
+                eq("你好"));
+        verify(persistence).completeTask(eq(20L), eq("failed"),
+                argThat((DouyinLeadRunSummary summary) -> summary != null
+                        && summary.requestedVideoLimit() == 1
+                        && summary.processedVideos() == 1
+                        && summary.succeededVideos() == 0
+                        && summary.failedVideos() == 1
+                        && summary.engagementsCreated() == 1
+                        && "DM_SEND_NOT_CONFIRMED".equals(summary.videoResults().getFirst().get("failureCode"))));
         verify(runKernel).finishFailed(eq(10L), eq("DM_SEND_NOT_CONFIRMED"),
                 eq("DM_SEND_NOT_CONFIRMED: 未能确认私信已发送"));
         verify(runKernel, never()).finishSucceeded(eq(10L), any());
@@ -290,7 +399,14 @@ class DouyinLeadAcquisitionExecutorTest {
                 events,
                 cancellation);
 
-        executor.execute(10L, 20L, DouyinLeadAcquisitionInput.defaults());
+        executor.execute(10L, 20L, new DouyinLeadAcquisitionInput(
+                "openclaw",
+                "most_liked",
+                1,
+                "",
+                "你好",
+                false,
+                true));
 
         assertThat(browser.calls).containsExactly(
                 "search",
@@ -302,8 +418,16 @@ class DouyinLeadAcquisitionExecutorTest {
         verify(persistence).saveComments(eq(20L), eq(10L), any());
         verify(persistence, never()).markMatches(eq(20L), any());
         verify(persistence, never()).saveProfile(any(), any(), any());
-        verify(persistence).completeTask(eq(20L), eq("failed"), any(), any(), any());
-        verify(runKernel).finishFailed(eq(10L), eq("COMMENT_COLLECTION_INCOMPLETE"), any());
+        verify(persistence).completeTask(eq(20L), eq("failed"),
+                argThat((DouyinLeadRunSummary summary) -> summary != null
+                        && summary.requestedVideoLimit() == 1
+                        && summary.processedVideos() == 1
+                        && summary.succeededVideos() == 0
+                        && summary.failedVideos() == 1
+                        && "COMMENT_COLLECTION_INCOMPLETE".equals(
+                                summary.videoResults().getFirst().get("failureCode"))));
+        verify(runKernel).finishFailed(eq(10L), eq("COMMENT_COLLECTION_INCOMPLETE"),
+                argThat(message -> message != null && message.contains("stopReason=PROTECTION_LIMIT")));
         verify(runKernel, never()).finishSucceeded(eq(10L), any());
     }
 
@@ -312,6 +436,10 @@ class DouyinLeadAcquisitionExecutorTest {
         final DouyinCommentItem near = comment("near", "宝宝甜妹",
                 "九成以上的普通人目前根本没必要用这个东西，目前应用场景也就是一些电脑端的工作可以使用");
         final DouyinCommentItem exact = comment("exact", "Ly", "对于99%的人用豆包就行了。");
+        final DouyinCommentItem secondExact = comment("video-1", "second-exact", "Kai", "第二条目标评论");
+        final java.util.Set<Integer> failingVideoIndexes = new java.util.LinkedHashSet<>();
+        final java.util.Map<Integer, CommentCollectionResult> collectionsByVideo = new java.util.LinkedHashMap<>();
+        int currentVideoIndex = 0;
         CommentCollectionResult collection = new CommentCollectionResult(
                 List.of(near, exact),
                 2,
@@ -335,6 +463,10 @@ class DouyinLeadAcquisitionExecutorTest {
         @Override
         public BrowserObservation openVideo(int zeroBasedIndex) {
             calls.add("open_video:" + zeroBasedIndex);
+            if (failingVideoIndexes.contains(zeroBasedIndex)) {
+                throw new DouyinBrowserException("VIDEO_OPEN_FAILED", "video " + zeroBasedIndex + " failed");
+            }
+            currentVideoIndex = zeroBasedIndex;
             return observation();
         }
 
@@ -353,7 +485,7 @@ class DouyinLeadAcquisitionExecutorTest {
         @Override
         public CommentCollectionResult collectAllComments(RegionInfo region) {
             calls.add("collect_comments");
-            return collection;
+            return collectionsByVideo.getOrDefault(currentVideoIndex, collection);
         }
 
         @Override
@@ -387,8 +519,12 @@ class DouyinLeadAcquisitionExecutorTest {
         }
 
         private static DouyinCommentItem comment(String key, String author, String text) {
+            return comment("video", key, author, text);
+        }
+
+        private static DouyinCommentItem comment(String videoKey, String key, String author, String text) {
             return new DouyinCommentItem(
-                    "video",
+                    videoKey,
                     key,
                     null,
                     author,

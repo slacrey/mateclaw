@@ -11,7 +11,9 @@ public record DouyinLeadAcquisitionInput(
 ) {
     public static final String DEFAULT_KEYWORD = "openclaw";
     public static final String DEFAULT_SORT = "most_liked";
-    public static final int DEFAULT_VIDEO_LIMIT = 1;
+    public static final int DEFAULT_VIDEO_LIMIT = 50;
+    public static final int MIN_VIDEO_LIMIT = 1;
+    public static final int MAX_VIDEO_LIMIT = 50;
     public static final String DEFAULT_COMMENT_MATCH_RULE = "";
     public static final String DEFAULT_DM_DRAFT = "你好";
 
@@ -29,7 +31,7 @@ public record DouyinLeadAcquisitionInput(
     public DouyinLeadAcquisitionInput {
         keyword = defaulted(keyword, DEFAULT_KEYWORD);
         sort = defaulted(sort, DEFAULT_SORT);
-        videoLimit = videoLimit <= 0 ? DEFAULT_VIDEO_LIMIT : Math.min(videoLimit, 50);
+        videoLimit = videoLimit <= 0 ? DEFAULT_VIDEO_LIMIT : Math.min(Math.max(videoLimit, MIN_VIDEO_LIMIT), MAX_VIDEO_LIMIT);
         commentMatchRule = optional(commentMatchRule);
         dmDraft = defaulted(dmDraft, DEFAULT_DM_DRAFT);
     }

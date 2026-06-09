@@ -29,11 +29,11 @@ public class DouyinLeadAcquisitionTool {
     private final ObjectMapper objectMapper;
 
     @Tool(name = "douyin_lead_acquisition_run", description = """
-            Start the dedicated Douyin lead-acquisition Skill V1 workflow.
-            Use this tool for Douyin lead-acquisition tasks such as: search openclaw,
-            sort by most liked, open the first video, collect loadable comments, match comment
-            text, then open the matched comment author's profile, follow, open DM, and
-            type a draft without sending. This tool executes synchronously and
+            Start the dedicated Douyin lead-acquisition Skill V2 workflow.
+            Use this tool for productized Douyin lead-acquisition tasks such as:
+            search a required keyword, sort by most liked, process up to 50 videos,
+            collect loadable comments, match comment text, then optionally open matched
+            comment authors, follow, open DM, and type a draft. This tool executes synchronously and
             returns the real terminal result (SUCCEEDED/FAILED/ABORTED) when it finishes.
             The Douyin adapter owns platform-specific browser tactics, including using
             the video home search input and pressing Enter to submit search when the
@@ -54,11 +54,11 @@ public class DouyinLeadAcquisitionTool {
             bound author target for follow and DM draft actions.
             """)
     public String douyinLeadAcquisitionRun(
-            @ToolParam(description = "Douyin search keyword. Default: openclaw", required = false)
+            @ToolParam(description = "Douyin search keyword. Required.", required = true)
             String keyword,
             @ToolParam(description = "Sort mode. Use most_liked for 最多点赞. Default: most_liked", required = false)
             String sort,
-            @ToolParam(description = "Number of videos to process. V1 default and recommended value is 1.", required = false)
+            @ToolParam(description = "Number of videos to process. Default 50, allowed range 1..50.", required = false)
             Integer videoLimit,
             @ToolParam(description = "Optional comment text match rule. Multiple phrases are allowed; matching uses comment text only. When omitted, collection-only runs skip matching.", required = false)
             String commentMatchRule,
@@ -73,6 +73,14 @@ public class DouyinLeadAcquisitionTool {
         ChatOrigin origin = ChatOrigin.from(ctx);
         Long workspaceId = origin.workspaceId() == null ? 1L : origin.workspaceId();
         Long createdBy = parseLongOrDefault(origin.requesterId(), 1L);
+        if (keyword == null || keyword.isBlank()) {
+            return json(Map.of(
+                    "ok", false,
+                    "terminal", true,
+                    "status", "INPUT_INVALID",
+                    "message", "Douyin keyword is required.",
+                    "code", "err.lead.douyin.keyword_required"));
+        }
         DouyinLeadAcquisitionInput input = new DouyinLeadAcquisitionInput(
                 keyword,
                 sort,

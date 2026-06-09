@@ -8,6 +8,7 @@ import vip.mate.lead.douyin.model.CommentCollectionResult;
 import vip.mate.lead.douyin.model.CommentMatchResult;
 import vip.mate.lead.douyin.model.DouyinCommentItem;
 import vip.mate.lead.douyin.model.DouyinLeadAcquisitionInput;
+import vip.mate.lead.douyin.model.DouyinLeadRunSummary;
 import vip.mate.lead.douyin.model.EngagementResult;
 import vip.mate.os.run.model.LeadCommentEntity;
 import vip.mate.os.run.model.LeadEngagementEntity;
@@ -142,18 +143,32 @@ public class LeadPersistenceService {
     @Transactional
     public void completeTask(Long taskId, String status, CommentCollectionResult collection,
                              List<CommentMatchResult> matches, List<EngagementResult> engagements) {
+        completeTask(taskId, status, new DouyinLeadRunSummary(
+                1,
+                collection == null ? 0 : 1,
+                collection != null && collection.complete() ? 1 : 0,
+                collection == null || collection.complete() ? 0 : 1,
+                collection == null ? 0 : collection.comments().size(),
+                matches == null ? 0 : matches.size(),
+                engagements == null ? 0 : engagements.size(),
+                List.of(Map.of(
+                        "videoIndex", 0,
+                        "commentsCollected", collection == null ? 0 : collection.comments().size(),
+                        "declaredCommentCount", collection == null ? 0 : collection.declaredCommentCount(),
+                        "collectionComplete", collection != null && collection.complete(),
+                        "stopReason", collection == null ? "" : collection.stopReason(),
+                        "matchedComments", matches == null ? 0 : matches.size(),
+                        "engagementsCreated", engagements == null ? 0 : engagements.size()))));
+    }
+
+    @Transactional
+    public void completeTask(Long taskId, String status, DouyinLeadRunSummary summary) {
         LeadTaskEntity task = taskMapper.selectById(taskId);
         if (task == null) {
             return;
         }
         task.setStatus(status);
-        task.setSummaryJson(json(Map.of(
-                "commentsCollected", collection == null ? 0 : collection.comments().size(),
-                "declaredCommentCount", collection == null ? 0 : collection.declaredCommentCount(),
-                "collectionComplete", collection != null && collection.complete(),
-                "stopReason", collection == null ? "" : collection.stopReason(),
-                "matchedComments", matches == null ? 0 : matches.size(),
-                "engagements", engagements == null ? 0 : engagements.size())));
+        task.setSummaryJson(json(summary == null ? DouyinLeadRunSummary.empty(0) : summary));
         taskMapper.updateById(task);
     }
 
