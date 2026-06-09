@@ -16,6 +16,7 @@ interface ExtractedRegionItem {
   itemType?: string
   author?: string
   hrefs?: string[]
+  visibleInRegion?: boolean
 }
 
 export const extractRegionHandler = (deps: ExtractRegionHandlerDeps): ActionHandler<ExtractRegionParams> => {
@@ -317,6 +318,7 @@ function extractDouyinComments(
       itemType: 'douyin_comment',
       author: candidate.author,
       hrefs: candidate.hrefs,
+      visibleInRegion: candidate.visibleInRegion,
     }))
   return [count, end, ...comments].filter((item): item is ExtractedRegionItem => item !== null)
 
@@ -330,6 +332,7 @@ function extractDouyinComments(
     role?: string
     tag: string
     domIndex: number
+    visibleInRegion: boolean
   }
 
   function commentListItemCandidates(): CommentCandidate[] {
@@ -394,6 +397,7 @@ function extractDouyinComments(
       role: item.getAttribute('role') || undefined,
       tag: item.tagName.toLowerCase(),
       domIndex,
+      visibleInRegion: mostlyInside(rect, regionRect),
     }
   }
 
@@ -602,10 +606,11 @@ function extractDouyinComments(
       author,
       profileHref,
       hrefs: Array.from(new Set(hrefs)).slice(0, 8),
-      role: el.getAttribute('role') || undefined,
-      tag: el.tagName.toLowerCase(),
-      domIndex,
-    }
+        role: el.getAttribute('role') || undefined,
+        tag: el.tagName.toLowerCase(),
+        domIndex,
+        visibleInRegion: mostlyInside(rect, regionRect),
+      }
   }
 
   function looseVisibleTextCommentCandidates(domIndexOffset: number): CommentCandidate[] {
@@ -649,6 +654,7 @@ function extractDouyinComments(
         role: container.getAttribute('role') || undefined,
         tag: container.tagName.toLowerCase(),
         domIndex: domIndexOffset + entry.index,
+        visibleInRegion: mostlyInside(entry.rect, regionRect),
       })
     }
     return out
@@ -768,6 +774,7 @@ function extractDouyinComments(
       value = cleanText(value.slice(author.length))
     }
     return value
+      .replace(/^转发\s*[·・•]\s*/u, '')
       .replace(/^(作者)?回复\s*/u, '')
       .replace(/\s*(作者回复过|作者)$/u, '')
       .replace(/\s*(回复|展开\d*条?回复|展开回复|点赞|分享)$/u, '')

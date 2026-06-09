@@ -168,6 +168,12 @@ public class DouyinCommentCollector {
             String href = bestProfileHref(item);
             DouyinCommentItem.ClickTarget target = clickTarget(item.path("bbox"), item.path("href").asText(null));
             String key = stableCommentKey(videoKey, author, href, text);
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("source", "extract_region");
+            metadata.put("rawText", text);
+            if (item.has("visibleInRegion")) {
+                metadata.put("visibleInRegion", item.path("visibleInRegion").asBoolean(false));
+            }
             out.add(new DouyinCommentItem(
                     videoKey,
                     key,
@@ -179,7 +185,7 @@ public class DouyinCommentCollector {
                     null,
                     null,
                     target,
-                    Map.of("source", "extract_region", "rawText", text)));
+                    metadata));
         }
         return out;
     }
@@ -926,9 +932,11 @@ public class DouyinCommentCollector {
         String cleanText = clean(text);
         String cleanAuthor = clean(author);
         if (!cleanAuthor.isBlank() && cleanText.startsWith(cleanAuthor)) {
-            return clean(cleanText.substring(cleanAuthor.length()));
+            cleanText = clean(cleanText.substring(cleanAuthor.length()));
         }
-        return cleanText;
+        return cleanText
+                .replaceFirst("^转发\\s*[·・•]\\s*", "")
+                .trim();
     }
 
     private String stableCommentKey(String videoKey, String author, String profileHref, String text) {

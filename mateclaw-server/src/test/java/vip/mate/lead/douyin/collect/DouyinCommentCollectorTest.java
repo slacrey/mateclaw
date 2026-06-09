@@ -189,6 +189,21 @@ class DouyinCommentCollectorTest {
     }
 
     @Test
+    void extractedRegionStripsForwardPrefixAndKeepsVisibilityMetadata() throws Exception {
+        var root = mapper.readTree("""
+                {"ok":true,"results":[{"payload":{"items":[
+                  {"itemType":"douyin_comment","author":"易企秀","text":"转发 · 快闪H5制作，如此简单！","visibleInRegion":false,"bbox":{"x":10,"y":40,"width":220,"height":28}}
+                ]}}]}
+                """);
+
+        List<DouyinCommentItem> comments = collector.commentsFromExtractedRegion(root, "video");
+
+        assertThat(comments).hasSize(1);
+        assertThat(comments.getFirst().text()).isEqualTo("快闪H5制作，如此简单！");
+        assertThat(comments.getFirst().metadata()).containsEntry("visibleInRegion", false);
+    }
+
+    @Test
     void extractedRegionDetectsCommentEndMarker() throws Exception {
         var root = mapper.readTree("""
                 {"ok":true,"results":[{"payload":{"items":[

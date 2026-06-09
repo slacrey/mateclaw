@@ -1188,6 +1188,42 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
     }
 
     @Test
+    void collectAllCommentsPrefersUiDeclaredCountOverNetworkAggregateTotal() {
+        ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
+        ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
+                browser,
+                new ObjectMapper(),
+                new DouyinCommentCollector());
+        DouyinBrowserAdapter.RegionInfo region = DouyinBrowserAdapter.RegionInfo.comments(
+                960d, 80d, 520d, 760d, "test");
+        String page = """
+                {"ok":true,"url":"https://www.douyin.com/search/yqx?modal_id=6689257066038676740","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 90 @{980,88 140x28}\\nTextbox[ref=ref_2, frame=0]: 说点什么 @{980,800 280x44}"}
+                """;
+        String endPage = """
+                {"ok":true,"url":"https://www.douyin.com/search/yqx?modal_id=6689257066038676740","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 90 @{980,88 140x28}\\nStaticText[ref=ref_3, frame=0]: 暂时没有更多评论 @{1030,720 200x28}"}
+                """;
+        when(browser.service_observe_main("all")).thenReturn(page, page, endPage, endPage);
+        when(browser.service_douyin_comment_network_main("drain", null, null, null)).thenReturn("""
+                {"ok":true,"results":[{"payload":{"pages":[
+                  {"url":"https://www.douyin.com/aweme/v1/web/comment/list/?aweme_id=6689257066038676740&cursor=0","status":200,"body":"{\\"aweme_id\\":\\"6689257066038676740\\",\\"total\\":144,\\"has_more\\":false,\\"comments\\":[{\\"cid\\":\\"c1\\",\\"text\\":\\"支持\\",\\"user\\":{\\"nickname\\":\\"Ly\\",\\"sec_uid\\":\\"MS4w\\"}}]}"}
+                ]}}]}
+                """);
+        when(browser.service_extract_region_main("douyin.comments", 160)).thenReturn("""
+                {"ok":true,"results":[{"payload":{"items":[]}}]}
+                """);
+        when(browser.service_hover_main(anyDouble(), anyDouble())).thenReturn("{\"ok\":true}");
+        when(browser.service_scroll_region_main(eq("douyin.comments"), eq("down"), anyDouble(), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn("{\"ok\":true,\"results\":[{\"payload\":{\"moved\":true,\"mode\":\"comment_region_wheel\",\"reason\":\"comment_window_advanced\",\"forwardProgress\":true}}]}");
+
+        var result = adapter.collectAllComments(region);
+
+        assertThat(result.declaredCommentCount()).isEqualTo(90);
+        assertThat(result.complete()).isFalse();
+        assertThat(result.stopReason()).isEqualTo("END_OF_LIST_DECLARED_MISMATCH");
+        assertThat(result.metadata()).containsEntry("remainingDeclaredComments", 89);
+    }
+
+    @Test
     void collectAllCommentsUsesA11yVisibleCommentsWhenDomExtractionIsEmpty() {
         ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
         ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(

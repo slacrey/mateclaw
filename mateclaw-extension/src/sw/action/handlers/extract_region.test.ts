@@ -97,7 +97,7 @@ describe('extract_region handler', () => {
             <a id="author" href="//www.douyin.com/user/MS4wTitle"><span data-click-from="title">别让我通宵</span></a>
             <div data-e2e="video-comment-more">...</div>
             <div class="LvAtyU_f" id="body">
-              <span>自热不香吗</span>
+              <span>转发 · 自热不香吗</span>
               <span class="comment-item-tag-text">作者回复过</span>
             </div>
             <div class="GOkWHE6S">1月前·广东</div>
@@ -126,11 +126,13 @@ describe('extract_region handler', () => {
         author: '别让我通宵',
         text: '自热不香吗',
         href: expect.stringContaining('douyin.com/user/MS4w'),
+        visibleInRegion: true,
       }),
     ])
     expect(comments[0].text).not.toContain('展开18条回复')
     expect(comments[0].text).not.toContain('分享')
     expect(comments[0].text).not.toContain('作者回复过')
+    expect(comments[0].text).not.toContain('转发')
   })
 
   it('extracts Douyin comment items before scrolling even when the detected region is misaligned', async () => {

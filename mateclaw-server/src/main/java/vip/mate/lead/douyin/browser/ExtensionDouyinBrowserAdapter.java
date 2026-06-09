@@ -463,6 +463,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         int stableNoNew = 0;
         int stableEndMarker = 0;
         int declared = 0;
+        boolean declaredFromUi = false;
         boolean complete = false;
         String stopReason = "unknown";
         ScrollRegionEvidence lastScrollEvidence = ScrollRegionEvidence.none();
@@ -534,9 +535,15 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                     mergeComment(seen, item);
                 }
             }
-            declared = Math.max(declared, Math.max(
-                    Math.max(networkResult.declaredCommentCount(), extractedResult.declaredCommentCount()),
-                    collector.declaredCommentCount(current.tree(), region)));
+            int uiDeclared = Math.max(
+                    extractedResult.declaredCommentCount(),
+                    collector.declaredCommentCount(current.tree(), region));
+            if (uiDeclared > 0) {
+                declared = uiDeclared;
+                declaredFromUi = true;
+            } else if (!declaredFromUi) {
+                declared = Math.max(declared, networkResult.declaredCommentCount());
+            }
             lastWindowAfterCount = seen.size();
             lastNewItems = Math.max(0, lastWindowAfterCount - lastWindowBeforeCount);
             lastCollectionAdvanced = lastNewItems > 0;
