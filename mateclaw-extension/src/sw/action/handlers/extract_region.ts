@@ -365,24 +365,29 @@ function extractDouyinComments(
         domIndex,
         rect: el.getBoundingClientRect(),
         itemCount: el.querySelectorAll('[data-e2e="comment-item"]').length,
+        directDivs: directCommentListDivSlots(el).length,
+        signalSlots: directCommentListDivSlots(el).filter(hasCommentSlotSignals).length,
         insidePanel: Boolean(el.closest('#merge-all-comment-container')),
       }))
-      .filter(entry => entry.itemCount > 0)
+      .filter(entry => entry.itemCount > 0 || entry.signalSlots > 0 || (entry.insidePanel && entry.directDivs > 0))
       .filter(entry => isUsefulTextRect(entry.rect) || entry.insidePanel)
       .sort((a, b) => {
         const panelDiff = Number(b.insidePanel) - Number(a.insidePanel)
         if (panelDiff !== 0) return panelDiff
         const overlapDiff = overlapAreaWithClip(b.rect, regionRect) - overlapAreaWithClip(a.rect, regionRect)
         if (Math.abs(overlapDiff) > 1) return overlapDiff
+        const signalDiff = b.signalSlots - a.signalSlots
+        if (signalDiff !== 0) return signalDiff
         const itemDiff = b.itemCount - a.itemCount
         if (itemDiff !== 0) return itemDiff
+        const slotDiff = b.directDivs - a.directDivs
+        if (slotDiff !== 0) return slotDiff
         return a.domIndex - b.domIndex
       })
     const list = lists[0]?.el
     if (!list) return []
 
-    const slotCandidates = Array.from(list.children)
-      .filter((slot): slot is HTMLElement => slot instanceof HTMLElement && slot.tagName.toLowerCase() === 'div')
+    const slotCandidates = directCommentListDivSlots(list)
       .map((slot, domIndex) => {
         const item = commentItemFromListSlot(slot)
         return item ? toCommentListItemCandidate(item, domIndex) : null
@@ -393,6 +398,11 @@ function extractDouyinComments(
     return Array.from(list.querySelectorAll<HTMLElement>('[data-e2e="comment-item"]'))
       .map((item, domIndex) => toCommentListItemCandidate(item, domIndex))
       .filter((candidate): candidate is CommentCandidate => candidate !== null)
+  }
+
+  function directCommentListDivSlots(list: HTMLElement): HTMLElement[] {
+    return Array.from(list.children)
+      .filter((slot): slot is HTMLElement => slot instanceof HTMLElement && slot.tagName.toLowerCase() === 'div')
   }
 
   function commentItemFromListSlot(slot: HTMLElement): HTMLElement | null {

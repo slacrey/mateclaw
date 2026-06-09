@@ -191,6 +191,74 @@ describe('extract_region handler', () => {
     expect(comments.map(comment => comment.text)).not.toContain('暂时没有更多评论')
   })
 
+  it('extracts Douyin comments from direct comment-list div slots without comment-item markers', async () => {
+    document.body.innerHTML = `
+      <div id="merge-all-comment-container">
+        <span id="count">全部评论(67)</span>
+        <div data-e2e="comment-list" id="list">
+          <div id="slot-1">
+            <a id="avatar-1" href="//www.douyin.com/user/MS4wAvatar"><img alt="嘴大心宽头像"></a>
+            <a id="author-1" href="//www.douyin.com/user/MS4wTitle"><span data-click-from="title">嘴大心宽</span></a>
+            <div id="body-1"><span>别人的易企秀，怎么可以修改一下变成自己的？</span></div>
+            <div id="time-1"><span>6年前</span></div>
+            <div class="comment-item-stats-container"><span>回复</span><span>分享</span></div>
+          </div>
+          <div id="slot-2">
+            <a id="author-2" href="//www.douyin.com/user/MS4wOtherTitle"><span data-click-from="title">霞姐一百岁</span></a>
+            <div id="body-2"><span>不建议大家用易企秀，慢出心脏病了。</span></div>
+            <div id="time-2"><span>2年前</span></div>
+            <div class="comment-item-stats-container"><span>回复</span><span>分享</span></div>
+          </div>
+          <div id="end">暂时没有更多评论</div>
+        </div>
+      </div>
+    `
+    mockRect(document.querySelector('#merge-all-comment-container')!, { x: 96, y: 20, width: 670, height: 760 })
+    mockRect(document.querySelector('#count')!, { x: 130, y: 58, width: 150, height: 30 })
+    mockRect(document.querySelector('#list')!, { x: 98, y: 100, width: 660, height: 650 })
+    mockRect(document.querySelector('#slot-1')!, { x: 128, y: 122, width: 610, height: 170 })
+    mockRect(document.querySelector('#avatar-1')!, { x: 132, y: 132, width: 58, height: 58 })
+    mockRect(document.querySelector('#author-1')!, { x: 230, y: 124, width: 90, height: 28 })
+    mockRect(document.querySelector('#body-1')!, { x: 230, y: 164, width: 500, height: 56 })
+    mockRect(document.querySelector('#slot-2')!, { x: 128, y: 310, width: 610, height: 170 })
+    mockRect(document.querySelector('#author-2')!, { x: 230, y: 318, width: 110, height: 28 })
+    mockRect(document.querySelector('#body-2')!, { x: 230, y: 356, width: 500, height: 56 })
+    mockRect(document.querySelector('#end')!, { x: 410, y: 520, width: 170, height: 28 })
+
+    const regions = new RegionRegistry()
+    regions.register({ key: 'douyin.comments', tabId: 9, rect: { x: 98, y: 100, width: 660, height: 650 } })
+    const handler = extractRegionHandler({ regions, chrome: chromeWithDomExecution() })
+
+    const result = await handler(9, { regionKey: 'douyin.comments' }, 1000)
+
+    expect(result.ok).toBe(true)
+    const items = result.ok ? result.payload.items as any[] : []
+    const diagnostics = result.ok ? result.payload.diagnostics as any : {}
+    expect(items.find(item => item.itemType === 'comment_count')).toEqual(expect.objectContaining({
+      text: '67',
+    }))
+    expect(items.find(item => item.itemType === 'comment_end')).toEqual(expect.objectContaining({
+      text: '暂时没有更多评论',
+    }))
+    expect(diagnostics).toEqual(expect.objectContaining({
+      selectedListCommentItems: 0,
+      selectedListDirectDivs: 3,
+      extractedDomCommentCount: 2,
+    }))
+    const comments = items.filter(item => item.itemType === 'douyin_comment')
+    expect(comments).toEqual([
+      expect.objectContaining({
+        author: '嘴大心宽',
+        text: '别人的易企秀，怎么可以修改一下变成自己的？',
+      }),
+      expect.objectContaining({
+        author: '霞姐一百岁',
+        text: '不建议大家用易企秀，慢出心脏病了。',
+      }),
+    ])
+    expect(comments.map(comment => comment.text).join(' ')).not.toContain('分享')
+  })
+
   it('extracts Douyin comment items before scrolling even when the detected region is misaligned', async () => {
     document.body.innerHTML = `
       <div id="merge-all-comment-container">
