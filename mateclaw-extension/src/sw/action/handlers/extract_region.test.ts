@@ -135,6 +135,57 @@ describe('extract_region handler', () => {
     expect(comments[0].text).not.toContain('转发')
   })
 
+  it('extracts Douyin comments from direct comment-list child slots', async () => {
+    document.body.innerHTML = `
+      <div data-e2e="comment-list" id="list">
+        <div id="slot-1">
+          <div data-e2e="comment-item" id="item-1">
+            <a id="author-1" href="//www.douyin.com/user/MS4wTitle"><span data-click-from="title">全先生</span></a>
+            <div class="LvAtyU_f" id="body-1">帮忙做两个吗？多少钱</div>
+            <div class="comment-item-stats-container"><span>回复</span><span>分享</span></div>
+          </div>
+        </div>
+        <div id="slot-2">
+          <div data-e2e="comment-item" id="item-2">
+            <a id="author-2" href="//www.douyin.com/user/MS4wOtherTitle"><span data-click-from="title">用户8659427775691</span></a>
+            <div class="LvAtyU_f" id="body-2">可以用自己的模板素材制作H5吗</div>
+          </div>
+        </div>
+        <div id="end">暂时没有更多评论</div>
+      </div>
+    `
+    mockRect(document.querySelector('#list')!, { x: 1000, y: 80, width: 520, height: 700 })
+    mockRect(document.querySelector('#slot-1')!, { x: 1010, y: 120, width: 500, height: 120 })
+    mockRect(document.querySelector('#item-1')!, { x: 1010, y: 120, width: 500, height: 110 })
+    mockRect(document.querySelector('#author-1')!, { x: 1070, y: 130, width: 90, height: 24 })
+    mockRect(document.querySelector('#body-1')!, { x: 1070, y: 166, width: 220, height: 28 })
+    mockRect(document.querySelector('#slot-2')!, { x: 1010, y: 260, width: 500, height: 120 })
+    mockRect(document.querySelector('#item-2')!, { x: 1010, y: 260, width: 500, height: 110 })
+    mockRect(document.querySelector('#author-2')!, { x: 1070, y: 270, width: 150, height: 24 })
+    mockRect(document.querySelector('#body-2')!, { x: 1070, y: 306, width: 260, height: 28 })
+    mockRect(document.querySelector('#end')!, { x: 1130, y: 420, width: 160, height: 28 })
+
+    const regions = new RegionRegistry()
+    regions.register({ key: 'douyin.comments', tabId: 9, rect: { x: 980, y: 60, width: 560, height: 740 } })
+    const handler = extractRegionHandler({ regions, chrome: chromeWithDomExecution() })
+
+    const result = await handler(9, { regionKey: 'douyin.comments' }, 1000)
+
+    expect(result.ok).toBe(true)
+    const comments = result.ok ? (result.payload.items as any[]).filter(item => item.itemType === 'douyin_comment') : []
+    expect(comments).toEqual([
+      expect.objectContaining({
+        author: '全先生',
+        text: '帮忙做两个吗？多少钱',
+      }),
+      expect.objectContaining({
+        author: '用户8659427775691',
+        text: '可以用自己的模板素材制作H5吗',
+      }),
+    ])
+    expect(comments.map(comment => comment.text)).not.toContain('暂时没有更多评论')
+  })
+
   it('extracts Douyin comment items before scrolling even when the detected region is misaligned', async () => {
     document.body.innerHTML = `
       <div id="merge-all-comment-container">

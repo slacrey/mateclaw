@@ -367,9 +367,26 @@ function extractDouyinComments(
     const list = lists[0]?.el
     if (!list) return []
 
+    const slotCandidates = Array.from(list.children)
+      .filter((slot): slot is HTMLElement => slot instanceof HTMLElement && slot.tagName.toLowerCase() === 'div')
+      .map((slot, domIndex) => {
+        const item = commentItemFromListSlot(slot)
+        return item ? toCommentListItemCandidate(item, domIndex) : null
+      })
+      .filter((candidate): candidate is CommentCandidate => candidate !== null)
+    if (slotCandidates.length > 0) return slotCandidates
+
     return Array.from(list.querySelectorAll<HTMLElement>('[data-e2e="comment-item"]'))
       .map((item, domIndex) => toCommentListItemCandidate(item, domIndex))
       .filter((candidate): candidate is CommentCandidate => candidate !== null)
+  }
+
+  function commentItemFromListSlot(slot: HTMLElement): HTMLElement | null {
+    if (slot.matches('[data-e2e="comment-item"]')) return slot
+    const direct = Array.from(slot.children)
+      .find((child): child is HTMLElement => child instanceof HTMLElement && child.matches('[data-e2e="comment-item"]'))
+    if (direct) return direct
+    return slot.querySelector<HTMLElement>('[data-e2e="comment-item"]')
   }
 
   function toCommentListItemCandidate(item: HTMLElement, domIndex: number): CommentCandidate | null {
