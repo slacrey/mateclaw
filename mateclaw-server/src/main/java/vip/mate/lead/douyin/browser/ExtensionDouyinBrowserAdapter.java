@@ -2,6 +2,8 @@ package vip.mate.lead.douyin.browser;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 import vip.mate.browser.edge.action.TypePayload;
@@ -28,6 +30,8 @@ import java.util.function.Supplier;
 
 @Component
 public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
+
+    private static final Logger log = LoggerFactory.getLogger(ExtensionDouyinBrowserAdapter.class);
 
     private static final int END_MARKER_STABLE_WINDOWS = 2;
     private static final int MAX_SCROLL_PROTECTION = 2_000;
@@ -1058,14 +1062,69 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         try {
             JsonNode root = parse(browser.service_extract_region_main(region.regionKey(), 160));
             if (!root.path("ok").asBoolean(false)) {
+                log.info("[douyin.comments.dom] extract_region not ok regionKey={} root={}",
+                        region.regionKey(), compactJson(root));
                 return ExtractedComments.empty();
             }
-            return new ExtractedComments(
+            ExtractedComments extracted = new ExtractedComments(
                     collector.commentsFromExtractedRegion(root, videoKey),
                     collector.declaredCommentCountFromExtractedRegion(root),
                     collector.commentsReachedEndFromExtractedRegion(root));
-        } catch (Exception ignored) {
+            logCommentDomDiagnostics(region, root, extracted);
+            return extracted;
+        } catch (Exception e) {
+            log.warn("[douyin.comments.dom] extract_region failed regionKey={} error={}",
+                    region.regionKey(), e.toString());
             return ExtractedComments.empty();
+        }
+    }
+
+    private void logCommentDomDiagnostics(RegionInfo region, JsonNode root, ExtractedComments extracted) {
+        JsonNode payload = firstPayload(root);
+        JsonNode diagnostics = payload.path("diagnostics");
+        JsonNode items = payload.path("items");
+        int rawItems = items.isArray() ? items.size() : 0;
+        int rawDomComments = 0;
+        int rawCommentCounts = 0;
+        int rawEndMarkers = 0;
+        if (items.isArray()) {
+            for (JsonNode item : items) {
+                String type = item.path("itemType").asText("");
+                if ("douyin_comment".equals(type)) {
+                    rawDomComments++;
+                } else if ("comment_count".equals(type)) {
+                    rawCommentCounts++;
+                } else if ("comment_end".equals(type)) {
+                    rawEndMarkers++;
+                }
+            }
+        }
+        log.info("[douyin.comments.dom] regionKey={} source={} rawItems={} rawDomComments={} rawCommentCounts={} rawEndMarkers={} parsedComments={} declared={} endReached={} diagnostics={}",
+                region.regionKey(),
+                region.source(),
+                rawItems,
+                rawDomComments,
+                rawCommentCounts,
+                rawEndMarkers,
+                extracted.comments().size(),
+                extracted.declaredCommentCount(),
+                extracted.endReached(),
+                diagnostics.isMissingNode() ? "{}" : compactJson(diagnostics));
+    }
+
+    private JsonNode firstPayload(JsonNode root) {
+        JsonNode results = root.path("results");
+        if (!results.isArray() || results.isEmpty()) {
+            return mapper.createObjectNode();
+        }
+        return results.get(0).path("payload");
+    }
+
+    private String compactJson(JsonNode node) {
+        try {
+            return mapper.writeValueAsString(node);
+        } catch (Exception ignored) {
+            return String.valueOf(node);
         }
     }
 

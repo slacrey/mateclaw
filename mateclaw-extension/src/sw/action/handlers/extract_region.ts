@@ -19,6 +19,11 @@ interface ExtractedRegionItem {
   visibleInRegion?: boolean
 }
 
+interface ExtractRegionPageResult {
+  items: ExtractedRegionItem[]
+  diagnostics?: Record<string, unknown>
+}
+
 export const extractRegionHandler = (deps: ExtractRegionHandlerDeps): ActionHandler<ExtractRegionParams> => {
   return async (tabId, params, _deadlineMs) => {
     const parsed = parseExtractRegionParams(params)
@@ -53,7 +58,11 @@ export const extractRegionHandler = (deps: ExtractRegionHandlerDeps): ActionHand
       func: extractRegionInPage,
       args: [region, parsed.maxItems],
     })
-    const items = Array.isArray(results?.[0]?.result) ? results[0].result : []
+    const pageResult = results?.[0]?.result as ExtractedRegionItem[] | ExtractRegionPageResult | undefined
+    const items = Array.isArray(pageResult)
+      ? pageResult
+      : Array.isArray(pageResult?.items) ? pageResult.items : []
+    const diagnostics = !Array.isArray(pageResult) ? pageResult?.diagnostics : undefined
 
     return {
       ok: true,
@@ -61,6 +70,7 @@ export const extractRegionHandler = (deps: ExtractRegionHandlerDeps): ActionHand
       payload: {
         regionKey: parsed.regionKey,
         items,
+        diagnostics,
       },
     }
   }
@@ -75,7 +85,7 @@ function parseExtractRegionParams(params: ExtractRegionParams): { regionKey: str
   }
 }
 
-function extractRegionInPage(region: RuntimeRegion, maxItems: number): ExtractedRegionItem[] {
+function extractRegionInPage(region: RuntimeRegion, maxItems: number): ExtractRegionPageResult {
   const regionRect = {
     left: region.x,
     top: region.y,
@@ -85,13 +95,17 @@ function extractRegionInPage(region: RuntimeRegion, maxItems: number): Extracted
   const max = Math.min(Math.max(Math.floor(maxItems || 80), 1), 500)
 
   if (region.key === 'douyin.search_results') {
-    return extractDouyinSearchResults(regionRect, max)
+    return { items: extractDouyinSearchResults(regionRect, max) }
   }
   if (region.key === 'douyin.comments') {
-    return extractDouyinComments(regionRect, max)
+    const items = extractDouyinComments(regionRect, max)
+    return {
+      items,
+      diagnostics: douyinCommentDomDiagnostics(items),
+    }
   }
   if (region.key === 'douyin.dm') {
-    return extractDouyinDm(regionRect, max)
+    return { items: extractDouyinDm(regionRect, max) }
   }
 
   const selectors = [
@@ -159,7 +173,7 @@ function extractRegionInPage(region: RuntimeRegion, maxItems: number): Extracted
     })
   }
 
-  return items
+  return { items }
 
   function cleanText(text: string): string {
     return text.replace(/\s+/g, ' ').trim()
@@ -1089,6 +1103,43 @@ function extractDouyinComments(
     const bottom = Math.min(rect.bottom, clip.bottom)
     return Math.max(0, right - left) * Math.max(0, bottom - top)
   }
+}
+
+function douyinCommentDomDiagnostics(items: ExtractedRegionItem[]): Record<string, unknown> {
+  const lists = Array.from(document.querySelectorAll<HTMLElement>('[data-e2e="comment-list"]'))
+  const selectedList = lists
+    .map((el, index) => ({
+      el,
+      index,
+      commentItems: el.querySelectorAll('[data-e2e="comment-item"]').length,
+      directDivs: Array.from(el.children).filter(child => child instanceof HTMLElement && child.tagName.toLowerCase() === 'div').length,
+    }))
+    .sort((a, b) => b.commentItems - a.commentItems || b.directDivs - a.directDivs || a.index - b.index)[0]
+  const comments = items.filter(item => item.itemType === 'douyin_comment')
+  const listSelector = '[data-e2e="comment-list"]'
+  return {
+    commentListCount: lists.length,
+    selectedListCommentItems: selectedList?.commentItems ?? 0,
+    selectedListDirectDivs: selectedList?.directDivs ?? 0,
+    documentCommentItems: document.querySelectorAll('[data-e2e="comment-item"]').length,
+    titleLinkCount: document.querySelectorAll(`${listSelector} [data-click-from="title"]`).length,
+    userLinkCount: document.querySelectorAll(`${listSelector} a[href*="/user/"], ${listSelector} a[href*="douyin.com/user"]`).length,
+    bodyClassCount: document.querySelectorAll(`${listSelector} .Sbe6bqNb, ${listSelector} .LqTo7UJT, ${listSelector} .LvAtyU_f`).length,
+    replyExpandCount: document.querySelectorAll(`${listSelector} .comment-reply-expand-btn`).length,
+    statsCount: document.querySelectorAll(`${listSelector} .comment-item-stats-container`).length,
+    endMarkerCount: Array.from(document.querySelectorAll<HTMLElement>(`${listSelector} *`))
+      .filter(el => cleanDiagnosticText(el.innerText || el.textContent || '').includes('暂时没有更多评论')).length,
+    extractedDomCommentCount: comments.length,
+    visibleInRegionCount: comments.filter(item => item.visibleInRegion).length,
+    declaredCountItems: items.filter(item => item.itemType === 'comment_count').map(item => item.text),
+    endMarkerItems: items.filter(item => item.itemType === 'comment_end').map(item => item.text),
+    firstAuthors: comments.slice(0, 5).map(item => item.author || ''),
+    firstTexts: comments.slice(0, 5).map(item => item.text),
+  }
+}
+
+function cleanDiagnosticText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
 }
 
 function extractDouyinSearchResults(

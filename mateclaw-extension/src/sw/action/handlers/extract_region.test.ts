@@ -171,6 +171,13 @@ describe('extract_region handler', () => {
 
     expect(result.ok).toBe(true)
     const comments = result.ok ? (result.payload.items as any[]).filter(item => item.itemType === 'douyin_comment') : []
+    const diagnostics = result.ok ? result.payload.diagnostics as any : {}
+    expect(diagnostics).toEqual(expect.objectContaining({
+      commentListCount: 1,
+      documentCommentItems: 1,
+      selectedListDirectDivs: 3,
+      extractedDomCommentCount: 2,
+    }))
     expect(comments).toEqual([
       expect.objectContaining({
         author: '全先生',
