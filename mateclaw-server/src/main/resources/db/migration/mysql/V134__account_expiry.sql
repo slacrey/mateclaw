@@ -1,4 +1,4 @@
--- V130: Account expiry. NULL means the account is permanent.
+-- V134: Account expiry. NULL means the account is permanent.
 SET @col_exists := (
     SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE()
