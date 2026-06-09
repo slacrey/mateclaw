@@ -904,29 +904,21 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
             return EngagementResult.failed(comment, "NOT_DOUYIN_PROFILE", "当前活动页不是抖音作者主页");
         }
 
-        boolean followConfirmed = false;
-        ClickPoint follow = findProfileActionPoint(profile, "关注");
         boolean alreadyFollowed = profile.tree().contains("已关注")
                 || profile.tree().contains("互相关注")
                 || profile.tree().toLowerCase(Locale.ROOT).contains("following");
-        if (follow != null && !alreadyFollowed) {
-            if (!tryOk(browser.service_click_profile_action_active(List.of("关注")))) {
-                requireOk(browser.service_click_active(follow.x(), follow.y()), "click_follow");
-            }
+        if (!alreadyFollowed && clickProfileAction(profile, "follow", List.of("关注"))) {
             waitMs(1000);
             profile = observeActive("all");
         }
-        followConfirmed = profile.tree().contains("已关注")
+        boolean followConfirmed = profile.tree().contains("已关注")
                 || profile.tree().contains("互相关注")
                 || profile.tree().toLowerCase(Locale.ROOT).contains("following");
 
-        ClickPoint dm = findProfileActionPoint(profile, "私信", "发私信", "Message");
-        if (dm == null) {
+        if (!clickProfileAction(profile, "dm", List.of("私信", "发私信", "Message", "发消息"))) {
             return new EngagementResult(comment, comment.authorName(), profile.url(), true,
-                    followConfirmed, false, false, false, "failed", "DM_BUTTON_NOT_FOUND", "未找到私信入口");
-        }
-        if (!tryOk(browser.service_click_profile_action_active(List.of("私信", "发私信", "Message")))) {
-            requireOk(browser.service_click_active(dm.x(), dm.y()), "click_dm");
+                    followConfirmed, false, false, false, "failed", "DM_BUTTON_NOT_FOUND",
+                    "未找到私信入口：A11y 与 DOM 均未命中");
         }
         BrowserObservation dmPage = waitForDmPage(8, 650L);
         if (!isDouyinPage(dmPage.url())) {
@@ -962,6 +954,24 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                 true, draftTyped, false, succeeded ? "succeeded" : "failed",
                 failureCode,
                 failureMessage);
+    }
+
+    private boolean clickProfileAction(BrowserObservation profile, String actionName, List<String> labels) {
+        ClickPoint a11y = findProfileActionPoint(profile, labels.toArray(String[]::new));
+        if (a11y != null && tryOk(browser.service_click_active(a11y.x(), a11y.y()))) {
+            log.info("[douyin.lead] clicked profile action by a11y: action={}, labels={}, x={}, y={}",
+                    actionName, labels, a11y.x(), a11y.y());
+            return true;
+        }
+        if (tryOk(browser.service_click_profile_action_active(labels))) {
+            log.info("[douyin.lead] clicked profile action by dom: action={}, labels={}",
+                    actionName, labels);
+            return true;
+        }
+        log.warn("[douyin.lead] profile action not found: action={}, labels={}, url={}, tree={}",
+                actionName, labels, profile == null ? "" : profile.url(),
+                profile == null ? "" : treeExcerpt(profile.tree()));
+        return false;
     }
 
     private boolean looksLikeDouyinDmPage(BrowserObservation obs) {
