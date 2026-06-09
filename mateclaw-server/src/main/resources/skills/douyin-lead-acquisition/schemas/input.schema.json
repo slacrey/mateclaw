@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "douyin.lead_acquisition.input.v1",
+  "title": "DouyinLeadAcquisitionInput",
+  "type": "object",
+  "required": ["query", "commentRule", "messageTemplate"],
+  "properties": {
+    "query": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "description": "Search topic to enter in Douyin."
+    },
+    "sort": {
+      "type": "string",
+      "enum": ["most_liked", "latest"],
+      "default": "most_liked",
+      "description": "How to sort search results before opening videos."
+    },
+    "videoCount": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50,
+      "default": 50,
+      "description": "Maximum number of videos to scan."
+    },
+    "includeReplies": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether to expand and collect reply comments when available. V1 defaults to false because reply expansion must be separately region-verified to avoid clicking share/action buttons."
+    },
+    "commentRule": {
+      "type": "object",
+      "required": ["mode", "text"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["keyword", "semantic", "hybrid"],
+          "default": "hybrid"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "description": "Natural-language lead matching rule."
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "default": []
+        },
+        "minScore": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.7
+        }
+      },
+      "additionalProperties": false
+    },
+    "messageTemplate": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000,
+      "description": "DM draft template. The workflow types a draft and requires approval before sending."
+    },
+    "commentContent": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Optional public comment content to type before DM, when the adapter supports it."
+    },
+    "sendMode": {
+      "type": "string",
+      "enum": ["draft_only", "send_after_approval"],
+      "default": "draft_only",
+      "description": "V1 defaults to typing drafts only; sending must go through approval."
+    },
+    "engage": {
+      "type": "boolean",
+      "default": true,
+      "description": "When false, stop after comment collection and matching; do not follow, open DM, or type a draft."
+    },
+    "accountRef": {
+      "type": "string",
+      "maxLength": 128,
+      "description": "Optional browser account/profile selector."
+    }
+  },
+  "additionalProperties": false
+}

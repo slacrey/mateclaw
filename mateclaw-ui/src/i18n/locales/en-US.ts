@@ -1,6 +1,6 @@
 export default {
   app: {
-    title: 'MateClaw - AI Assistant',
+    title: '化帆AI',
   },
   common: {
     save: 'Save',
@@ -600,6 +600,7 @@ export default {
       model3d: '3D Generation',
       workspace: 'Workspace',
       featureFlags: 'Feature Flags',
+      browser: 'Browser',
       about: 'About',
       advanced: 'Advanced',
       skillCurator: 'Skill Curator',
@@ -648,6 +649,35 @@ export default {
         'wiki.graph.adamic_adar.enabled': 'Adamic-Adar topology signal, additive to the existing four relevance signals',
         'wiki.graph.boundary.enabled': 'Boundary score for surfacing dangling pages (high out-degree, low in-degree)',
         'wiki.relation.cache.enabled': 'Persistent cache for wiki page-to-page relation computation (default on, performance baseline)',
+      },
+    },
+    browser: {
+      title: 'Browser Pairing',
+      description: 'Connect your MateClaw Chrome extension so agents can drive a real browser. One click — no token copy-paste.',
+      recheck: 'Re-check',
+      connect: 'Connect',
+      connecting: 'Connecting…',
+      disconnect: 'Disconnect',
+      deviceLabel: 'Device',
+      deviceNameField: 'Device name (optional)',
+      connectedHint: 'This browser is paired and ready for agent control.',
+      footer: 'Connecting mints a browser-scoped access token for your account and hands it to the extension; the token is never displayed. Disconnect revokes it.',
+      pill: {
+        checking: 'Checking…',
+        notDetected: 'Not detected',
+        detected: 'Detected, not connected',
+        connected: 'Connected',
+      },
+      notDetected: {
+        title: 'MateClaw extension not detected',
+        hint: 'Install the MateClaw browser extension and reload this page, then click Re-check. Make sure you opened this admin page from a whitelisted origin.',
+      },
+      toast: {
+        connected: 'Browser connected',
+        disconnected: 'Browser disconnected',
+        mintFailed: 'Could not mint a pairing token: {error}',
+        pairFailed: 'The extension rejected pairing: {error}',
+        timeout: 'The extension did not connect in time. Check the server URL and try again.',
       },
     },
     modelTitle: 'Model Management',

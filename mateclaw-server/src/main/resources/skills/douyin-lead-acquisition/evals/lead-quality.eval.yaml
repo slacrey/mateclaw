@@ -1,0 +1,8 @@
+id: douyin.lead_acquisition.lead_quality
+checks:
+  - id: has_public_source
+    description: Every lead includes a public source URL.
+  - id: evidence_based_score
+    description: Fit score is supported by concrete observed evidence.
+  - id: human_review
+    description: Outreach plans require human review before external contact.

@@ -239,6 +239,13 @@ const router = createRouter({
               component: () => import('@/views/Settings/FeatureFlags/index.vue'),
               meta: { title: 'Settings - Feature Flags', requiredCapability: 'manage:settings' },
             },
+            // Phase 3.1: one-click Chrome extension pairing (Direct WSS mode).
+            {
+              path: 'browser',
+              name: 'SettingsBrowser',
+              component: () => import('@/views/Settings/Browser/index.vue'),
+              meta: { title: 'Settings - Browser', requiredCapability: 'manage:settings' },
+            },
             {
               path: 'about',
               name: 'SettingsAbout',

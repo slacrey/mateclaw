@@ -1,6 +1,6 @@
 export default {
   app: {
-    title: 'MateClaw - AI 助手',
+    title: '化帆AI',
   },
   common: {
     save: '保存',
@@ -480,6 +480,7 @@ export default {
       model3d: '3D 生成',
       workspace: '工作空间',
       featureFlags: '功能开关',
+      browser: '浏览器',
       about: '关于',
       advanced: '高级',
       skillCurator: '技能管家',
@@ -528,6 +529,35 @@ export default {
         'wiki.graph.adamic_adar.enabled': 'Adamic-Adar 拓扑相似度信号（叠加在现有四个信号之上）',
         'wiki.graph.boundary.enabled': '边界分数：让"悬空"页面（出度大入度小）冒头',
         'wiki.relation.cache.enabled': '维基页面间关系计算的持久化缓存（默认开启，性能基线）',
+      },
+    },
+    browser: {
+      title: '浏览器连接',
+      description: '连接你的 MateClaw Chrome 扩展，让智能体可以操作真实浏览器。一键完成，无需复制粘贴令牌。',
+      recheck: '重新检测',
+      connect: '连接',
+      connecting: '连接中…',
+      disconnect: '断开连接',
+      deviceLabel: '设备',
+      deviceNameField: '设备名称（可选）',
+      connectedHint: '该浏览器已配对，可供智能体控制。',
+      footer: '点击连接会为你的账号签发一个浏览器范围的访问令牌并交给扩展，令牌不会显示在界面上。断开连接会吊销它。',
+      pill: {
+        checking: '检测中…',
+        notDetected: '未检测到扩展',
+        detected: '已检测到，未连接',
+        connected: '已连接',
+      },
+      notDetected: {
+        title: '未检测到 MateClaw 扩展',
+        hint: '请安装 MateClaw 浏览器扩展并刷新本页，然后点击"重新检测"。请确认你是从白名单内的地址打开本管理页的。',
+      },
+      toast: {
+        connected: '浏览器已连接',
+        disconnected: '浏览器已断开',
+        mintFailed: '签发配对令牌失败：{error}',
+        pairFailed: '扩展拒绝了配对：{error}',
+        timeout: '扩展未能及时连接。请检查服务器地址后重试。',
       },
     },
     modelTitle: '模型管理',

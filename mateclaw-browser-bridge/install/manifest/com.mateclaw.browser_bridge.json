@@ -1,0 +1,9 @@
+{
+  "name": "com.mateclaw.browser_bridge",
+  "description": "MateClaw Browser Agent Native Host",
+  "path": "__BRIDGE_BINARY_PATH__",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://__EXTENSION_ID__/"
+  ]
+}

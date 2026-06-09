@@ -80,6 +80,12 @@ public class BrowserUseTool {
     });
 
     @Tool(description = """
+        SERVER-SIDE / headless browser (Playwright) that runs on the MateClaw server — the user does NOT see it.
+        ⚠ Tool routing: if the user asks to use "my/this/the browser" (e.g. 用我的浏览器 / 这个浏览器 / 打开浏览器),
+        or wants to watch the actions happen in their own Chrome window, use the `extension_browser_*` tools
+        instead — NOT this one. Use `browser_use` only for background/headless automation where no user browser
+        is involved (scraping, CI, a logged-in session that lives on the server).
+
         Control a browser (Playwright with multi-strategy launch: system Chrome/Edge channel, explicit path, bundled, or external CDP).
         Default is headless. Use headed=true with action=start for a visible window.
         Typical flow: start → open(url) → snapshot → click/type → stop.

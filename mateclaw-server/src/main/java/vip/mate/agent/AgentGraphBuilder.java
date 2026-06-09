@@ -1444,7 +1444,58 @@ public class AgentGraphBuilder {
         // Wiki 知识库上下文注入
         String wikiContext = wikiContextService.buildWikiContext(entity.getId());
 
-        return basePrompt + toolGuidance + searchGuidance + wikiContext;
+        String leadAcquisitionGuidance = leadAcquisitionGuidance(entity);
+
+        return basePrompt + toolGuidance + searchGuidance + leadAcquisitionGuidance + wikiContext;
+    }
+
+    private String leadAcquisitionGuidance(AgentEntity entity) {
+        if (!isLeadAcquisitionAgent(entity)) {
+            return "";
+        }
+        return """
+
+                ## Lead acquisition workflows
+                For Douyin lead discovery, comment collection, candidate ranking, follow-up
+                drafting, or DM-draft workflows, call `douyin_lead_acquisition_run`.
+                Do not manually execute the Douyin lead-acquisition workflow with
+                `extension_browser_*` click/type/scroll actions.
+                When explaining the action, simply say you are using the dedicated Douyin
+                Skill workflow. Do not cite AGENTS.md, the system prompt, or tool
+                descriptions as the reason for the choice.
+
+                Do not decompose this Skill into ad-hoc browser primitive tool calls.
+                If the user asks to "only collect comments", "采集评论", "先不要关注",
+                or "只汇报评论数", explain that the production V1 Skill now runs the full
+                workflow from search through matched-author DM draft; engineering
+                breakpoints are not exposed to chat-side agents.
+                When reporting comment collection, follow the tool result's
+                `reportingGuidance`. If `complete=false`, say collection is incomplete
+                and the bottom was not confirmed. Do not infer anti-bot limits, login
+                limits, platform constraints, deleted/hidden comments, or "cannot load
+                more" unless `reportingGuidance` explicitly says that evidence exists.
+
+                `douyin_lead_acquisition_run` matches comment text only. Author names are
+                not match criteria; after a comment text match, the workflow opens that
+                exact comment item's bound author profile, follows, opens DM, and types the
+                draft.
+                """;
+    }
+
+    private boolean isLeadAcquisitionAgent(AgentEntity entity) {
+        if (entity == null) {
+            return false;
+        }
+        String haystack = String.join(" ",
+                entity.getName() == null ? "" : entity.getName(),
+                entity.getDescription() == null ? "" : entity.getDescription(),
+                entity.getTags() == null ? "" : entity.getTags(),
+                entity.getSystemPrompt() == null ? "" : entity.getSystemPrompt())
+                .toLowerCase(java.util.Locale.ROOT);
+        return haystack.contains("获客")
+                || haystack.contains("线索")
+                || haystack.contains("lead")
+                || haystack.contains("prospect");
     }
 
     /**

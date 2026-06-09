@@ -64,6 +64,15 @@ public class SecurityConfig {
                     "/api/v1/channels/webhook/**",
                     "/api/v1/channels/webchat/**",
                     "/api/v1/talk/ws",
+                    // Phase 3.1: browser-direct edge WebSocket. Like /talk/ws, the
+                    // handshake comes from a browser that cannot set the
+                    // Authorization header, so the JwtAuthFilter can't authenticate
+                    // it here — the token rides in Sec-WebSocket-Protocol and is
+                    // validated by EdgeAuthInterceptor.beforeHandshake (which 401s on
+                    // a bad/missing token). The Native-Messaging bridge still sends
+                    // Authorization, but permitting the path is harmless: the
+                    // interceptor is the real gate for this endpoint either way.
+                    "/api/v1/browser/edge",
                     // RFC-045: tool-generated files served via unguessable UUID + 10-min TTL
                     "/api/v1/files/generated/**"
                 ).permitAll()

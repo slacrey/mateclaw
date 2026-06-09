@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "douyin.lead_acquisition.lead_comment.v1",
+  "title": "DouyinLeadComment",
+  "type": "object",
+  "required": ["platform", "video", "comment", "match"],
+  "properties": {
+    "platform": {
+      "type": "string",
+      "const": "douyin"
+    },
+    "taskId": {
+      "type": "string",
+      "description": "Durable lead task id when persisted."
+    },
+    "video": {
+      "type": "object",
+      "required": ["videoKey", "url"],
+      "properties": {
+        "videoKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "title": {
+          "type": "string"
+        },
+        "authorName": {
+          "type": "string"
+        },
+        "likeCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "comment": {
+      "type": "object",
+      "required": ["commentKey", "authorName", "text"],
+      "properties": {
+        "commentKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parentCommentKey": {
+          "type": "string"
+        },
+        "authorName": {
+          "type": "string"
+        },
+        "authorProfileUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "authorAvatarUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "likeCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "replyCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "match": {
+      "type": "object",
+      "required": ["matched", "score", "reason"],
+      "properties": {
+        "matched": {
+          "type": "boolean"
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "ruleVersion": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "artifactUri": {
+          "type": "string"
+        },
+        "observedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

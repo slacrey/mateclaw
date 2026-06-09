@@ -65,4 +65,5 @@ class ReasoningNodeEmptyCompletionTest {
                 true, null, ErrorType.NONE);
         assertFalse(ReasoningNode.isEmptyCompletion(partial));
     }
+
 }

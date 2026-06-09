@@ -85,13 +85,14 @@ public class ModelDiscoveryService {
     private static final Set<String> DASHSCOPE_NATIVE_DENY = Set.of(
             "qwen3.5-max",
             "qwen3.5-plus",
+            "qwen3.7-plus",
             "qwen3.6-plus",
             "qwen3.6-max"
     );
 
     /**
      * Pattern matching DashScope model ids that use a dot-versioned family (e.g.
-     * "qwen3.5-max", "qwen3.6-plus"). These are only offered on compatible-mode
+     * "qwen3.5-max", "qwen3.6-plus", "qwen3.7-plus"). These are only offered on compatible-mode
      * and consistently fail on the native endpoint with
      * "[InvalidParameter] url error". Block them regardless of exact name.
      */

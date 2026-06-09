@@ -92,7 +92,7 @@ function parseSections(content: string): MemorySectionData[] {
     if (match) {
       const heading = match[1].trim()
       const rawBody = match[2].trim()
-      const userEdited = rawBody.includes('<!-- user-edited')
+      const userEdited = rawBody.includes('\x3C!-- user-edited')
       // Strip the hidden marker from the display body — it is metadata, and
       // since renderMarkdown escapes HTML it would otherwise show as raw text.
       result.push({ heading, body: stripMarker(rawBody), userEdited })
@@ -107,7 +107,7 @@ function parseSections(content: string): MemorySectionData[] {
 // Strip the hidden user-edited marker so it never shows up as raw text in the
 // editor (and never accumulates when a section is edited repeatedly).
 function stripMarker(body: string): string {
-  return body.replace(/^[ \t]*<!-- user-edited:.*-->[ \t]*$/gm, '').trim()
+  return body.replace(/^[ \t]*\x3C!-- user-edited:.*--\x3E[ \t]*$/gm, '').trim()
 }
 
 /**

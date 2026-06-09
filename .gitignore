@@ -101,6 +101,8 @@ deploy/.env
 CLAUDE.md
 .claude/settings.local.json
 .claude/plans/
+.claude/worktrees/
+.claire/
 
 # Codex CLI local artifacts
 .codex/
@@ -114,3 +116,4 @@ scripts/.*-sync-state.json
 # Sandbox / external client work that lives in this directory
 # but should not ship in the repo.
 outputs/
+.browser-e2e/

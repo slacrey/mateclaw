@@ -98,22 +98,32 @@ class ModelCapabilityServiceTest {
     }
 
     @Test
-    @DisplayName("DeepSeek V4 / V4-Pro → VIDEO; V3 (text-only) gets nothing")
-    void deepseekV4_supportsVideo() {
-        // DeepSeek V4 (Apr 2026) introduced native multimodal incl. video to the line.
-        // V3 and earlier remain text-only and must NOT match the V4 entry.
-        assertTrue(service.supports("deepseek-v4", null, Modality.VIDEO));
-        assertTrue(service.supports("deepseek-v4-pro", null, Modality.VIDEO));
-        assertTrue(service.supports("deepseek-v4-flash", null, Modality.VIDEO));
+    @DisplayName("DeepSeek defaults to text-only unless DB modalities explicitly opt in")
+    void deepseek_defaultsTextOnly() {
+        // DeepSeek's public Chat Completions API should not receive image_url/video_url payloads.
+        // Keep these out of the multimodal sidecar dropdown unless an operator explicitly marks
+        // a deployment-specific model row as multimodal in mate_model_config.modalities.
+        assertFalse(service.supports("deepseek-v4", null, Modality.VISION));
+        assertFalse(service.supports("deepseek-v4", null, Modality.VIDEO));
+        assertFalse(service.supports("deepseek-v4-pro", null, Modality.VISION));
+        assertFalse(service.supports("deepseek-v4-pro", null, Modality.VIDEO));
+        assertFalse(service.supports("deepseek-v4-flash", null, Modality.VISION));
+        assertFalse(service.supports("deepseek-v4-flash", null, Modality.VIDEO));
         assertFalse(service.supports("deepseek-v3", null, Modality.VIDEO),
-                "V3 must NOT inherit V4 capabilities — text-only base differs from V4 entirely");
+                "V3 must stay text-only too");
         assertFalse(service.supports("deepseek-v3.2", null, Modality.VIDEO));
         assertFalse(service.supports("deepseek-r1", null, Modality.VIDEO));
+        assertTrue(service.supports("deepseek-v4-pro", "[\"vision\"]", Modality.VISION),
+                "explicit DB modalities override the built-in text-only default");
     }
 
     @Test
-    @DisplayName("Qwen3-VL (all sizes) and Qwen3.5-Omni support VIDEO")
+    @DisplayName("Qwen3.6/3.7, Qwen3-VL (all sizes), and Qwen3.5-Omni support VIDEO")
     void qwen3Generation_supportsVideo() {
+        assertTrue(service.supports("qwen3.6-plus", null, Modality.VIDEO));
+        assertTrue(service.supports("qwen3.6-plus", null, Modality.VISION));
+        assertTrue(service.supports("qwen3.7-plus", null, Modality.VIDEO));
+        assertTrue(service.supports("qwen3.7-plus", null, Modality.VISION));
         assertTrue(service.supports("qwen3-vl-8b-instruct", null, Modality.VIDEO));
         assertTrue(service.supports("qwen3-vl-235b-a22b", null, Modality.VIDEO));
         assertTrue(service.supports("qwen3.5-omni", null, Modality.VIDEO));

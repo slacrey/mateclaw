@@ -5,11 +5,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.tool.ToolCallback;
 import vip.mate.agent.AgentToolSet;
 import vip.mate.agent.graph.NodeStreamingChatHelper;
 import vip.mate.agent.graph.state.SourceEvidenceLedger;
@@ -236,4 +234,5 @@ class ReasoningNodeOutputTest {
         assertEquals("stopped", output.get(FINISH_REASON));
         assertEquals("部分内容", output.get(FINAL_ANSWER));
     }
+
 }

@@ -1,0 +1,7 @@
+kind: file_export
+format: markdown
+template: templates/lead-report.md
+outputs:
+  - output
+notes:
+  - Export matched comments, engagement attempts, failures, and DM drafts for human review.

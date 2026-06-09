@@ -8,6 +8,8 @@ import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
 import org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean;
+import vip.mate.browser.edge.EdgeWebSocketHandler;
+import vip.mate.browser.edge.auth.EdgeAuthInterceptor;
 import vip.mate.channel.web.TalkModeWebSocketHandler;
 
 /**
@@ -33,15 +35,38 @@ public class WebSocketConfig implements WebSocketConfigurer {
      */
     private static final int MAX_BINARY_BUFFER_BYTES = 8 * 1024 * 1024;
 
-    /** Text frames stay reasonably small (init / state / transcript JSON). */
-    private static final int MAX_TEXT_BUFFER_BYTES = 64 * 1024;
+    /**
+     * Max text frame. The edge WebSocket carries JSON envelopes as TEXT, and two
+     * of them are large: the a11y snapshot tree (up to ~200 KB, see
+     * SnapshotRequestHandler DEFAULT_MAX_CHARS) and — the binding case — the
+     * {@code screenshot.capture.response} whose {@code data_base64} holds a full
+     * viewport screenshot (a JPEG is ~100 KB–1 MB; a HiDPI capture more). At the
+     * old 64 KB cap every screenshot frame (and any large tree) was rejected with
+     * CloseStatus 1009, so vision grounding could NEVER receive an image. 8 MB
+     * (matching the binary buffer) gives ample headroom for both.
+     */
+    private static final int MAX_TEXT_BUFFER_BYTES = 8 * 1024 * 1024;
 
     private final TalkModeWebSocketHandler talkModeHandler;
+    private final EdgeWebSocketHandler edgeHandler;
+    private final EdgeAuthInterceptor edgeAuthInterceptor;
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         registry.addHandler(talkModeHandler, "/api/v1/talk/ws")
                 .setAllowedOrigins("*");
+
+        registry.addHandler(edgeHandler, "/api/v1/browser/edge")
+                .addInterceptors(edgeAuthInterceptor)
+                // Phase 3.1 (direct-WSS): the Chrome extension service worker now
+                // connects to this endpoint straight from the browser, so its
+                // handshake carries an `Origin: chrome-extension://<id>` header.
+                // Admit those origins; the Native-Messaging bridge (server-to-server,
+                // no Origin header) keeps working too. Auth is still the real gate —
+                // EdgeAuthInterceptor validates a JWT/PAT from either the
+                // `Authorization` header (NH bridge) or the `Sec-WebSocket-Protocol`
+                // `bearer.<token>` entry (browser, which can't set Authorization).
+                .setAllowedOriginPatterns("chrome-extension://*");
     }
 
     /**

@@ -1,0 +1,192 @@
+apiVersion: mateclaw.skill/v2
+kind: Skill
+metadata:
+  id: douyin-lead-acquisition
+  name: 抖音获客
+  version: 1.0.0
+  category: lead_acquisition
+  description: 搜索抖音视频评论区，匹配潜在线索并发起关注/私信草稿
+
+# Compatibility fields consumed by the current SkillPackageV2Loader.
+id: douyin.lead_acquisition
+package_version: v2
+version: 1.0.0
+name: Douyin Lead Acquisition
+description: Parameterized Douyin lead-acquisition workflow that matches comment text, then follows and drafts outreach for the author bound to each matched comment.
+category: lead_acquisition
+tags:
+  - douyin
+  - lead-acquisition
+  - browser-skill
+  - sales
+
+runtime:
+  type: domain-browser
+  workflow: workflow.json
+  adapter: douyin
+
+inputs:
+  schema: schemas/input.schema.json
+  ui:
+    query:
+      widget: text
+      label: 搜索主题
+    sort:
+      widget: select
+      default: most_liked
+      options:
+        - label: 最多点赞
+          value: most_liked
+        - label: 最新发布
+          value: latest
+    videoCount:
+      widget: number
+      default: 50
+    commentRule:
+      widget: rule_builder
+      label: 匹配评论
+    messageTemplate:
+      widget: textarea
+      label: 发送的私信
+    commentContent:
+      widget: textarea
+      label: 评论内容
+    engage:
+      widget: checkbox
+      label: 关注/私信调试
+      default: true
+
+capabilities:
+  - id: discover_leads
+    title: Discover Douyin comment leads
+    description: Search Douyin, sort videos, collect public comments, and keep evidence for each source.
+    input_schemas:
+      - schemas/input.schema.json
+    output_schemas:
+      - schemas/lead-comment.schema.json
+    tools:
+      - browser
+    metadata:
+      risk_level: medium
+      phase: v1
+      workflow_steps:
+        - open_search
+        - sort_results
+        - open_video
+        - collect_comments
+  - id: qualify_leads
+    title: Match lead comments
+    description: Batch-classify collected comments against the configured match rule and produce conservative fit reasons.
+    input_schemas:
+      - schemas/lead-comment.schema.json
+    output_schemas:
+      - schemas/output.schema.json
+    tools:
+      - llm
+    metadata:
+      risk_level: low
+      phase: v1
+      workflow_steps:
+        - match_comments
+  - id: draft_outreach
+    title: Follow and draft outreach
+    description: Open the author bound to each matched comment, follow when allowed, type a DM draft, and summarize the run for human review.
+    input_schemas:
+      - schemas/input.schema.json
+      - schemas/lead-comment.schema.json
+    output_schemas:
+      - schemas/output.schema.json
+    tools:
+      - browser
+      - llm
+    metadata:
+      risk_level: high
+      policy:
+        - external_contact
+        - social_follow
+        - dm_draft
+      workflow_steps:
+        - engage_user
+        - summarize
+
+adapters:
+  - id: douyin
+    kind: domain_browser
+    path: adapters/douyin.yaml
+    capabilities:
+      - discover_leads
+      - qualify_leads
+      - draft_outreach
+    config:
+      platform: douyin
+      require_public_pages: true
+  - id: crm-export
+    kind: file_export
+    path: adapters/crm-export.yaml
+    capabilities:
+      - draft_outreach
+
+permissions:
+  browser:
+    domains:
+      - "*.douyin.com"
+    actions:
+      - navigate
+      - click
+      - type
+      - scroll_region
+      - screenshot
+      - extract
+    forbidden_actions:
+      - page_scroll_for_comments
+      - generic_scroll_in_video_modal
+  externalContact:
+    follow: ask_or_auto
+    dmDraft: auto
+    dmSend: ask
+
+memory:
+  entities:
+    - lead_campaign
+    - lead_video
+    - lead_comment
+    - lead_candidate
+    - lead_engagement
+
+analytics:
+  metrics:
+    - videos_processed
+    - comments_collected
+    - comments_matched
+    - follows_attempted
+    - follows_succeeded
+    - dm_drafts_typed
+    - dm_sent
+
+assets:
+  schemas:
+    - schemas/input.schema.json
+    - schemas/output.schema.json
+    - schemas/lead-comment.schema.json
+  prompts:
+    - prompts/research-system.md
+    - prompts/qualification-user.md
+    - prompts/outreach-user.md
+  templates:
+    - templates/lead-report.md
+  evals:
+    - evals/lead-quality.eval.yaml
+
+config:
+  default_locale: zh-CN
+  browser_runtime_rules:
+    - Comment collection must be executed by the dedicated douyin_lead_acquisition_run workflow, not ad-hoc extension_browser_* scrolling.
+    - The comment panel must be verified open before comment extraction or scrolling.
+    - Comment scrolling must use the douyin.comments region only; generic page scroll is forbidden inside Douyin video pages because it switches videos.
+    - Before every comment scroll, park and focus the mouse inside the verified comment region safe point.
+    - If the comment panel is lost, first recover by re-parking/focusing and reopening comments; fail only after recovery is exhausted.
+    - The workflow must never type a DM draft unless the active controlled tab is a confirmed Douyin DM page.
+  compliance:
+    avoid_sensitive_personal_data: true
+    require_public_source: true
+    dm_send_requires_approval: true

@@ -11,9 +11,9 @@
           <div class="welcome-screen">
             <div class="welcome-logo">
               <div class="welcome-logo__glow"></div>
-              <img src="/logo/mateclaw_logo_s.png" alt="MateClaw" class="welcome-logo__icon" />
+              <img src="/logo/mateclaw_logo_s.png" alt="化帆AI" class="welcome-logo__icon" />
             </div>
-            <h2 class="welcome-title">Mate<span class="welcome-title-highlight">Claw</span></h2>
+            <h2 class="welcome-title">化帆<span class="welcome-title-highlight">AI</span></h2>
             <p class="welcome-subtitle">{{ subtitle }}</p>
             <div v-if="suggestions.length" class="welcome-suggestions">
               <button
@@ -129,7 +129,7 @@ const props = withDefaults(defineProps<Props>(), {
   loading: false,
   assistantIcon: '🤖',
   userIcon: 'U',
-  title: 'MateClaw',
+  title: '化帆AI',
   subtitle: '',
   suggestions: () => [],
   autoScroll: true,

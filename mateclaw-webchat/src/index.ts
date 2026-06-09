@@ -31,7 +31,7 @@ interface Message {
 const DEFAULT_CONFIG: Partial<WebChatConfig> = {
   position: 'bottom-right',
   primaryColor: 'var(--mc-primary, #D97757)',
-  title: 'MateClaw',
+  title: '化帆AI',
   placeholder: 'Type a message...',
 }
 
