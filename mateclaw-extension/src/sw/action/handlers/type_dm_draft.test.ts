@@ -94,4 +94,39 @@ describe('type dm draft handler', () => {
     expect(sendClick).toHaveBeenCalledTimes(1)
     expect(editor.textContent).not.toContain('你好')
   })
+
+  it('does not click the upload control when sending a dm', async () => {
+    document.body.innerHTML = `
+      <main>
+        <h1>私信</h1>
+        <div id="editor" role="textbox" contenteditable="true" aria-label="发送消息"></div>
+        <button id="upload" aria-label="上传图片"><input type="file" /></button>
+        <button id="send" style="background-color: rgb(254, 44, 85)"><svg aria-hidden="true"></svg></button>
+      </main>
+    `
+    Object.defineProperty(location, 'hostname', { value: 'www.douyin.com', configurable: true })
+    Object.defineProperty(window, 'innerWidth', { value: 1280, configurable: true })
+    Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true })
+    const editor = document.querySelector<HTMLElement>('#editor')!
+    const uploadButton = document.querySelector<HTMLElement>('#upload')!
+    const sendButton = document.querySelector<HTMLElement>('#send')!
+    setRect(document.querySelector('main')!, { left: 720, top: 680, width: 540, height: 80 })
+    setRect(editor, { left: 760, top: 700, width: 360, height: 44 })
+    setRect(uploadButton, { left: 1130, top: 700, width: 44, height: 44 })
+    setRect(sendButton, { left: 1190, top: 700, width: 44, height: 44 })
+    const uploadClick = vi.fn()
+    const sendClick = vi.fn(() => {
+      editor.textContent = ''
+    })
+    uploadButton.addEventListener('click', uploadClick)
+    sendButton.addEventListener('click', sendClick)
+    const handler = typeDmDraftHandler({ debugger: fakeDebugger(), chrome: chromeWithDomExecution() })
+
+    const result = await handler(42, { text: '你好', send: true }, 5000)
+
+    expect(result.ok).toBe(true)
+    expect(result.payload).toMatchObject({ draftTyped: true, sent: true })
+    expect(uploadClick).not.toHaveBeenCalled()
+    expect(sendClick).toHaveBeenCalledTimes(1)
+  })
 })

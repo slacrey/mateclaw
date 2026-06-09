@@ -164,7 +164,8 @@ public class DouyinLeadAcquisitionExecutor {
                         "draftTyped", engagement.draftTyped(),
                         "sent", engagement.sent(),
                         "status", engagement.status()), null));
-                if (!engagement.draftTyped()) {
+                boolean sendRequiredButNotConfirmed = input.sendDm() && !engagement.sent();
+                if (!engagement.draftTyped() || sendRequiredButNotConfirmed) {
                     throw new DouyinBrowserException(
                             engagement.failureCode() == null ? "ENGAGEMENT_FAILED" : engagement.failureCode(),
                             engagement.failureMessage() == null ? "互动执行未完成" : engagement.failureMessage());

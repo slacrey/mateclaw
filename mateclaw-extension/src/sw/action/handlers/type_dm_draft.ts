@@ -268,11 +268,35 @@ async function clickDmSendInPage(
         el.getAttribute('aria-disabled') === 'true' ||
         el.getAttribute('disabled') === 'true' ||
         (el instanceof HTMLButtonElement && el.disabled)
+      const isAttachmentControl = (el: HTMLElement, text: string) => {
+        const normalized = clean(text)
+        if (/上传|文件|图片|照片|相册|附件|选择文件|image|file|upload/u.test(normalized)) return true
+        if (el instanceof HTMLInputElement && el.type === 'file') return true
+        if (el.querySelector('input[type="file"]')) return true
+        const label = el.closest('label')
+        return !!label?.querySelector('input[type="file"]')
+      }
       const likelySendText = (text: string) => {
         const normalized = clean(text)
         return normalized === '发送' ||
           normalized === 'Send' ||
           (/发送/u.test(normalized) && !/发送消息|输入消息|发送一条文字消息|对方回复|关闭会话|消息/u.test(normalized))
+      }
+      const colorNumbers = (value: string) => {
+        const match = String(value || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i)
+        return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null
+      }
+      const sendAccent = (value: string) => {
+        const rgb = colorNumbers(value)
+        return !!rgb && rgb[0] >= 220 && rgb[1] <= 95 && rgb[2] >= 65 && rgb[2] <= 150
+      }
+      const hasSendAccent = (el: HTMLElement) => {
+        const candidates = [el, el.parentElement, el.closest<HTMLElement>('button,[role="button"],div[tabindex],span[tabindex]')]
+          .filter((candidate): candidate is HTMLElement => !!candidate)
+        return candidates.some(candidate => {
+          const style = getComputedStyle(candidate)
+          return sendAccent(style.backgroundColor) || sendAccent(style.color) || sendAccent(style.borderColor)
+        })
       }
       const nearEditable = (rect: DOMRect, editableRect: DOMRect) => {
         const verticalOverlap = rect.top <= editableRect.bottom + 44 && rect.bottom >= editableRect.top - 44
@@ -280,6 +304,40 @@ async function clickDmSendInPage(
         const plausibleSize = rect.width >= 24 && rect.width <= 140 && rect.height >= 24 && rect.height <= 80
         return verticalOverlap && rightOfEditable && plausibleSize
       }
+      const centerX = (rect: DOMRect) => rect.left + rect.width / 2
+      const centerY = (rect: DOMRect) => rect.top + rect.height / 2
+      const sameRow = (rect: DOMRect, editableRect: DOMRect) =>
+        centerY(rect) >= editableRect.top - 8 && centerY(rect) <= editableRect.bottom + 8
+      const actionSelectors = 'button,[role="button"],[aria-label*="发送"],[title*="发送"],div[tabindex],span[tabindex],label'
+      const findComposerRoot = (editable: HTMLElement) => {
+        const editableRect = editable.getBoundingClientRect()
+        let current = editable.parentElement
+        for (let depth = 0; current && current !== document.body && depth < 8; depth += 1, current = current.parentElement) {
+          const rect = current.getBoundingClientRect()
+          if (rect.width <= editableRect.width + 80 || rect.height <= 0 || rect.height > 160) continue
+          if (rect.top > editableRect.top + 16 || rect.bottom < editableRect.bottom - 16) continue
+          const rightActions = Array.from(current.querySelectorAll<HTMLElement>(actionSelectors))
+            .filter(el => el !== editable && !editable.contains(el))
+            .map(el => ({ el, rect: el.getBoundingClientRect(), text: elementText(el) }))
+            .filter(item => item.rect.width > 0 && item.rect.height > 0)
+            .filter(item => sameRow(item.rect, editableRect))
+            .filter(item => centerX(item.rect) >= editableRect.right - 8)
+            .filter(item => !isAttachmentControl(item.el, item.text))
+          if (rightActions.length > 0) return current
+        }
+        return null
+      }
+      const composer = findComposerRoot(editable)
+      const composerRect = composer?.getBoundingClientRect()
+      const rightmostComposerAction = (rect: DOMRect, editableRect: DOMRect) => {
+        if (!composerRect) return false
+        const rightBand = Math.max(64, Math.min(110, composerRect.width * 0.18))
+        return sameRow(rect, editableRect) &&
+          centerX(rect) >= editableRect.right - 8 &&
+          centerX(rect) >= composerRect.right - rightBand
+      }
+      const iconOnlySend = (el: HTMLElement, rect: DOMRect, editableRect: DOMRect, text: string) =>
+        !clean(text) && rightmostComposerAction(rect, editableRect) && (hasSendAccent(el) || !!composer?.contains(el))
       const score = (item: { el: HTMLElement; rect: DOMRect; text: string }, editableRect: DOMRect) => {
         let value = 0
         const role = (item.el.getAttribute('role') || item.el.tagName || '').toLowerCase()
@@ -287,9 +345,13 @@ async function clickDmSendInPage(
         if (role.includes('button')) value += 120
         if (normalized === '发送' || normalized === 'Send') value += 140
         if (/发送/u.test(normalized)) value += 80
-        if (nearEditable(item.rect, editableRect)) value += 100
-        if (item.rect.left >= editableRect.right - 120) value += 40
+        if (composer?.contains(item.el)) value += 120
+        if (iconOnlySend(item.el, item.rect, editableRect, item.text)) value += 180
+        if (rightmostComposerAction(item.rect, editableRect)) value += 120
+        if (nearEditable(item.rect, editableRect)) value += 40
+        value += Math.max(0, centerX(item.rect) - editableRect.right) / 10
         if (/搜索|关闭会话|回关|发送消息|输入消息|对方回复/u.test(normalized)) value -= 240
+        if (isAttachmentControl(item.el, item.text)) value -= 500
         return value
       }
       const click = (el: HTMLElement) => {
@@ -308,13 +370,16 @@ async function clickDmSendInPage(
       const viewportW = window.innerWidth || document.documentElement.clientWidth || 1
       const viewportH = window.innerHeight || document.documentElement.clientHeight || 1
       const selectors = 'button,[role="button"],[aria-label*="发送"],[title*="发送"],div[tabindex],span[tabindex]'
-      const button = Array.from(document.querySelectorAll<HTMLElement>(selectors))
+      const buttonRoot: ParentNode = composer ?? document
+      const button = Array.from(buttonRoot.querySelectorAll<HTMLElement>(selectors))
         .map((el, index) => ({ el, index, rect: el.getBoundingClientRect(), text: elementText(el) }))
         .filter(item => item.rect.width > 0 && item.rect.height > 0)
         .filter(item => item.rect.left >= viewportW * 0.45)
         .filter(item => item.rect.top >= Math.max(120, viewportH * 0.32))
         .filter(item => !isDisabled(item.el))
-        .filter(item => likelySendText(item.text) || nearEditable(item.rect, editableRect))
+        .filter(item => !isAttachmentControl(item.el, item.text))
+        .filter(item => composer?.contains(item.el) || likelySendText(item.text))
+        .filter(item => likelySendText(item.text) || iconOnlySend(item.el, item.rect, editableRect, item.text))
         .sort((a, b) => score(b, editableRect) - score(a, editableRect) || a.index - b.index)[0]?.el ?? null
       if (!button) return { ok: false, reason: 'dm_send_button_not_found' }
       button.scrollIntoView({ block: 'center', inline: 'center' })
@@ -374,6 +439,8 @@ function findDmSendButton(editable: HTMLElement): HTMLElement | null {
   const editableRect = editable.getBoundingClientRect()
   const viewportW = window.innerWidth || document.documentElement.clientWidth || 1
   const viewportH = window.innerHeight || document.documentElement.clientHeight || 1
+  const composer = findDmComposerRoot(editable)
+  const searchRoot: ParentNode = composer ?? document
   const selectors = [
     'button',
     '[role="button"]',
@@ -382,14 +449,16 @@ function findDmSendButton(editable: HTMLElement): HTMLElement | null {
     'div[tabindex]',
     'span[tabindex]',
   ].join(',')
-  return Array.from(document.querySelectorAll<HTMLElement>(selectors))
+  return Array.from(searchRoot.querySelectorAll<HTMLElement>(selectors))
     .map((el, index) => ({ el, index, rect: el.getBoundingClientRect(), text: elementText(el) }))
     .filter(item => item.rect.width > 0 && item.rect.height > 0)
     .filter(item => item.rect.left >= viewportW * 0.45)
     .filter(item => item.rect.top >= Math.max(120, viewportH * 0.32))
     .filter(item => !isDisabled(item.el))
-    .filter(item => isLikelySendButtonText(item.text) || isNearEditableSendControl(item.rect, editableRect))
-    .sort((a, b) => scoreSendButton(b, editableRect) - scoreSendButton(a, editableRect) || a.index - b.index)[0]?.el ?? null
+    .filter(item => !isAttachmentLikeControl(item.el, item.text))
+    .filter(item => composer?.contains(item.el) || isLikelySendButtonText(item.text))
+    .filter(item => isLikelySendButtonText(item.text) || isIconOnlySendButton(item.el, item.rect, editableRect, item.text, composer))
+    .sort((a, b) => scoreSendButton(b, editableRect, composer) - scoreSendButton(a, editableRect, composer) || a.index - b.index)[0]?.el ?? null
 }
 
 function isLikelySendButtonText(text: string): boolean {
@@ -407,16 +476,109 @@ function isNearEditableSendControl(rect: DOMRect, editableRect: DOMRect): boolea
   return verticalOverlap && rightOfEditable && plausibleSize
 }
 
-function scoreSendButton(item: { el: HTMLElement; rect: DOMRect; text: string }, editableRect: DOMRect): number {
+function isIconOnlySendButton(
+  el: HTMLElement,
+  rect: DOMRect,
+  editableRect: DOMRect,
+  text: string,
+  composer: HTMLElement | null,
+): boolean {
+  return !clean(text)
+    && isRightmostComposerAction(rect, editableRect, composer)
+    && (hasSendAccent(el) || !!composer?.contains(el))
+}
+
+function findDmComposerRoot(editable: HTMLElement): HTMLElement | null {
+  const editableRect = editable.getBoundingClientRect()
+  const selectors = 'button,[role="button"],[aria-label*="发送"],[title*="发送"],div[tabindex],span[tabindex],label'
+  let current = editable.parentElement
+  for (let depth = 0; current && current !== document.body && depth < 8; depth += 1, current = current.parentElement) {
+    const rect = current.getBoundingClientRect()
+    if (rect.width <= editableRect.width + 80 || rect.height <= 0 || rect.height > 160) continue
+    if (rect.top > editableRect.top + 16 || rect.bottom < editableRect.bottom - 16) continue
+    const rightActions = Array.from(current.querySelectorAll<HTMLElement>(selectors))
+      .filter(el => el !== editable && !editable.contains(el))
+      .map(el => ({ el, rect: el.getBoundingClientRect(), text: elementText(el) }))
+      .filter(item => item.rect.width > 0 && item.rect.height > 0)
+      .filter(item => sameComposerRow(item.rect, editableRect))
+      .filter(item => rectCenterX(item.rect) >= editableRect.right - 8)
+      .filter(item => !isAttachmentLikeControl(item.el, item.text))
+    if (rightActions.length > 0) {
+      return current
+    }
+  }
+  return null
+}
+
+function isRightmostComposerAction(rect: DOMRect, editableRect: DOMRect, composer: HTMLElement | null): boolean {
+  if (!composer) return false
+  const composerRect = composer.getBoundingClientRect()
+  const rightBand = Math.max(64, Math.min(110, composerRect.width * 0.18))
+  return sameComposerRow(rect, editableRect)
+    && rectCenterX(rect) >= editableRect.right - 8
+    && rectCenterX(rect) >= composerRect.right - rightBand
+}
+
+function sameComposerRow(rect: DOMRect, editableRect: DOMRect): boolean {
+  const y = rectCenterY(rect)
+  return y >= editableRect.top - 8 && y <= editableRect.bottom + 8
+}
+
+function rectCenterX(rect: DOMRect): number {
+  return rect.left + rect.width / 2
+}
+
+function rectCenterY(rect: DOMRect): number {
+  return rect.top + rect.height / 2
+}
+
+function isAttachmentLikeControl(el: HTMLElement, text: string): boolean {
+  const normalized = clean(text)
+  if (/上传|文件|图片|照片|相册|附件|选择文件|image|file|upload/u.test(normalized)) return true
+  if (el instanceof HTMLInputElement && el.type === 'file') return true
+  if (el.querySelector('input[type="file"]')) return true
+  const label = el.closest('label')
+  return !!label?.querySelector('input[type="file"]')
+}
+
+function hasSendAccent(el: HTMLElement): boolean {
+  const candidates = [el, el.parentElement, el.closest<HTMLElement>('button,[role="button"],div[tabindex],span[tabindex]')]
+    .filter((candidate): candidate is HTMLElement => !!candidate)
+  return candidates.some(candidate => {
+    const style = getComputedStyle(candidate)
+    return colorLooksLikeDouyinSend(style.backgroundColor)
+      || colorLooksLikeDouyinSend(style.color)
+      || colorLooksLikeDouyinSend(style.borderColor)
+  })
+}
+
+function colorLooksLikeDouyinSend(value: string): boolean {
+  const match = String(value || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i)
+  if (!match) return false
+  const red = Number(match[1])
+  const green = Number(match[2])
+  const blue = Number(match[3])
+  return red >= 220 && green <= 95 && blue >= 65 && blue <= 150
+}
+
+function scoreSendButton(
+  item: { el: HTMLElement; rect: DOMRect; text: string },
+  editableRect: DOMRect,
+  composer: HTMLElement | null,
+): number {
   let score = 0
   const role = (item.el.getAttribute('role') || item.el.tagName || '').toLowerCase()
   const text = clean(item.text)
   if (role.includes('button')) score += 120
   if (text === '发送' || text === 'Send') score += 140
   if (/发送/u.test(text)) score += 80
-  if (isNearEditableSendControl(item.rect, editableRect)) score += 100
-  if (item.rect.left >= editableRect.right - 120) score += 40
+  if (isIconOnlySendButton(item.el, item.rect, editableRect, item.text, composer)) score += 180
+  if (composer?.contains(item.el)) score += 120
+  if (isRightmostComposerAction(item.rect, editableRect, composer)) score += 120
+  if (isNearEditableSendControl(item.rect, editableRect)) score += 40
+  score += Math.max(0, rectCenterX(item.rect) - editableRect.right) / 10
   if (/搜索|关闭会话|回关|发送消息|输入消息|对方回复/u.test(text)) score -= 240
+  if (isAttachmentLikeControl(item.el, item.text)) score -= 500
   return score
 }
 
@@ -516,7 +678,7 @@ function editableText(el: HTMLElement): string {
 }
 
 function elementText(el: HTMLElement): string {
-  return `${el.getAttribute('placeholder') || ''} ${el.getAttribute('aria-label') || ''} ${el.innerText || el.textContent || ''}`.replace(/\s+/g, '')
+  return `${el.getAttribute('placeholder') || ''} ${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''} ${el.innerText || el.textContent || ''}`.replace(/\s+/g, '')
 }
 
 function selectEditableContent(el: HTMLElement): boolean {
