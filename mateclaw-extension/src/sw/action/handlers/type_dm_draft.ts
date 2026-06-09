@@ -311,9 +311,19 @@ async function clickDmSendInPage(
         el.getAttribute('aria-disabled') === 'true' ||
         el.getAttribute('disabled') === 'true' ||
         (el instanceof HTMLButtonElement && el.disabled)
+      const hasClassToken = (el: Element, pattern: RegExp) => {
+        const names = [
+          String(el.getAttribute('class') || ''),
+          String((el as HTMLElement).className || ''),
+          String(el.parentElement?.getAttribute('class') || ''),
+          String((el.parentElement as HTMLElement | null)?.className || ''),
+        ].join(' ')
+        return pattern.test(names)
+      }
       const isAttachmentControl = (el: HTMLElement, text: string) => {
         const normalized = clean(text)
         if (/上传|文件|图片|照片|相册|附件|选择文件|image|file|upload/u.test(normalized)) return true
+        if (hasClassToken(el, /semi-upload|upload|file|attach/i)) return true
         if (el instanceof HTMLInputElement && el.type === 'file') return true
         if (el.querySelector('input[type="file"]')) return true
         const label = el.closest('label')
@@ -334,6 +344,7 @@ async function clickDmSendInPage(
         return !!rgb && rgb[0] >= 220 && rgb[1] <= 95 && rgb[2] >= 65 && rgb[2] <= 150
       }
       const hasSendAccent = (el: HTMLElement) => {
+        if (hasClassToken(el, /e2e-send-msg-btn|messageMsgInputpublishRedBtn|publishRedBtn/i)) return true
         const candidates = [el, el.parentElement, el.closest<HTMLElement>('button,[role="button"],div[tabindex],span[tabindex]')]
           .filter((candidate): candidate is HTMLElement => !!candidate)
         return candidates.some(candidate => {
@@ -351,7 +362,7 @@ async function clickDmSendInPage(
       const centerY = (rect: DOMRect) => rect.top + rect.height / 2
       const sameRow = (rect: DOMRect, editableRect: DOMRect) =>
         centerY(rect) >= editableRect.top - 8 && centerY(rect) <= editableRect.bottom + 8
-      const actionSelectors = 'button,[role="button"],[aria-label*="发送"],[title*="发送"],div[tabindex],span[tabindex],label'
+      const actionSelectors = 'button,[role="button"],[aria-label*="发送"],[title*="发送"],div[tabindex],span[tabindex],label,.e2e-send-msg-btn,.messageMsgInputpublishRedBtn,.messageMsgInputpublishBtn'
       const findComposerRoot = (editable: HTMLElement) => {
         const editableRect = editable.getBoundingClientRect()
         let current = editable.parentElement
@@ -400,7 +411,9 @@ async function clickDmSendInPage(
       const click = (el: HTMLElement) => {
         el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
         el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, composed: true }))
-        el.click()
+        const nativeClick = (el as HTMLElement & { click?: () => void }).click
+        if (typeof nativeClick === 'function') nativeClick.call(el)
+        else el.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }))
       }
       await new Promise<void>(resolve => setTimeout(resolve, 160))
       const editable = findEditable()
@@ -413,7 +426,7 @@ async function clickDmSendInPage(
       const editableRect = editable.getBoundingClientRect()
       const viewportW = window.innerWidth || document.documentElement.clientWidth || 1
       const viewportH = window.innerHeight || document.documentElement.clientHeight || 1
-      const selectors = 'button,[role="button"],[aria-label*="发送"],[title*="发送"],div[tabindex],span[tabindex]'
+      const selectors = 'button,[role="button"],[aria-label*="发送"],[title*="发送"],div[tabindex],span[tabindex],.e2e-send-msg-btn,.messageMsgInputpublishRedBtn,.messageMsgInputpublishBtn'
       const buttonRoot: ParentNode = composer ?? document
       const button = Array.from(buttonRoot.querySelectorAll<HTMLElement>(selectors))
         .map((el, index) => ({ el, index, rect: el.getBoundingClientRect(), text: elementText(el) }))
@@ -492,6 +505,9 @@ function findDmSendButton(editable: HTMLElement): HTMLElement | null {
     '[title*="发送"]',
     'div[tabindex]',
     'span[tabindex]',
+    '.e2e-send-msg-btn',
+    '.messageMsgInputpublishRedBtn',
+    '.messageMsgInputpublishBtn',
   ].join(',')
   return Array.from(searchRoot.querySelectorAll<HTMLElement>(selectors))
     .map((el, index) => ({ el, index, rect: el.getBoundingClientRect(), text: elementText(el) }))
@@ -534,7 +550,7 @@ function isIconOnlySendButton(
 
 function findDmComposerRoot(editable: HTMLElement): HTMLElement | null {
   const editableRect = editable.getBoundingClientRect()
-  const selectors = 'button,[role="button"],[aria-label*="发送"],[title*="发送"],div[tabindex],span[tabindex],label'
+  const selectors = 'button,[role="button"],[aria-label*="发送"],[title*="发送"],div[tabindex],span[tabindex],label,.e2e-send-msg-btn,.messageMsgInputpublishRedBtn,.messageMsgInputpublishBtn'
   let current = editable.parentElement
   for (let depth = 0; current && current !== document.body && depth < 8; depth += 1, current = current.parentElement) {
     const rect = current.getBoundingClientRect()
@@ -579,6 +595,7 @@ function rectCenterY(rect: DOMRect): number {
 function isAttachmentLikeControl(el: HTMLElement, text: string): boolean {
   const normalized = clean(text)
   if (/上传|文件|图片|照片|相册|附件|选择文件|image|file|upload/u.test(normalized)) return true
+  if (hasClassToken(el, /semi-upload|upload|file|attach/i)) return true
   if (el instanceof HTMLInputElement && el.type === 'file') return true
   if (el.querySelector('input[type="file"]')) return true
   const label = el.closest('label')
@@ -586,6 +603,7 @@ function isAttachmentLikeControl(el: HTMLElement, text: string): boolean {
 }
 
 function hasSendAccent(el: HTMLElement): boolean {
+  if (hasClassToken(el, /e2e-send-msg-btn|messageMsgInputpublishRedBtn|publishRedBtn/i)) return true
   const candidates = [el, el.parentElement, el.closest<HTMLElement>('button,[role="button"],div[tabindex],span[tabindex]')]
     .filter((candidate): candidate is HTMLElement => !!candidate)
   return candidates.some(candidate => {
@@ -594,6 +612,16 @@ function hasSendAccent(el: HTMLElement): boolean {
       || colorLooksLikeDouyinSend(style.color)
       || colorLooksLikeDouyinSend(style.borderColor)
   })
+}
+
+function hasClassToken(el: Element, pattern: RegExp): boolean {
+  const names = [
+    String(el.getAttribute('class') || ''),
+    String((el as HTMLElement).className || ''),
+    String(el.parentElement?.getAttribute('class') || ''),
+    String((el.parentElement as HTMLElement | null)?.className || ''),
+  ].join(' ')
+  return pattern.test(names)
 }
 
 function colorLooksLikeDouyinSend(value: string): boolean {
@@ -635,7 +663,9 @@ function clickElement(el: HTMLElement): void {
     el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, composed: true }))
   }
   el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, composed: true }))
-  el.click()
+  const nativeClick = (el as HTMLElement & { click?: () => void }).click
+  if (typeof nativeClick === 'function') nativeClick.call(el)
+  else el.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }))
 }
 
 function isDisabled(el: HTMLElement): boolean {

@@ -131,6 +131,41 @@ describe('type dm draft handler', () => {
     expect(sendClick).toHaveBeenCalledTimes(1)
   })
 
+  it('clicks the douyin svg send control instead of semi upload', async () => {
+    document.body.innerHTML = `
+      <main>
+        <h1>私信</h1>
+        <div id="editor" role="textbox" contenteditable="true" aria-label="发送消息"></div>
+        <div id="upload" class="semi-upload-add" role="button"><svg aria-hidden="true"></svg></div>
+        <svg id="send" class="messageMsgInputpublishBtn messageMsgInputpublishRedBtn e2e-send-msg-btn"></svg>
+      </main>
+    `
+    Object.defineProperty(location, 'hostname', { value: 'www.douyin.com', configurable: true })
+    Object.defineProperty(window, 'innerWidth', { value: 1280, configurable: true })
+    Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true })
+    const editor = document.querySelector<HTMLElement>('#editor')!
+    const uploadButton = document.querySelector<HTMLElement>('#upload')!
+    const sendButton = document.querySelector<HTMLElement>('#send')!
+    setRect(document.querySelector('main')!, { left: 720, top: 680, width: 540, height: 80 })
+    setRect(editor, { left: 760, top: 700, width: 360, height: 44 })
+    setRect(uploadButton, { left: 1130, top: 700, width: 32, height: 32 })
+    setRect(sendButton, { left: 1190, top: 700, width: 32, height: 32 })
+    const uploadClick = vi.fn()
+    const sendClick = vi.fn(() => {
+      editor.textContent = ''
+    })
+    uploadButton.addEventListener('click', uploadClick)
+    sendButton.addEventListener('click', sendClick)
+    const handler = typeDmDraftHandler({ debugger: fakeDebugger(), chrome: chromeWithDomExecution() })
+
+    const result = await handler(42, { text: '你好', send: true }, 5000)
+
+    expect(result.ok).toBe(true)
+    expect(result.payload).toMatchObject({ draftTyped: true, sent: true })
+    expect(uploadClick).not.toHaveBeenCalled()
+    expect(sendClick).toHaveBeenCalledTimes(1)
+  })
+
   it('fails closed instead of clicking an unlabeled folder control when no send button is found', async () => {
     document.body.innerHTML = `
       <main>
