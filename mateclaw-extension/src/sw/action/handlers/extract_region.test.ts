@@ -146,10 +146,8 @@ describe('extract_region handler', () => {
           </div>
         </div>
         <div id="slot-2">
-          <div data-e2e="comment-item" id="item-2">
-            <a id="author-2" href="//www.douyin.com/user/MS4wOtherTitle"><span data-click-from="title">用户8659427775691</span></a>
-            <div class="LvAtyU_f" id="body-2">可以用自己的模板素材制作H5吗</div>
-          </div>
+          <a id="author-2" href="//www.douyin.com/user/MS4wOtherTitle"><span data-click-from="title">用户8659427775691</span></a>
+          <div class="LvAtyU_f" id="body-2">可以用自己的模板素材制作H5吗</div>
         </div>
         <div id="end">暂时没有更多评论</div>
       </div>
@@ -160,7 +158,6 @@ describe('extract_region handler', () => {
     mockRect(document.querySelector('#author-1')!, { x: 1070, y: 130, width: 90, height: 24 })
     mockRect(document.querySelector('#body-1')!, { x: 1070, y: 166, width: 220, height: 28 })
     mockRect(document.querySelector('#slot-2')!, { x: 1010, y: 260, width: 500, height: 120 })
-    mockRect(document.querySelector('#item-2')!, { x: 1010, y: 260, width: 500, height: 110 })
     mockRect(document.querySelector('#author-2')!, { x: 1070, y: 270, width: 150, height: 24 })
     mockRect(document.querySelector('#body-2')!, { x: 1070, y: 306, width: 260, height: 28 })
     mockRect(document.querySelector('#end')!, { x: 1130, y: 420, width: 160, height: 28 })

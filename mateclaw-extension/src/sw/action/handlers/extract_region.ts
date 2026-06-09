@@ -386,7 +386,18 @@ function extractDouyinComments(
     const direct = Array.from(slot.children)
       .find((child): child is HTMLElement => child instanceof HTMLElement && child.matches('[data-e2e="comment-item"]'))
     if (direct) return direct
-    return slot.querySelector<HTMLElement>('[data-e2e="comment-item"]')
+    const nested = slot.querySelector<HTMLElement>('[data-e2e="comment-item"]')
+    if (nested) return nested
+    return hasCommentSlotSignals(slot) ? slot : null
+  }
+
+  function hasCommentSlotSignals(slot: HTMLElement): boolean {
+    return Array.from(slot.querySelectorAll<HTMLAnchorElement>('a[href*="/user/"], a[href*="douyin.com/user"]'))
+      .filter(link => !link.closest('[data-e2e="video-comment-more"], .comment-reply-expand-btn, .comment-item-stats-container'))
+      .some(link => {
+        const text = normalizeAuthor(cleanText(link.innerText || link.textContent || ''))
+        return isLikelyAuthorText(text) || looksLikeDouyinProfileHref(link.href)
+      })
   }
 
   function toCommentListItemCandidate(item: HTMLElement, domIndex: number): CommentCandidate | null {
@@ -421,7 +432,7 @@ function extractDouyinComments(
   function findCommentItemAuthorElement(item: HTMLElement): HTMLElement | null {
     const links = Array.from(item.querySelectorAll<HTMLAnchorElement>('a[href*="/user/"], a[href*="douyin.com/user"]'))
     return links
-      .filter(link => link.closest('[data-e2e="comment-item"]') === item)
+      .filter(link => belongsToCommentCandidate(link, item))
       .filter(link => !link.closest('[data-e2e="video-comment-more"]'))
       .map(link => ({ link, text: normalizeAuthor(cleanText(link.innerText || link.textContent || '')), rect: link.getBoundingClientRect() }))
       .filter(entry => isLikelyAuthorText(entry.text) || looksLikeDouyinProfileHref(entry.link.href))
@@ -440,13 +451,19 @@ function extractDouyinComments(
 
   function findCommentItemBodyElement(item: HTMLElement): HTMLElement | null {
     const preferred = Array.from(item.querySelectorAll<HTMLElement>('.Sbe6bqNb, .LqTo7UJT, .LvAtyU_f, [data-e2e*="comment-text" i], [data-e2e*="content" i]'))
-      .filter(el => el.closest('[data-e2e="comment-item"]') === item)
+      .filter(el => belongsToCommentCandidate(el, item))
       .filter(el => !el.closest('[data-e2e="video-comment-more"], .comment-reply-expand-btn, .comment-item-stats-container'))
       .map(el => ({ el, rect: el.getBoundingClientRect(), text: cleanCommentBody(textFromElementWithoutControls(el), '') }))
       .filter(entry => isUsefulTextRect(entry.rect) && isStructuredCommentBody(entry.text, ''))
       .sort((a, b) => scoreCommentTextElement(b.el, b.text, b.rect) - scoreCommentTextElement(a.el, a.text, a.rect))[0]?.el
     if (preferred) return preferred
     return findCommentTextElement(item, findCommentItemAuthorElement(item), normalizeAuthor(cleanText(findCommentItemAuthorElement(item)?.innerText || '')))
+  }
+
+  function belongsToCommentCandidate(el: HTMLElement, item: HTMLElement): boolean {
+    const owner = el.closest<HTMLElement>('[data-e2e="comment-item"]')
+    if (owner) return owner === item
+    return !item.matches('[data-e2e="comment-item"]')
   }
 
   function declaredCommentCountCandidate(
