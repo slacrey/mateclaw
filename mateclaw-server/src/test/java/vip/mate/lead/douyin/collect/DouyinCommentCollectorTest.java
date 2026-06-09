@@ -50,7 +50,7 @@ class DouyinCommentCollectorTest {
     }
 
     @Test
-    void infersDeclaredCommentCountFromVideoActionRailWhenHeaderIsMissing() {
+    void doesNotInferDeclaredCommentCountFromVideoActionRailWhenHeaderIsMissing() {
         DouyinBrowserAdapter.RegionInfo region = DouyinBrowserAdapter.RegionInfo.comments(
                 760, 0, 520, 720, "test");
         String tree = """
@@ -62,7 +62,7 @@ class DouyinCommentCollectorTest {
                 StaticText[ref=ref_6, frame=0]: 评论内容 @{830,196 180x28}
                 """;
 
-        assertThat(collector.declaredCommentCount(tree, region)).isEqualTo(16);
+        assertThat(collector.declaredCommentCount(tree, region)).isZero();
     }
 
     @Test

@@ -463,7 +463,6 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         int stableNoNew = 0;
         int stableEndMarker = 0;
         int declared = 0;
-        boolean declaredFromUi = false;
         boolean complete = false;
         String stopReason = "unknown";
         ScrollRegionEvidence lastScrollEvidence = ScrollRegionEvidence.none();
@@ -530,9 +529,11 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
             }
             List<DouyinCommentItem> visibleTreeComments = collector.visibleComments(current, region);
             lastVisibleCount = visibleTreeComments.size();
-            for (DouyinCommentItem item : visibleTreeComments) {
-                if (!item.text().isBlank()) {
-                    mergeComment(seen, item);
+            if (networkResult.comments().isEmpty() && extracted.isEmpty()) {
+                for (DouyinCommentItem item : visibleTreeComments) {
+                    if (!item.text().isBlank()) {
+                        mergeComment(seen, item);
+                    }
                 }
             }
             int uiDeclared = Math.max(
@@ -540,9 +541,6 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                     collector.declaredCommentCount(current.tree(), region));
             if (uiDeclared > 0) {
                 declared = uiDeclared;
-                declaredFromUi = true;
-            } else if (!declaredFromUi) {
-                declared = Math.max(declared, networkResult.declaredCommentCount());
             }
             lastWindowAfterCount = seen.size();
             lastNewItems = Math.max(0, lastWindowAfterCount - lastWindowBeforeCount);
@@ -747,9 +745,9 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         metadata.put("networkObservedComments", networkObservedComments);
         metadata.put("extractedRegionComments", extractedRegionComments);
         metadata.put("a11yTreeComments", a11yTreeComments);
-        metadata.put("primaryCollectionSource", networkObservedComments > 0
-                ? "network_observed"
-                : extractedRegionComments > 0 ? "extract_region" : "a11y_tree");
+        metadata.put("primaryCollectionSource", extractedRegionComments > 0
+                ? "extract_region"
+                : networkObservedComments > 0 ? "network_observed" : "a11y_tree");
         metadata.put("fullCollectionExpected", declared > 0 && declared <= seen.size());
         metadata.put("partialCollection", declared > 0 && seen.size() < declared);
         metadata.put("declaredCountMismatch", declared > 0 && seen.size() < declared);

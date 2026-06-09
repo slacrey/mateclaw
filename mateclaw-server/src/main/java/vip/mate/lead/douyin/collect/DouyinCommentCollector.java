@@ -28,7 +28,6 @@ public class DouyinCommentCollector {
     private static final String COUNT_NUMBER = "(?:\\d{1,3}(?:,\\d{3})+|\\d+(?:\\.\\d+)?)";
     private static final Pattern COUNT_AFTER_LABEL = Pattern.compile("评论\\s*[（(]?\\s*(" + COUNT_NUMBER + ")(万|w|k|千)?\\s*[）)]?\\s*(?:条)?", Pattern.CASE_INSENSITIVE);
     private static final Pattern COUNT_BEFORE_LABEL = Pattern.compile("(" + COUNT_NUMBER + ")(万|w|k|千)?\\s*(?:条)?\\s*评论", Pattern.CASE_INSENSITIVE);
-    private static final Pattern COUNT_ONLY = Pattern.compile("^(" + COUNT_NUMBER + ")(万|w|k|千)?$", Pattern.CASE_INSENSITIVE);
     private static final Pattern COMMENT_TIME_LOCATION = Pattern.compile(
             "^(?:刚刚|昨天|前天|\\d{1,3}\\s*(?:秒|分钟|小时|天|周|个?月|年)前)(?:\\s*[·・•]\\s*[^\\s]{1,16})?$");
     private static final Pattern GENERIC_USER_ID = Pattern.compile("^用户\\d{5,}$");
@@ -491,9 +490,6 @@ public class DouyinCommentCollector {
         while (matcher.find()) {
             best = Math.max(best, parseCount(matcher.group(1), matcher.group(2)));
         }
-        if (best <= 0) {
-            best = inferActionRailCommentCount(tree, region);
-        }
         return best;
     }
 
@@ -550,15 +546,14 @@ public class DouyinCommentCollector {
                 continue;
             }
             TreeLine author = nearestAuthor(lines, i).orElse(null);
-            if (author == null && !isLikelyCommentText(line.name()) && !isStrongStandaloneCommentText(line.name())) {
+            if (author == null) {
                 continue;
             }
-            String authorName = author == null ? "" : author.name();
+            String authorName = author.name();
             if (!authorName.isBlank() && clean(authorName).equals(clean(line.name()))) {
                 continue;
             }
-            DouyinCommentItem.ClickTarget authorTarget = author == null
-                    || !isHighConfidenceAuthorTarget(author)
+            DouyinCommentItem.ClickTarget authorTarget = !isHighConfidenceAuthorTarget(author)
                     || !isVisibleViewportTarget(author)
                     ? null
                     : new DouyinCommentItem.ClickTarget(
@@ -681,7 +676,11 @@ public class DouyinCommentCollector {
         if (value.isBlank() || value.length() > 600) {
             return false;
         }
-        if (!clean(author).isBlank() && clean(value).equals(clean(author))) {
+        String cleanAuthor = clean(author);
+        if (cleanAuthor.isBlank() && value.contains("#")) {
+            return false;
+        }
+        if (!cleanAuthor.isBlank() && clean(value).equals(cleanAuthor)) {
             return false;
         }
         if (value.endsWith("头像")
@@ -844,42 +843,6 @@ public class DouyinCommentCollector {
         }
     }
 
-    private int inferActionRailCommentCount(String tree, DouyinBrowserAdapter.RegionInfo region) {
-        List<CountLine> counts = parseLines(tree).stream()
-                .filter(line -> region == null
-                        || line.centerX() < region.x() - 16.0d
-                        || line.centerX() > region.x() + region.width() + 16.0d)
-                .map(line -> new CountLine(line, parseStandaloneCount(line.name())))
-                .filter(line -> line.count() > 0)
-                .filter(line -> line.line().w() <= 120 && line.line().h() <= 80)
-                .toList();
-        if (counts.size() < 2) {
-            return 0;
-        }
-        int best = 0;
-        int bestGroupSize = 0;
-        for (CountLine anchor : counts) {
-            List<CountLine> group = counts.stream()
-                    .filter(line -> Math.abs(line.line().centerX() - anchor.line().centerX()) <= 90)
-                    .sorted((a, b) -> Integer.compare(a.line().y(), b.line().y()))
-                    .toList();
-            if (group.size() >= 2 && group.size() > bestGroupSize) {
-                bestGroupSize = group.size();
-                best = group.get(1).count();
-            }
-        }
-        return best;
-    }
-
-    private int parseStandaloneCount(String text) {
-        String value = clean(text).replaceAll("\\s+", "");
-        Matcher matcher = COUNT_ONLY.matcher(value);
-        if (!matcher.matches()) {
-            return 0;
-        }
-        return parseCount(matcher.group(1), matcher.group(2));
-    }
-
     private DouyinCommentItem.ClickTarget clickTarget(JsonNode bbox, String href) {
         if (bbox == null || bbox.isMissingNode()) {
             return null;
@@ -1023,6 +986,4 @@ public class DouyinCommentCollector {
         }
     }
 
-    private record CountLine(TreeLine line, int count) {
-    }
 }

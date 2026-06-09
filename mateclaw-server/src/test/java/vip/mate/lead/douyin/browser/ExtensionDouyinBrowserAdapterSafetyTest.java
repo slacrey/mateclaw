@@ -1262,6 +1262,45 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
     }
 
     @Test
+    void collectAllCommentsDoesNotMergeA11yCommentsWhenDomExtractionSucceeds() {
+        ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
+        ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
+                browser,
+                new ObjectMapper(),
+                new DouyinCommentCollector());
+        DouyinBrowserAdapter.RegionInfo region = DouyinBrowserAdapter.RegionInfo.comments(
+                718d, 17d, 562d, 558d, "dom-comment-items");
+        String page = """
+                {"ok":true,"url":"https://www.douyin.com/jingxuan/search/yqx?modal_id=6689257066038676740","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1280,"h":575},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 1 @{760,58 140x28}\\nLink[ref=ref_2, frame=0]: 视频作者 @{760,124 90x28}\\nStaticText[ref=ref_3, frame=0]: 工作都很忙，幸好还有你！❤ #易企秀 #vlog日常 @{810,164 360x32}\\nLink[ref=ref_4, frame=0]: 污染作者 @{760,230 100x28}\\nStaticText[ref=ref_5, frame=0]: 这不是结构化 DOM 评论 @{810,270 260x32}\\nTextbox[ref=ref_6, frame=0]: 说点什么 @{760,520 320x44}"}
+                """;
+        String endPage = """
+                {"ok":true,"url":"https://www.douyin.com/jingxuan/search/yqx?modal_id=6689257066038676740","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1280,"h":575},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 1 @{760,58 140x28}\\nStaticText[ref=ref_7, frame=0]: 暂时没有更多评论 @{810,500 200x28}"}
+                """;
+        when(browser.service_observe_main("all")).thenReturn(page, page, endPage, endPage);
+        when(browser.service_douyin_comment_network_main("drain", null, null, null)).thenReturn("""
+                {"ok":true,"results":[{"payload":{"pages":[]}}]}
+                """);
+        when(browser.service_extract_region_main("douyin.comments", 160)).thenReturn("""
+                {"ok":true,"results":[{"payload":{"items":[
+                  {"itemType":"comment_count","text":"1"},
+                  {"itemType":"douyin_comment","author":"真实用户","text":"这是结构化 DOM 评论","href":"https://www.douyin.com/user/MS4w","bbox":{"x":780,"y":212,"width":260,"height":32}}
+                ]}}]}
+                """);
+        when(browser.service_hover_main(anyDouble(), anyDouble())).thenReturn("{\"ok\":true}");
+        when(browser.service_scroll_region_main(eq("douyin.comments"), eq("down"), anyDouble(), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn("{\"ok\":true,\"results\":[{\"payload\":{\"moved\":true,\"mode\":\"comment_region_wheel\",\"reason\":\"comment_window_advanced\",\"forwardProgress\":true}}]}");
+
+        var result = adapter.collectAllComments(region);
+
+        assertThat(result.comments()).hasSize(1);
+        assertThat(result.comments().getFirst().authorName()).isEqualTo("真实用户");
+        assertThat(result.comments().getFirst().text()).isEqualTo("这是结构化 DOM 评论");
+        assertThat(result.metadata()).containsEntry("extractedRegionComments", 1L);
+        assertThat(result.metadata()).containsEntry("a11yTreeComments", 0L);
+        assertThat(result.metadata()).containsEntry("primaryCollectionSource", "extract_region");
+    }
+
+    @Test
     void collectAllCommentsIgnoresNoNewWindowsUntilEndMarker() {
         ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
         ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
