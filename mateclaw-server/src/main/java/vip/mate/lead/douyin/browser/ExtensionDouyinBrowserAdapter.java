@@ -915,19 +915,25 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                 || profile.tree().contains("互相关注")
                 || profile.tree().toLowerCase(Locale.ROOT).contains("following");
 
-        if (!clickProfileAction(profile, "dm", List.of("私信", "发私信", "Message", "发消息"))) {
+        List<String> dmLabels = List.of("私信", "发私信", "Message", "发消息");
+        if (!clickProfileAction(profile, "dm", dmLabels)) {
             return new EngagementResult(comment, comment.authorName(), profile.url(), true,
                     followConfirmed, false, false, false, "failed", "DM_BUTTON_NOT_FOUND",
                     "未找到私信入口：A11y 与 DOM 均未命中");
         }
         BrowserObservation dmPage = waitForDmPage(8, 650L);
+        if (!looksLikeDouyinDmPage(dmPage)) {
+            dmPage = retryDmDomActionAfterUnconfirmedPage(comment, profile, dmPage, dmLabels);
+        }
         if (!isDouyinPage(dmPage.url())) {
             return EngagementResult.failed(comment, "DM_TAB_NOT_CONTROLLED", "私信页不是受控抖音标签页");
         }
         if (!looksLikeDouyinDmPage(dmPage)) {
+            log.warn("[douyin.lead] dm page not confirmed: url={}, title={}, signals={}, tree={}",
+                    dmPage.url(), dmPage.title(), dmPageSignals(dmPage), treeExcerpt(dmPage.tree()));
             return new EngagementResult(comment, comment.authorName(), dmPage.url(), true,
                     followConfirmed, false, false, false, "failed", "DM_PAGE_NOT_CONFIRMED",
-                    "未确认进入目标用户私信页，拒绝输入草稿");
+                    "未确认进入目标用户私信页，拒绝输入草稿。signals=" + dmPageSignals(dmPage));
         }
         JsonNode dmDraftAction = errorNode("NOT_RUN", "type_dm_draft not run");
         boolean typedByDmPrimitive = false;
@@ -971,6 +977,29 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                 true, draftTyped, sent, succeeded ? "succeeded" : "failed",
                 failureCode,
                 failureMessage);
+    }
+
+    private BrowserObservation retryDmDomActionAfterUnconfirmedPage(
+            DouyinCommentItem comment,
+            BrowserObservation profile,
+            BrowserObservation unconfirmed,
+            List<String> dmLabels) {
+        BrowserObservation active = observeActive("all");
+        BrowserObservation retryBase = looksLikeDouyinUserProfile(active, comment) ? active
+                : (looksLikeDouyinUserProfile(profile, comment) ? profile : unconfirmed);
+        if (!looksLikeDouyinUserProfile(retryBase, comment)) {
+            log.warn("[douyin.lead] skip dom dm retry because current page is not confirmed profile: url={}, title={}, signals={}",
+                    active.url(), active.title(), dmPageSignals(active));
+            return unconfirmed;
+        }
+        if (!tryOk(browser.service_click_profile_action_active(dmLabels))) {
+            log.warn("[douyin.lead] dom dm retry did not find profile action: url={}, title={}, tree={}",
+                    retryBase.url(), retryBase.title(), treeExcerpt(retryBase.tree()));
+            return unconfirmed;
+        }
+        log.info("[douyin.lead] retried profile action by dom after unconfirmed dm page: labels={}, previousUrl={}, currentUrl={}",
+                dmLabels, unconfirmed == null ? "" : unconfirmed.url(), retryBase.url());
+        return waitForDmPage(8, 650L);
     }
 
     private boolean actionPayloadBoolean(JsonNode root, String fieldName) {
@@ -1020,6 +1049,20 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                 || (tree.contains("私信") && (tree.contains("发送消息") || tree.contains("输入消息")))
                 || (tree.contains("关闭会话") && (tree.contains("回关") || tree.contains("发送一条文字消息")
                 || tree.contains("对方回复或关注你之前")));
+    }
+
+    private String dmPageSignals(BrowserObservation obs) {
+        if (obs == null) {
+            return "obs=null";
+        }
+        String url = obs.url() == null ? "" : obs.url().toLowerCase(Locale.ROOT);
+        String tree = obs.tree() == null ? "" : obs.tree();
+        return "isDouyin=" + isDouyinPage(obs.url())
+                + ", urlDm=" + (url.contains("/im") || url.contains("/message") || url.contains("/conversation"))
+                + ", hasPrivateMessage=" + tree.contains("私信")
+                + ", hasSendMessage=" + (tree.contains("发送消息") || tree.contains("输入消息"))
+                + ", hasConversationClose=" + tree.contains("关闭会话")
+                + ", hasReplyOrFollowGate=" + tree.contains("对方回复或关注你之前");
     }
 
     private BrowserObservation waitForDmPage(int attempts, long waitMs) {

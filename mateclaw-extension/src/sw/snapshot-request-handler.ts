@@ -530,9 +530,6 @@ function logA11ySnapshotForDebug(
   }
   const tree = snapshot.tree || ''
   const lines = tree ? tree.split('\n').length : 0
-  const chunkSize = 12000
-  const maxChunks = 24
-  const chunks = Math.max(1, Math.ceil(tree.length / chunkSize))
   console.info('[mateclaw][a11y.snapshot]', {
     snapshotId,
     tabId,
@@ -544,17 +541,9 @@ function logA11ySnapshotForDebug(
     viewport: snapshot.viewport,
     treeChars: tree.length,
     treeLines: lines,
-    chunks,
-    truncatedInConsole: chunks > maxChunks,
   })
   if (!tree) {
     console.info('[mateclaw][a11y.snapshot][tree-empty]', { snapshotId, tabId, url })
-    return
-  }
-  const printableChunks = Math.min(chunks, maxChunks)
-  for (let i = 0; i < printableChunks; i++) {
-    const part = tree.slice(i * chunkSize, (i + 1) * chunkSize)
-    console.info(`[mateclaw][a11y.snapshot][tree ${i + 1}/${chunks}] ${snapshotId}\n${part}`)
   }
 }
 
