@@ -1,7 +1,9 @@
 package vip.mate.workspace.core.service;
 
 import org.junit.jupiter.api.Test;
+import vip.mate.auth.service.AccountEntitlementService;
 import vip.mate.exception.MateClawException;
+import vip.mate.llm.service.ModelProviderService;
 import vip.mate.workspace.conversation.repository.ConversationMapper;
 import vip.mate.workspace.core.model.WorkspaceEntity;
 import vip.mate.workspace.core.model.WorkspaceMemberEntity;
@@ -20,8 +22,11 @@ class WorkspaceServiceRoleValidationTest {
     private final WorkspaceMemberMapper memberMapper = mock(WorkspaceMemberMapper.class);
     private final ConversationMapper conversationMapper = mock(ConversationMapper.class);
     private final WikiKnowledgeBaseService wikiKnowledgeBaseService = mock(WikiKnowledgeBaseService.class);
+    private final AccountEntitlementService entitlementService = mock(AccountEntitlementService.class);
+    private final ModelProviderService modelProviderService = mock(ModelProviderService.class);
     private final WorkspaceService service = new WorkspaceService(
-            workspaceMapper, memberMapper, conversationMapper, wikiKnowledgeBaseService, null);
+            workspaceMapper, memberMapper, conversationMapper, wikiKnowledgeBaseService, null, entitlementService,
+            modelProviderService);
 
     @Test
     void addMemberRejectsOwnerRole() {
@@ -65,6 +70,24 @@ class WorkspaceServiceRoleValidationTest {
 
         assertEquals("member", member.getRole());
         verify(memberMapper).insert(any(WorkspaceMemberEntity.class));
+    }
+
+    @Test
+    void addMemberChecksLimitBeforeInsert() {
+        WorkspaceEntity workspace = new WorkspaceEntity();
+        workspace.setId(1L);
+        when(workspaceMapper.selectById(1L)).thenReturn(workspace);
+        when(memberMapper.selectOne(any())).thenReturn(null);
+        MateClawException limitExceeded = new MateClawException(
+                "err.workspace.member_limit_exceeded", 409, "超过最大团队成员数量");
+        doThrow(limitExceeded).when(entitlementService).assertCanAddSubAccount(1L);
+
+        MateClawException ex = assertThrows(MateClawException.class,
+                () -> service.addMember(1L, 42L, "member"));
+
+        assertEquals(limitExceeded, ex);
+        verify(entitlementService).assertCanAddSubAccount(1L);
+        verify(memberMapper, never()).insert(any(WorkspaceMemberEntity.class));
     }
 
     @Test

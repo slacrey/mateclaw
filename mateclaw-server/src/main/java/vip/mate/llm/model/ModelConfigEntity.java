@@ -22,6 +22,9 @@ public class ModelConfigEntity {
 
     private String name;
 
+    @TableField("workspace_id")
+    private Long workspaceId;
+
     private String provider;
 
     private String modelName;

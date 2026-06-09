@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240" role="img" aria-label="Business contact QR placeholder">
+  <rect width="240" height="240" fill="#fff"/>
+  <rect x="12" y="12" width="216" height="216" fill="#fff" stroke="#111827" stroke-width="4"/>
+  <g fill="#111827">
+    <rect x="28" y="28" width="52" height="52"/>
+    <rect x="40" y="40" width="28" height="28" fill="#fff"/>
+    <rect x="160" y="28" width="52" height="52"/>
+    <rect x="172" y="40" width="28" height="28" fill="#fff"/>
+    <rect x="28" y="160" width="52" height="52"/>
+    <rect x="40" y="172" width="28" height="28" fill="#fff"/>
+    <rect x="96" y="28" width="16" height="16"/>
+    <rect x="128" y="28" width="16" height="16"/>
+    <rect x="96" y="60" width="16" height="16"/>
+    <rect x="112" y="76" width="32" height="16"/>
+    <rect x="92" y="96" width="20" height="20"/>
+    <rect x="128" y="96" width="16" height="48"/>
+    <rect x="160" y="96" width="20" height="20"/>
+    <rect x="196" y="96" width="16" height="16"/>
+    <rect x="96" y="132" width="16" height="16"/>
+    <rect x="112" y="148" width="32" height="16"/>
+    <rect x="160" y="132" width="16" height="32"/>
+    <rect x="192" y="132" width="20" height="20"/>
+    <rect x="96" y="180" width="20" height="20"/>
+    <rect x="128" y="176" width="16" height="36"/>
+    <rect x="160" y="176" width="52" height="16"/>
+    <rect x="176" y="196" width="16" height="16"/>
+  </g>
+  <rect x="52" y="104" width="136" height="32" rx="4" fill="#fff"/>
+  <text x="120" y="125" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="700" fill="#111827">BUSINESS QR</text>
+</svg>

@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS mate_user (
     email       VARCHAR(128),
     role        VARCHAR(32)  NOT NULL DEFAULT 'user',
     enabled     TINYINT(1)   NOT NULL DEFAULT 1,
+    expires_at  DATETIME,
     create_time DATETIME     NOT NULL,
     update_time DATETIME     NOT NULL,
     deleted     INT          NOT NULL DEFAULT 0

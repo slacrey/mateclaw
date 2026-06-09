@@ -105,6 +105,9 @@ CLAUDE.md
 # Codex CLI local artifacts
 .codex/
 
+# Local git worktrees
+.worktrees/
+
 # Sync tooling local state (generated each run; report is intentionally tracked)
 scripts/.*-sync-state.json
 

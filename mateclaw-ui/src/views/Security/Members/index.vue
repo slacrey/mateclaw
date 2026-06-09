@@ -113,6 +113,27 @@
         </div>
       </div>
     </Teleport>
+
+    <!-- Member Limit Dialog -->
+    <Teleport to="body">
+      <div v-if="showLimitDialog" class="modal-overlay">
+        <div class="modal business-modal" role="dialog" aria-modal="true">
+          <div class="modal-header">
+            <h3>{{ t('security.members.limitModal.title') }}</h3>
+            <button class="modal-close" @click="showLimitDialog = false">&times;</button>
+          </div>
+          <div class="modal-body business-modal-body">
+            <p>{{ t('security.members.limitModal.desc') }}</p>
+            <img src="/business-qr.svg" :alt="t('security.members.limitModal.desc')" class="business-qr" />
+          </div>
+          <div class="modal-footer">
+            <button class="btn-primary" @click="showLimitDialog = false">
+              {{ t('security.members.limitModal.close') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -122,6 +143,7 @@ import { useI18n } from 'vue-i18n'
 import { mcToast } from '@/composables/useMcToast'
 import { workspaceTeamApi } from '@/api/index'
 import { useWorkspaceStore } from '@/stores/useWorkspaceStore'
+import { isMemberLimitError } from './memberLimitError'
 
 const { t } = useI18n()
 
@@ -139,6 +161,7 @@ const store = useWorkspaceStore()
 const members = ref<Member[]>([])
 const loading = ref(false)
 const showAddDialog = ref(false)
+const showLimitDialog = ref(false)
 
 const defaultForm = () => ({ username: '', password: '', nickname: '', role: 'member' })
 const newMemberForm = reactive(defaultForm())
@@ -176,6 +199,10 @@ async function addMember() {
     Object.assign(newMemberForm, defaultForm())
     fetchMembers()
   } catch (e: any) {
+    if (isMemberLimitError(e)) {
+      showLimitDialog.value = true
+      return
+    }
     mcToast.error(e?.msg || e?.message || t('security.members.messages.addFailed'))
   }
 }
@@ -273,5 +300,26 @@ function formatDate(dateStr: string) {
   margin-top: 4px;
   font-size: 12px;
   color: var(--mc-text-tertiary);
+}
+
+.business-modal {
+  max-width: 360px;
+}
+
+.business-modal-body {
+  text-align: center;
+}
+
+.business-modal-body p {
+  margin: 0;
+  color: var(--mc-text-secondary);
+  line-height: 1.6;
+}
+
+.business-qr {
+  width: 180px;
+  height: 180px;
+  object-fit: contain;
+  margin-top: 12px;
 }
 </style>

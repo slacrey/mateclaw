@@ -1,6 +1,7 @@
 package vip.mate.llm.model;
 
 import com.baomidou.mybatisplus.annotation.FieldFill;
+import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -12,8 +13,14 @@ import java.time.LocalDateTime;
 @TableName("mate_model_provider")
 public class ModelProviderEntity {
 
-    @TableId
+    @TableId(type = IdType.ASSIGN_ID)
+    private Long id;
+
+    @TableField("provider_id")
     private String providerId;
+
+    @TableField("workspace_id")
+    private Long workspaceId;
 
     private String name;
 

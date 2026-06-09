@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS mate_user (
     email       VARCHAR(128),
     role        VARCHAR(32)  NOT NULL DEFAULT 'user',
     enabled     BOOLEAN      NOT NULL DEFAULT TRUE,
+    expires_at  DATETIME,
     create_time DATETIME     NOT NULL,
     update_time DATETIME     NOT NULL,
     deleted     INT          NOT NULL DEFAULT 0

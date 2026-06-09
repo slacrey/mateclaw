@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import vip.mate.auth.model.UserEntity;
+import vip.mate.auth.service.AccountEntitlementService;
 import vip.mate.auth.service.AuthService;
 import vip.mate.common.result.R;
 import vip.mate.exception.MateClawException;
@@ -32,6 +33,7 @@ public class WorkspaceController {
 
     private final WorkspaceService workspaceService;
     private final AuthService authService;
+    private final AccountEntitlementService entitlementService;
 
     // ==================== 工作区 CRUD ====================
 
@@ -118,26 +120,31 @@ public class WorkspaceController {
             String password = body.containsKey("password") && body.get("password") != null
                     ? body.get("password").toString().trim() : null;
             UserEntity target = authService.findByUsername(username);
-            if (target == null) {
-                // User does not exist — create account (password required)
-                if (password == null || password.isBlank()) {
-                    throw new MateClawException("err.workspace.user_not_found",
-                            "User not found: " + username + ". Provide a password to create the account.");
-                }
-                UserEntity newUser = new UserEntity();
-                newUser.setUsername(username);
-                newUser.setPassword(password);
-                newUser.setNickname(body.containsKey("nickname")
-                        ? body.get("nickname").toString() : username);
-                target = authService.createUser(newUser);
+            if (target != null) {
+                throw new MateClawException(
+                        "err.workspace.existing_user_not_allowed",
+                        409,
+                        "账号已存在，请使用新手机号或用户名创建子账号");
             }
-            // Existing users are added as-is. A workspace admin must NOT be able
-            // to reset another account's password (including a global admin's)
-            // through the member-add path — that would be an account-takeover
-            // vector. Password changes go through the dedicated reset flow.
+            // User does not exist — create child account (password required)
+            if (password == null || password.isBlank()) {
+                throw new MateClawException("err.workspace.user_not_found",
+                        "User not found: " + username + ". Provide a password to create the account.");
+            }
+            entitlementService.assertCanAddSubAccount(id);
+            UserEntity newUser = new UserEntity();
+            newUser.setUsername(username);
+            newUser.setPassword(password);
+            newUser.setNickname(body.containsKey("nickname")
+                    ? body.get("nickname").toString() : username);
+            newUser.setExpiresAt(entitlementService.resolveOwnerExpiry(id));
+            target = authService.createUser(newUser);
             targetUserId = target.getId();
         } else {
-            targetUserId = Long.valueOf(body.get("userId").toString());
+            throw new MateClawException(
+                    "err.workspace.existing_user_not_allowed",
+                    409,
+                    "账号已存在，请使用新手机号或用户名创建子账号");
         }
         String role = body.containsKey("role") ? body.get("role").toString() : "member";
         return R.ok(workspaceService.addMember(id, targetUserId, role));

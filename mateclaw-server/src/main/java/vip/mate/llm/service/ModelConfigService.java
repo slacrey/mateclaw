@@ -35,6 +35,7 @@ public class ModelConfigService {
 
     public List<ModelConfigEntity> listModels() {
         return modelConfigMapper.selectList(new LambdaQueryWrapper<ModelConfigEntity>()
+                .eq(ModelConfigEntity::getWorkspaceId, ModelWorkspaceResolver.currentWorkspaceId())
                 .orderByDesc(ModelConfigEntity::getIsDefault)
                 .orderByAsc(ModelConfigEntity::getProvider)
                 .orderByAsc(ModelConfigEntity::getName));
@@ -42,6 +43,7 @@ public class ModelConfigService {
 
     public List<ModelConfigEntity> listEnabledModels() {
         return modelConfigMapper.selectList(new LambdaQueryWrapper<ModelConfigEntity>()
+                .eq(ModelConfigEntity::getWorkspaceId, ModelWorkspaceResolver.currentWorkspaceId())
                 .eq(ModelConfigEntity::getEnabled, true)
                 // 仅 chat 类型（排除 embedding），NULL 兼容老数据
                 .and(w -> w.isNull(ModelConfigEntity::getModelType)
@@ -53,6 +55,7 @@ public class ModelConfigService {
 
     public List<ModelConfigEntity> listModelsByProvider(String providerId) {
         return modelConfigMapper.selectList(new LambdaQueryWrapper<ModelConfigEntity>()
+                .eq(ModelConfigEntity::getWorkspaceId, ModelWorkspaceResolver.currentWorkspaceId())
                 .eq(ModelConfigEntity::getProvider, providerId)
                 .orderByDesc(ModelConfigEntity::getBuiltin)
                 .orderByAsc(ModelConfigEntity::getName));
@@ -81,12 +84,14 @@ public class ModelConfigService {
         List<ModelConfigEntity> rows;
         if ("chat".equals(modelType)) {
             rows = modelConfigMapper.selectList(new LambdaQueryWrapper<ModelConfigEntity>()
+                    .eq(ModelConfigEntity::getWorkspaceId, ModelWorkspaceResolver.currentWorkspaceId())
                     .and(w -> w.isNull(ModelConfigEntity::getModelType)
                                .or().eq(ModelConfigEntity::getModelType, "chat"))
                     .orderByDesc(ModelConfigEntity::getIsDefault)
                     .orderByAsc(ModelConfigEntity::getName));
         } else {
             rows = modelConfigMapper.selectList(new LambdaQueryWrapper<ModelConfigEntity>()
+                    .eq(ModelConfigEntity::getWorkspaceId, ModelWorkspaceResolver.currentWorkspaceId())
                     .eq(ModelConfigEntity::getModelType, modelType)
                     .orderByDesc(ModelConfigEntity::getIsDefault)
                     .orderByAsc(ModelConfigEntity::getName));
@@ -109,6 +114,7 @@ public class ModelConfigService {
      */
     public ModelConfigEntity findFirstEnabledEmbedding() {
         return modelConfigMapper.selectOne(new LambdaQueryWrapper<ModelConfigEntity>()
+                .eq(ModelConfigEntity::getWorkspaceId, ModelWorkspaceResolver.currentWorkspaceId())
                 .eq(ModelConfigEntity::getModelType, "embedding")
                 .eq(ModelConfigEntity::getEnabled, true)
                 .orderByDesc(ModelConfigEntity::getIsDefault)
@@ -118,7 +124,7 @@ public class ModelConfigService {
 
     public ModelConfigEntity getModel(Long id) {
         ModelConfigEntity entity = modelConfigMapper.selectById(id);
-        if (entity == null) {
+        if (entity == null || !belongsToCurrentWorkspace(entity)) {
             throw new MateClawException("err.llm.model_config_not_found", "模型配置不存在: " + id);
         }
         return entity;
@@ -127,6 +133,7 @@ public class ModelConfigService {
     public ModelConfigEntity getDefaultModel() {
         // Prefer the explicitly marked default chat model when its provider is configured.
         ModelConfigEntity defaultMarked = modelConfigMapper.selectOne(new LambdaQueryWrapper<ModelConfigEntity>()
+                .eq(ModelConfigEntity::getWorkspaceId, ModelWorkspaceResolver.currentWorkspaceId())
                 .eq(ModelConfigEntity::getIsDefault, true)
                 .and(w -> w.isNull(ModelConfigEntity::getModelType)
                            .or().eq(ModelConfigEntity::getModelType, "chat"))
@@ -138,6 +145,7 @@ public class ModelConfigService {
         // Default model's provider is unavailable (or no default set) — scan all enabled
         // chat models and pick the first one whose provider is actually configured.
         List<ModelConfigEntity> candidates = modelConfigMapper.selectList(new LambdaQueryWrapper<ModelConfigEntity>()
+                .eq(ModelConfigEntity::getWorkspaceId, ModelWorkspaceResolver.currentWorkspaceId())
                 .eq(ModelConfigEntity::getEnabled, true)
                 .and(w -> w.isNull(ModelConfigEntity::getModelType)
                            .or().eq(ModelConfigEntity::getModelType, "chat"))
@@ -178,12 +186,14 @@ public class ModelConfigService {
 
     public ModelConfigEntity getDefaultModelByProvider(String providerId) {
         return modelConfigMapper.selectOne(new LambdaQueryWrapper<ModelConfigEntity>()
+                .eq(ModelConfigEntity::getWorkspaceId, ModelWorkspaceResolver.currentWorkspaceId())
                 .eq(ModelConfigEntity::getProvider, providerId)
                 .eq(ModelConfigEntity::getIsDefault, true)
                 .last("LIMIT 1"));
     }
 
     public ModelConfigEntity createModel(ModelConfigEntity entity) {
+        entity.setWorkspaceId(ModelWorkspaceResolver.currentWorkspaceId());
         validateModel(entity, null);
         if (Boolean.TRUE.equals(entity.getIsDefault())) {
             clearDefaultFlag();
@@ -205,6 +215,7 @@ public class ModelConfigService {
 
     public ModelConfigEntity updateModel(ModelConfigEntity entity) {
         ModelConfigEntity existing = getModel(entity.getId());
+        entity.setWorkspaceId(existing.getWorkspaceId());
         validateModel(entity, existing.getId());
         if (Boolean.TRUE.equals(entity.getIsDefault())) {
             clearDefaultFlag();
@@ -233,6 +244,7 @@ public class ModelConfigService {
             throw new MateClawException("err.llm.provider_model_required", "Provider 和模型标识不能为空");
         }
         ModelConfigEntity existing = modelConfigMapper.selectOne(new LambdaQueryWrapper<ModelConfigEntity>()
+                .eq(ModelConfigEntity::getWorkspaceId, ModelWorkspaceResolver.currentWorkspaceId())
                 .eq(ModelConfigEntity::getProvider, providerId)
                 .eq(ModelConfigEntity::getModelName, modelId)
                 .last("LIMIT 1"));
@@ -240,6 +252,7 @@ public class ModelConfigService {
             throw new MateClawException("err.llm.model_exists", "模型已存在: " + modelId);
         }
         ModelConfigEntity entity = new ModelConfigEntity();
+        entity.setWorkspaceId(ModelWorkspaceResolver.currentWorkspaceId());
         entity.setName(StringUtils.hasText(displayName) ? displayName : modelId);
         entity.setProvider(providerId);
         entity.setModelName(modelId);
@@ -258,6 +271,7 @@ public class ModelConfigService {
 
     public void removeModelFromProvider(String providerId, String modelId) {
         ModelConfigEntity entity = modelConfigMapper.selectOne(new LambdaQueryWrapper<ModelConfigEntity>()
+                .eq(ModelConfigEntity::getWorkspaceId, ModelWorkspaceResolver.currentWorkspaceId())
                 .eq(ModelConfigEntity::getProvider, providerId)
                 .eq(ModelConfigEntity::getModelName, modelId)
                 .last("LIMIT 1"));
@@ -279,6 +293,26 @@ public class ModelConfigService {
         publishConfigChanged("provider-models-deleted");
     }
 
+    public void copyModelsToWorkspace(Long sourceWorkspaceId, Long targetWorkspaceId) {
+        if (sourceWorkspaceId == null || targetWorkspaceId == null || sourceWorkspaceId.equals(targetWorkspaceId)) {
+            return;
+        }
+        List<ModelConfigEntity> existing = modelConfigMapper.selectList(new LambdaQueryWrapper<ModelConfigEntity>()
+                .eq(ModelConfigEntity::getWorkspaceId, targetWorkspaceId)
+                .last("LIMIT 1"));
+        if (!existing.isEmpty()) {
+            return;
+        }
+        List<ModelConfigEntity> templates = modelConfigMapper.selectList(new LambdaQueryWrapper<ModelConfigEntity>()
+                .eq(ModelConfigEntity::getWorkspaceId, sourceWorkspaceId)
+                .orderByDesc(ModelConfigEntity::getIsDefault)
+                .orderByAsc(ModelConfigEntity::getProvider)
+                .orderByAsc(ModelConfigEntity::getName));
+        for (ModelConfigEntity template : templates) {
+            modelConfigMapper.insert(copyModelForWorkspace(template, targetWorkspaceId));
+        }
+    }
+
     public ModelConfigEntity setDefaultModel(Long id) {
         ModelConfigEntity entity = getModel(id);
         if (!Boolean.TRUE.equals(entity.getEnabled())) {
@@ -293,6 +327,7 @@ public class ModelConfigService {
 
     public ModelConfigEntity setDefaultModel(String providerId, String modelName) {
         ModelConfigEntity entity = modelConfigMapper.selectOne(new LambdaQueryWrapper<ModelConfigEntity>()
+                .eq(ModelConfigEntity::getWorkspaceId, ModelWorkspaceResolver.currentWorkspaceId())
                 .eq(ModelConfigEntity::getProvider, providerId)
                 .eq(ModelConfigEntity::getModelName, modelName)
                 .last("LIMIT 1"));
@@ -313,6 +348,7 @@ public class ModelConfigService {
     public ModelConfigEntity resolveModel(String agentModelName) {
         if (StringUtils.hasText(agentModelName)) {
             ModelConfigEntity entity = modelConfigMapper.selectOne(new LambdaQueryWrapper<ModelConfigEntity>()
+                    .eq(ModelConfigEntity::getWorkspaceId, ModelWorkspaceResolver.currentWorkspaceId())
                     .eq(ModelConfigEntity::getModelName, agentModelName)
                     .eq(ModelConfigEntity::getEnabled, true)
                     .last("LIMIT 1"));
@@ -335,6 +371,7 @@ public class ModelConfigService {
             return null;
         }
         return modelConfigMapper.selectOne(new LambdaQueryWrapper<ModelConfigEntity>()
+                .eq(ModelConfigEntity::getWorkspaceId, ModelWorkspaceResolver.currentWorkspaceId())
                 .eq(ModelConfigEntity::getProvider, provider)
                 .eq(ModelConfigEntity::getModelName, modelName)
                 .eq(ModelConfigEntity::getEnabled, true)
@@ -352,6 +389,7 @@ public class ModelConfigService {
             throw new MateClawException("err.llm.id_required", "模型标识不能为空");
         }
         ModelConfigEntity duplicate = modelConfigMapper.selectOne(new LambdaQueryWrapper<ModelConfigEntity>()
+                .eq(ModelConfigEntity::getWorkspaceId, ModelWorkspaceResolver.currentWorkspaceId())
                 .eq(ModelConfigEntity::getProvider, entity.getProvider())
                 .eq(ModelConfigEntity::getModelName, entity.getModelName())
                 .eq(ModelConfigEntity::getDeleted, 0)
@@ -364,6 +402,7 @@ public class ModelConfigService {
 
     private void clearDefaultFlag() {
         List<ModelConfigEntity> defaults = modelConfigMapper.selectList(new LambdaQueryWrapper<ModelConfigEntity>()
+                .eq(ModelConfigEntity::getWorkspaceId, ModelWorkspaceResolver.currentWorkspaceId())
                 .eq(ModelConfigEntity::getIsDefault, true));
         for (ModelConfigEntity item : defaults) {
             item.setIsDefault(false);
@@ -373,12 +412,14 @@ public class ModelConfigService {
 
     private void ensureDefaultExists() {
         long defaultCount = modelConfigMapper.selectCount(new LambdaQueryWrapper<ModelConfigEntity>()
+                .eq(ModelConfigEntity::getWorkspaceId, ModelWorkspaceResolver.currentWorkspaceId())
                 .eq(ModelConfigEntity::getIsDefault, true)
                 .eq(ModelConfigEntity::getEnabled, true));
         if (defaultCount > 0) {
             return;
         }
         ModelConfigEntity firstEnabled = modelConfigMapper.selectOne(new LambdaQueryWrapper<ModelConfigEntity>()
+                .eq(ModelConfigEntity::getWorkspaceId, ModelWorkspaceResolver.currentWorkspaceId())
                 .eq(ModelConfigEntity::getEnabled, true)
                 .orderByAsc(ModelConfigEntity::getName)
                 .last("LIMIT 1"));
@@ -390,5 +431,33 @@ public class ModelConfigService {
 
     private void publishConfigChanged(String reason) {
         eventPublisher.publishEvent(new ModelConfigChangedEvent(reason));
+    }
+
+    private boolean belongsToCurrentWorkspace(ModelConfigEntity entity) {
+        Long workspaceId = entity.getWorkspaceId();
+        return workspaceId == null || workspaceId == ModelWorkspaceResolver.currentWorkspaceId();
+    }
+
+    private ModelConfigEntity copyModelForWorkspace(ModelConfigEntity template, Long workspaceId) {
+        ModelConfigEntity copy = new ModelConfigEntity();
+        copy.setWorkspaceId(workspaceId);
+        copy.setName(template.getName());
+        copy.setProvider(template.getProvider());
+        copy.setModelName(template.getModelName());
+        copy.setDescription(template.getDescription());
+        copy.setTemperature(template.getTemperature());
+        copy.setMaxTokens(template.getMaxTokens());
+        copy.setMaxInputTokens(template.getMaxInputTokens());
+        copy.setRequestTimeoutSeconds(template.getRequestTimeoutSeconds());
+        copy.setTopP(template.getTopP());
+        copy.setEnableSearch(template.getEnableSearch());
+        copy.setSearchStrategy(template.getSearchStrategy());
+        copy.setBuiltin(template.getBuiltin());
+        copy.setEnabled(template.getEnabled());
+        copy.setIsDefault(template.getIsDefault());
+        copy.setModelType(template.getModelType());
+        copy.setModalities(template.getModalities());
+        copy.setDeleted(template.getDeleted());
+        return copy;
     }
 }

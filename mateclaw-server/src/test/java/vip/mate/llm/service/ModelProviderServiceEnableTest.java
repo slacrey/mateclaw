@@ -82,7 +82,7 @@ class ModelProviderServiceEnableTest {
     @DisplayName("setEnabled(true) on disabled row: flips flag, persists, publishes 'provider-enabled' event")
     void enableFlipsFlag() {
         ModelProviderEntity openai = providerEntity("openai", false /* disabled */);
-        when(providerMapper.selectById("openai")).thenReturn(openai);
+        when(providerMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(openai);
 
         EnableResult result = service.setEnabled("openai", true);
 
@@ -98,7 +98,7 @@ class ModelProviderServiceEnableTest {
     @DisplayName("setEnabled(true) on already-enabled row: no DB write, no event")
     void enableNoOpOnAlreadyEnabled() {
         ModelProviderEntity openai = providerEntity("openai", true /* already enabled */);
-        when(providerMapper.selectById("openai")).thenReturn(openai);
+        when(providerMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(openai);
 
         EnableResult result = service.setEnabled("openai", true);
 
@@ -112,7 +112,7 @@ class ModelProviderServiceEnableTest {
     void disableSwitchesDefault() {
         ModelProviderEntity disabled = providerEntity("openai", true);
         ModelProviderEntity replacement = providerEntity("dashscope", true);
-        when(providerMapper.selectById("openai")).thenReturn(disabled);
+        when(providerMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(disabled);
 
         // Current default belongs to openai
         ModelConfigEntity currentDefault = new ModelConfigEntity();
@@ -141,7 +141,7 @@ class ModelProviderServiceEnableTest {
     @DisplayName("setEnabled(false) when current default belongs to another provider: no switch")
     void disableLeavesDefaultAlone() {
         ModelProviderEntity disabled = providerEntity("openai", true);
-        when(providerMapper.selectById("openai")).thenReturn(disabled);
+        when(providerMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(disabled);
 
         // Current default belongs to a different provider — no switch needed
         ModelConfigEntity currentDefault = new ModelConfigEntity();
@@ -159,7 +159,7 @@ class ModelProviderServiceEnableTest {
     @DisplayName("setEnabled(false) with no replacement candidate: returns unchanged, leaves broken default for UI")
     void disableNoReplacement() {
         ModelProviderEntity disabled = providerEntity("openai", true);
-        when(providerMapper.selectById("openai")).thenReturn(disabled);
+        when(providerMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(disabled);
         ModelConfigEntity currentDefault = new ModelConfigEntity();
         currentDefault.setProvider("openai");
         currentDefault.setModelName("gpt-4");
@@ -179,7 +179,7 @@ class ModelProviderServiceEnableTest {
     @DisplayName("setEnabled(false) when getDefaultModel throws (no default at all): returns unchanged")
     void disableWhenNoDefaultExists() {
         ModelProviderEntity disabled = providerEntity("openai", true);
-        when(providerMapper.selectById("openai")).thenReturn(disabled);
+        when(providerMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(disabled);
         when(modelConfigService.getDefaultModel())
                 .thenThrow(new MateClawException("err.test.no_default", "no default"));
 
@@ -195,7 +195,7 @@ class ModelProviderServiceEnableTest {
         ModelProviderEntity disabled = providerEntity("openai", true);
         ModelProviderEntity emptyCandidate = providerEntity("anthropic", true);
         ModelProviderEntity goodCandidate = providerEntity("dashscope", true);
-        when(providerMapper.selectById("openai")).thenReturn(disabled);
+        when(providerMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(disabled);
 
         ModelConfigEntity currentDefault = new ModelConfigEntity();
         currentDefault.setProvider("openai");

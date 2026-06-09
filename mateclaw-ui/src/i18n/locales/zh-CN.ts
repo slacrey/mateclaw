@@ -83,6 +83,20 @@ export default {
     passwordChanged: '密码修改成功',
     passwordChangeFailed: '密码修改失败',
   },
+  account: {
+    permanent: '永久有效',
+    validUntil: '有效期至 {time}',
+    expired: '已过期',
+    expiredTitle: '账号已过期',
+    expiredDesc: '请扫码联系商务续费',
+  },
+  contactSupport: {
+    title: '扫码联系客服',
+    desc: '请使用微信扫码联系商务客服，我们会协助处理续费、扩容或服务咨询。',
+    hint: '工作日通常会尽快响应。',
+    qrAlt: '联系客服商务二维码',
+    close: '关闭联系客服弹窗',
+  },
   chat: {
     status: {
       idle: '就绪',
@@ -388,6 +402,7 @@ export default {
     timeHoursAgo: '{n} 小时前',
   },
   nav: {
+    home: '首页',
     dashboard: '仪表盘',
     chat: '对话',
     control: '控制台',
@@ -404,6 +419,7 @@ export default {
     enterprise: '企业场景',
     tools: '工具',
     plugins: '插件',
+    contactSupport: '联系客服',
     datasources: '数据源',
     mcpServers: 'MCP 连接',
     mcpConnections: 'MCP 连接',
@@ -1269,6 +1285,11 @@ export default {
         removeConfirm: '确定要移除该成员吗？',
         removeSuccess: '成员已移除',
         removeFailed: '移除成员失败',
+      },
+      limitModal: {
+        title: '超过最大团队成员数量',
+        desc: '请扫码联系商务开通更多成员',
+        close: '我知道了',
       },
     },
     workspaces: {
@@ -2726,14 +2747,23 @@ export default {
     fields: {
       username: '用户名',
       password: '密码',
+      phone: '手机号',
+      code: '验证码',
+      nickname: '昵称',
     },
     placeholders: {
       username: '请输入用户名',
       password: '请输入密码',
+      phone: '请输入手机号',
+      code: '请输入验证码',
+      nickname: '昵称（可选）',
     },
+    modeLabel: '认证方式',
     signIn: '登录',
+    register: '注册',
     hint: '默认账号: <code>admin</code> / <code>admin123</code>',
     failed: '登录失败，请检查账号密码',
+    registerFailed: '注册失败，请检查手机号和验证码',
   },
   enterprise: {
     eyebrow: '企业场景',
@@ -3605,6 +3635,44 @@ export default {
       click: '点击',
       type: '输入',
       screenshot: '截图',
+    },
+  },
+  home: {
+    banner: {
+      eyebrow: '首页',
+      title: '让数字员工开始工作',
+      subtitle: '选择合适的员工进入对话，或查看最近的自动任务执行。',
+      watchDemo: '查看演示效果',
+      openFeature: '查看功能提示',
+    },
+    market: {
+      title: '数字员工市场',
+      subtitle: '推荐可直接开始协作的数字员工。',
+      defaultRole: '数字员工',
+      defaultGoal: '协助完成任务',
+      defaultDesc: '选择后即可进入对话并开始协作。',
+      startChat: '开始对话',
+      empty: '暂无可用数字员工',
+    },
+    runs: {
+      title: '最近定时任务执行',
+      subtitle: '查看自动任务最近的执行状态。',
+      empty: '暂无执行记录',
+      columns: {
+        time: '时间',
+        job: '任务',
+        status: '状态',
+        trigger: '触发方式',
+        duration: '耗时',
+      },
+    },
+    prompt: {
+      webTitle: '需要下载客户端',
+      webDesc: '此功能需下载客户端才可使用。',
+      clientTitle: '检查浏览器插件',
+      clientDesc: '请确保已安装浏览器插件。',
+      downloadClient: '下载客户端',
+      downloadPlugin: '下载浏览器插件',
     },
   },
   dashboard: {

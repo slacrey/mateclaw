@@ -83,6 +83,20 @@ export default {
     passwordChanged: 'Password changed successfully',
     passwordChangeFailed: 'Failed to change password',
   },
+  account: {
+    permanent: 'Permanent',
+    validUntil: 'Valid until {time}',
+    expired: 'Expired',
+    expiredTitle: 'Account expired',
+    expiredDesc: 'Scan the QR code to contact sales for renewal.',
+  },
+  contactSupport: {
+    title: 'Scan the QR code',
+    desc: 'Scan the QR code to contact business support. We can help with renewal, expansion, or service questions.',
+    hint: 'We usually respond as soon as possible on business days.',
+    qrAlt: 'Business support QR code',
+    close: 'Close contact support dialog',
+  },
   chat: {
     status: {
       idle: 'Ready',
@@ -388,6 +402,7 @@ export default {
     timeHoursAgo: '{n}h ago',
   },
   nav: {
+    home: 'Home',
     dashboard: 'Dashboard',
     chat: 'Chat',
     control: 'Control',
@@ -401,6 +416,7 @@ export default {
     enterprise: 'Enterprise',
     tools: 'Tools',
     plugins: 'Plugins',
+    contactSupport: 'Contact Support',
     core: 'Core',
     connect: 'Connect',
     system: 'System',
@@ -1377,6 +1393,11 @@ export default {
         removeConfirm: 'Are you sure you want to remove this member?',
         removeSuccess: 'Member removed',
         removeFailed: 'Failed to remove member',
+      },
+      limitModal: {
+        title: 'Maximum team member count exceeded',
+        desc: 'Scan the QR code to contact sales for more seats.',
+        close: 'Got it',
       },
     },
     workspaces: {
@@ -2714,14 +2735,23 @@ export default {
     fields: {
       username: 'Username',
       password: 'Password',
+      phone: 'Phone',
+      code: 'Verification code',
+      nickname: 'Nickname',
     },
     placeholders: {
       username: 'Enter username',
       password: 'Enter password',
+      phone: 'Enter phone number',
+      code: 'Verification code',
+      nickname: 'Nickname (optional)',
     },
+    modeLabel: 'Authentication mode',
     signIn: 'Sign In',
+    register: 'Register',
     hint: 'Default: <code>admin</code> / <code>admin123</code>',
     failed: 'Login failed. Please check your credentials.',
+    registerFailed: 'Registration failed. Please check your phone and code.',
   },
   enterprise: {
     eyebrow: 'Enterprise',
@@ -3513,6 +3543,44 @@ export default {
       click: 'click',
       type: 'type',
       screenshot: 'screenshot',
+    },
+  },
+  home: {
+    banner: {
+      eyebrow: 'Home',
+      title: 'Put digital employees to work',
+      subtitle: 'Pick an employee to start a chat, or review recent automated task runs.',
+      watchDemo: 'Watch demo',
+      openFeature: 'View feature prompt',
+    },
+    market: {
+      title: 'Digital Employee Market',
+      subtitle: 'Recommended employees ready to collaborate.',
+      defaultRole: 'Employee',
+      defaultGoal: 'Help with tasks',
+      defaultDesc: 'Select one to start a new conversation.',
+      startChat: 'Start chat',
+      empty: 'No available digital employees',
+    },
+    runs: {
+      title: 'Recent Scheduled Runs',
+      subtitle: 'Review the latest automated task execution status.',
+      empty: 'No run records yet',
+      columns: {
+        time: 'Time',
+        job: 'Job',
+        status: 'Status',
+        trigger: 'Trigger',
+        duration: 'Duration',
+      },
+    },
+    prompt: {
+      webTitle: 'Client required',
+      webDesc: 'This feature requires the desktop client.',
+      clientTitle: 'Check browser plugin',
+      clientDesc: 'Please make sure the browser plugin is installed.',
+      downloadClient: 'Download client',
+      downloadPlugin: 'Download browser plugin',
     },
   },
   dashboard: {

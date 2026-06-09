@@ -1,5 +1,6 @@
 <template>
   <div class="app-layout">
+    <div class="app-shell" :aria-hidden="accountStore.expired ? 'true' : undefined">
     <!-- 移动端背景遮罩 -->
     <Transition name="fade">
       <div v-if="isMobile && mobileMenuOpen" class="sidebar-backdrop" @click="mobileMenuOpen = false"></div>
@@ -43,12 +44,13 @@
             <div v-if="!effectiveCollapsed" class="nav-group-title">{{ group.label }}</div>
             <McTooltip
               v-for="item in group.items"
-              :key="item.path"
+              :key="item.path || item.action"
               :content="item.tooltip || item.label"
               placement="right"
               :disabled="!effectiveCollapsed"
             >
               <router-link
+                v-if="item.path"
                 :to="item.path"
                 class="nav-item"
                 :class="{ active: isNavItemActive(item) }"
@@ -72,6 +74,16 @@
                   :title="t('notifications.pendingApprovals', { n: pendingApprovals })"
                 />
               </router-link>
+              <button
+                v-else
+                type="button"
+                class="nav-item nav-item--button"
+                :title="effectiveCollapsed ? '' : (item.tooltip || '')"
+                @click="onNavAction(item)"
+              >
+                <span class="nav-icon" v-html="item.icon"></span>
+                <span v-if="!effectiveCollapsed" class="nav-label">{{ item.label }}</span>
+              </button>
             </McTooltip>
           </div>
         </template>
@@ -146,7 +158,16 @@
             <div class="user-avatar">{{ userInitial }}</div>
             <div class="user-detail">
               <div class="user-name">{{ username }}</div>
-              <div class="user-role">{{ roleLabel }}</div>
+              <div class="user-meta">
+                <span class="user-role">{{ roleLabel }}</span>
+                <span
+                  class="account-expiry-badge"
+                  :class="{ 'is-expired': accountStore.expired }"
+                  :title="accountExpiryText"
+                >
+                  {{ accountExpiryText }}
+                </span>
+              </div>
             </div>
             <button class="change-password-btn" @click="showChangePassword = true" :title="t('auth.changePassword')">
               <el-icon :size="16"><Lock /></el-icon>
@@ -180,6 +201,15 @@
 
     <!-- 主内容区 -->
     <main class="main-content">
+      <div class="account-status-bar">
+        <span
+          class="account-expiry-badge account-expiry-badge--top"
+          :class="{ 'is-expired': accountStore.expired }"
+          :title="accountExpiryText"
+        >
+          {{ accountExpiryText }}
+        </span>
+      </div>
       <!-- 移动端顶部栏 -->
       <div v-if="isMobile" class="mobile-topbar">
         <button class="mobile-menu-btn" @click="mobileMenuOpen = true" :title="t('common.expandSidebar')">
@@ -209,11 +239,72 @@
     <DoctorDrawer :visible="showDoctor" @close="showDoctor = false" @status="onHealthStatus" />
 
     <ChangePasswordDialog v-model:visible="showChangePassword" />
+    </div>
+
+    <Transition name="fade">
+      <div v-if="accountStore.expired" class="expired-overlay">
+        <section
+          ref="expiredModalRef"
+          class="expired-modal"
+          role="alertdialog"
+          aria-modal="true"
+          tabindex="-1"
+          :aria-labelledby="expiredDialogTitleId"
+          :aria-describedby="expiredDialogDescId"
+          @keydown="onExpiredModalKeydown"
+        >
+          <div class="expired-modal__copy">
+            <p class="expired-modal__eyebrow">{{ t('account.expired') }}</p>
+            <h2 :id="expiredDialogTitleId">{{ t('account.expiredTitle') }}</h2>
+            <p :id="expiredDialogDescId">{{ t('account.expiredDesc') }}</p>
+            <p v-if="accountStore.expiresAt" class="expired-modal__time">{{ expiredAtText }}</p>
+          </div>
+          <div class="expired-modal__qr">
+            <img src="/business-qr.svg" :alt="t('account.expiredDesc')" />
+          </div>
+        </section>
+      </div>
+    </Transition>
+
+    <Transition name="fade">
+      <div v-if="showContactSupport" class="contact-support-overlay" @click.self="closeContactSupport">
+        <section
+          ref="contactSupportModalRef"
+          class="contact-support-modal"
+          role="dialog"
+          aria-modal="true"
+          :aria-labelledby="contactSupportTitleId"
+          @keydown.esc="closeContactSupport"
+          tabindex="-1"
+        >
+          <button
+            type="button"
+            class="contact-support-modal__close"
+            :aria-label="t('contactSupport.close')"
+            @click="closeContactSupport"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+          <div class="contact-support-modal__copy">
+            <p class="contact-support-modal__eyebrow">{{ t('nav.contactSupport') }}</p>
+            <h2 :id="contactSupportTitleId">{{ t('contactSupport.title') }}</h2>
+            <p>{{ t('contactSupport.desc') }}</p>
+            <p class="contact-support-modal__hint">{{ t('contactSupport.hint') }}</p>
+          </div>
+          <div class="contact-support-modal__qr">
+            <img src="/business-qr.svg" :alt="t('contactSupport.qrAlt')" />
+          </div>
+        </section>
+      </div>
+    </Transition>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useIsMobile, useMediaQuery } from '@/composables/useBreakpoint'
 import { useI18n } from 'vue-i18n'
@@ -222,6 +313,7 @@ import { version as appVersion } from '../../../package.json'
 import type { ThemeMode } from '@/stores/useThemeStore'
 import { http, settingsApi, setupApi, approvalApi } from '@/api/index'
 import type { ActiveGrantsSummary } from '@/types'
+import { useAccountStore } from '@/stores/useAccountStore'
 import OnboardingWizard from '@/views/Onboarding/OnboardingWizard.vue'
 import DoctorDrawer from '@/views/Doctor/DoctorDrawer.vue'
 import WorkspaceSwitcher from '@/components/workspace/WorkspaceSwitcher.vue'
@@ -238,8 +330,12 @@ const route = useRoute()
 const { t } = useI18n()
 const themeStore = useThemeStore()
 const workspaceStore = useWorkspaceStore()
+const accountStore = useAccountStore()
 const sidebarCollapsed = ref(localStorage.getItem('mc-sidebar-collapsed') === 'true')
 const footerPanelOpen = ref(false)
+const expiredModalRef = ref<HTMLElement | null>(null)
+const contactSupportModalRef = ref<HTMLElement | null>(null)
+const showContactSupport = ref(false)
 
 // Workspace 切换时通过 key 变化让 router-view 重新挂载，避免 hard reload 破坏运行状态
 const workspaceRouteKey = computed(() => `ws-${workspaceStore.currentWorkspaceId ?? 'none'}`)
@@ -330,6 +426,15 @@ function isEditableTarget(el: EventTarget | null): boolean {
 }
 
 function onGlobalKeydown(e: KeyboardEvent) {
+  if (showContactSupport.value && e.key === 'Escape') {
+    closeContactSupport()
+    return
+  }
+  if (accountStore.expired) {
+    e.preventDefault()
+    expiredModalRef.value?.focus()
+    return
+  }
   const mod = e.metaKey || e.ctrlKey
   if (!mod || e.altKey) return
   const key = e.key.toLowerCase()
@@ -346,8 +451,27 @@ function onGlobalKeydown(e: KeyboardEvent) {
   }
 }
 
+function onExpiredModalKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Tab') return
+  e.preventDefault()
+  expiredModalRef.value?.focus()
+}
+
+function openContactSupport() {
+  showContactSupport.value = true
+  if (isMobile.value) mobileMenuOpen.value = false
+}
+
+function closeContactSupport() {
+  showContactSupport.value = false
+}
+
 onMounted(async () => {
   window.addEventListener('keydown', onGlobalKeydown)
+
+  if (localStorage.getItem('token')) {
+    accountStore.fetchAccount().catch(() => {})
+  }
 
   // Check onboarding status
   if (!localStorage.getItem('mc-onboarding-done')) {
@@ -375,6 +499,18 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onGlobalKeydown)
 })
 
+watch(() => accountStore.expired, async (expired) => {
+  if (!expired) return
+  await nextTick()
+  expiredModalRef.value?.focus()
+})
+
+watch(showContactSupport, async (visible) => {
+  if (!visible) return
+  await nextTick()
+  contactSupportModalRef.value?.focus()
+})
+
 function onNavClick() {
   if (isMobile.value) mobileMenuOpen.value = false
 }
@@ -383,6 +519,30 @@ const username = computed(() => localStorage.getItem('username') || 'User')
 const role = computed(() => localStorage.getItem('role') || 'user')
 const userInitial = computed(() => username.value.charAt(0).toUpperCase())
 const roleLabel = computed(() => role.value === 'admin' ? t('nav.roleAdmin') : t('nav.roleUser'))
+const expiredDialogTitleId = 'account-expired-title'
+const expiredDialogDescId = 'account-expired-desc'
+const contactSupportTitleId = 'contact-support-title'
+function formatAccountDateTime(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+
+  return new Intl.DateTimeFormat(currentLocale.value, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(date)
+}
+const accountExpiryText = computed(() => {
+  if (accountStore.expired && !accountStore.expiresAt) return t('account.expired')
+  if (!accountStore.expiresAt) return t('account.permanent')
+  return t('account.validUntil', { time: formatAccountDateTime(accountStore.expiresAt) })
+})
+const expiredAtText = computed(() => accountStore.expiresAt
+  ? t('account.validUntil', { time: formatAccountDateTime(accountStore.expiresAt) })
+  : t('account.expired'))
 const effectiveCollapsed = computed(() => sidebarCollapsed.value && !isMobile.value)
 const sidebarToggleLabel = computed(() => sidebarCollapsed.value ? t('common.expandSidebar') : t('common.collapseSidebar'))
 const currentLocaleValue = computed(() => currentLocale.value)
@@ -414,7 +574,8 @@ const localeOptions = computed<{ value: AppLocale; label: string; short: string 
 // useWorkspaceStore.can() decides visibility from the backend access set so
 // the sidebar can't drift from the route guard or controller annotations.
 type NavItem = {
-  path: string
+  path?: string
+  action?: 'contactSupport'
   label: string
   icon: string
   tooltip?: string
@@ -431,6 +592,12 @@ type NavItem = {
     | 'manage:security'
     | 'manage:settings'
   globalAdmin?: boolean
+}
+
+function onNavAction(item: NavItem) {
+  if (item.action === 'contactSupport') {
+    openContactSupport()
+  }
 }
 
 function filterNav(items: NavItem[]): NavItem[] {
@@ -450,10 +617,10 @@ const navGroups = computed(() => [
     label: t('nav.core'),
     items: filterNav([
       {
-        path: '/dashboard',
-        label: t('nav.dashboard', 'Dashboard'),
-        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`,
-        requiredCapability: 'view:dashboard',
+        path: '/home',
+        label: t('nav.home', 'Home'),
+        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10.5V20h14v-9.5"/><path d="M9 20v-6h6v6"/></svg>`,
+        requiredCapability: 'chat',
       },
       {
         path: '/chat',
@@ -491,6 +658,11 @@ const navGroups = computed(() => [
     key: 'connect',
     label: t('nav.connect'),
     items: filterNav([
+      {
+        action: 'contactSupport',
+        label: t('nav.contactSupport'),
+        icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/><path d="M9 10h6"/><path d="M9 14h4"/></svg>`,
+      },
       {
         path: '/channels',
         label: t('nav.channels'),
@@ -547,7 +719,8 @@ function toggleSidebar() {
   }
 }
 
-function isNavItemActive(item: { path: string; label: string }) {
+function isNavItemActive(item: NavItem) {
+  if (!item.path) return false
   if (item.path.startsWith('/settings')) {
     return route.path.startsWith('/settings')
   }
@@ -592,11 +765,17 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
 
 <style scoped>
 .app-layout {
-  display: flex;
   height: 100vh;
   background: var(--mc-bg);
   overflow: hidden;
   position: relative;
+}
+
+.app-shell {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
 }
 
 .app-layout::before {
@@ -781,6 +960,14 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
   white-space: nowrap;
   overflow: hidden;
   position: relative;
+}
+
+.nav-item--button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
 }
 
 .nav-item:hover {
@@ -1134,7 +1321,53 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
   text-overflow: ellipsis;
 }
 
-.user-role { font-size: 10px; color: var(--mc-text-tertiary); }
+.user-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  margin-top: 2px;
+}
+
+.user-role {
+  font-size: 10px;
+  color: var(--mc-text-tertiary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.account-expiry-badge {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--mc-border-light);
+  background: var(--mc-bg-elevated);
+  color: var(--mc-text-secondary);
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.account-expiry-badge.is-expired {
+  border-color: var(--mc-danger-border, rgba(192, 57, 43, 0.32));
+  background: var(--mc-danger-bg, rgba(192, 57, 43, 0.10));
+  color: var(--mc-danger, #C0392B);
+}
+
+.account-expiry-badge--top {
+  max-width: min(360px, calc(100vw - 340px));
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: var(--mc-surface-overlay);
+  box-shadow: var(--mc-shadow-soft);
+  font-size: 11px;
+}
 
 .change-password-btn,
 .logout-btn {
@@ -1293,6 +1526,20 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
   padding: 14px 14px 14px 18px;
 }
 
+.account-status-bar {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 5;
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+
+.account-status-bar .account-expiry-badge {
+  pointer-events: auto;
+}
+
 /* ===== 移动端元素（桌面端隐藏） ===== */
 .sidebar-backdrop {
   display: none;
@@ -1300,6 +1547,170 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
 
 .mobile-topbar {
   display: none;
+}
+
+.expired-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(10px);
+}
+
+.expired-modal {
+  width: min(520px, 100%);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  gap: 22px;
+  align-items: center;
+  padding: 24px;
+  border-radius: 16px;
+  border: 1px solid var(--mc-border);
+  background: var(--mc-bg-elevated);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.24);
+}
+
+.expired-modal__copy {
+  min-width: 0;
+}
+
+.expired-modal__eyebrow {
+  margin: 0 0 8px;
+  color: var(--mc-danger, #C0392B);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.expired-modal h2 {
+  margin: 0;
+  color: var(--mc-text-primary);
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.expired-modal p {
+  margin: 10px 0 0;
+  color: var(--mc-text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.expired-modal__time {
+  color: var(--mc-text-tertiary) !important;
+  font-size: 12px !important;
+}
+
+.expired-modal__qr {
+  width: 150px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--mc-border-light);
+  background: #fff;
+}
+
+.expired-modal__qr img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+}
+
+.contact-support-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(10, 15, 20, 0.42);
+  backdrop-filter: blur(12px);
+}
+
+.contact-support-modal {
+  position: relative;
+  width: min(430px, 100%);
+  padding: 28px;
+  border-radius: 24px;
+  border: 1px solid var(--mc-border);
+  background:
+    radial-gradient(circle at top left, rgba(217, 109, 70, 0.12), transparent 34%),
+    var(--mc-bg-elevated);
+  box-shadow: var(--mc-shadow-large);
+  text-align: center;
+}
+
+.contact-support-modal__close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--mc-border-light);
+  border-radius: 12px;
+  background: var(--mc-bg-muted);
+  color: var(--mc-text-tertiary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.contact-support-modal__close:hover {
+  background: var(--mc-bg-sunken);
+  color: var(--mc-text-primary);
+}
+
+.contact-support-modal__eyebrow {
+  margin: 0 0 8px;
+  color: var(--mc-primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.contact-support-modal h2 {
+  margin: 0;
+  color: var(--mc-text-primary);
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.contact-support-modal p {
+  margin: 10px 0 0;
+  color: var(--mc-text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.contact-support-modal__hint {
+  color: var(--mc-text-tertiary) !important;
+  font-size: 12px !important;
+}
+
+.contact-support-modal__qr {
+  width: 176px;
+  margin: 20px auto 0;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid var(--mc-border-light);
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+}
+
+.contact-support-modal__qr img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
 }
 
 /* 动画 */
@@ -1359,6 +1770,16 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
     flex-shrink: 0;
   }
 
+  .account-status-bar {
+    top: 12px;
+    right: 14px;
+    max-width: calc(100% - 78px);
+  }
+
+  .account-expiry-badge--top {
+    max-width: 100%;
+  }
+
   .mobile-topbar-title {
     font-size: 16px;
     font-weight: 700;
@@ -1412,6 +1833,25 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
     background: transparent;
     backdrop-filter: none;
   }
+
+  .expired-modal {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+    padding: 22px;
+  }
+
+  .expired-modal__qr {
+    width: 144px;
+  }
+
+  .contact-support-modal {
+    padding: 24px 20px;
+  }
+
+  .contact-support-modal__qr {
+    width: 160px;
+  }
 }
 
 @media (max-width: 480px) {
@@ -1431,8 +1871,27 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
     height: 32px;
   }
 
+  .account-status-bar {
+    top: 8px;
+    right: 8px;
+    max-width: calc(100% - 58px);
+  }
+
+  .account-expiry-badge--top {
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+
   .main-content {
     padding: 8px;
+  }
+
+  .expired-overlay {
+    padding: 16px;
+  }
+
+  .expired-modal h2 {
+    font-size: 20px;
   }
 }
 </style>

@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS mate_agent (
 CREATE TABLE IF NOT EXISTS mate_model_config (
     id           BIGINT       NOT NULL PRIMARY KEY,
     name         VARCHAR(128) NOT NULL,
+    workspace_id BIGINT       NOT NULL DEFAULT 1,
     provider     VARCHAR(64)  NOT NULL DEFAULT 'dashscope',
     model_name   VARCHAR(128) NOT NULL,
     description  TEXT,
@@ -52,11 +53,14 @@ CREATE TABLE IF NOT EXISTS mate_model_config (
     create_time  DATETIME     NOT NULL,
     update_time  DATETIME     NOT NULL,
     deleted      INT          NOT NULL DEFAULT 0,
-    INDEX idx_model_config_model_name (model_name)
+    INDEX idx_model_config_model_name (model_name),
+    INDEX idx_model_config_workspace_provider (workspace_id, provider, model_name),
+    INDEX idx_model_config_workspace_default (workspace_id, is_default, enabled)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 模型 Provider 表
 CREATE TABLE IF NOT EXISTS mate_model_provider (
+    workspace_id                BIGINT       NOT NULL DEFAULT 1,
     provider_id                 VARCHAR(64)  NOT NULL PRIMARY KEY,
     name                        VARCHAR(128) NOT NULL,
     api_key_prefix              VARCHAR(32),

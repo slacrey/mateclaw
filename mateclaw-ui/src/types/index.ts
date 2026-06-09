@@ -25,10 +25,23 @@ export interface LoginRequest {
 }
 
 export interface LoginResponse {
+  id?: string | number
   token: string
   username: string
   nickname: string
   role: string
+  expiresAt?: string | null
+  expired?: boolean
+  currentWorkspaceId?: string | number | null
+}
+
+export interface AccountStatus {
+  id: string | number
+  username: string
+  nickname?: string
+  role: string
+  expiresAt?: string | null
+  expired: boolean
 }
 
 // ==================== Agent ====================
