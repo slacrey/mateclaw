@@ -311,6 +311,8 @@ async function clickDmSendInPage(
         el.getAttribute('aria-disabled') === 'true' ||
         el.getAttribute('disabled') === 'true' ||
         (el instanceof HTMLButtonElement && el.disabled)
+      const sendSelector = '.e2e-send-msg-btn,.messageMsgInputpublishRedBtn,.messageMsgInputpublishBtn'
+      const explicitActionSelector = 'button,[role="button"],[aria-label*="发送"],[title*="发送"],div[tabindex],span[tabindex],label'
       const hasClassToken = (el: Element, pattern: RegExp) => {
         const names = [
           String(el.getAttribute('class') || ''),
@@ -319,6 +321,25 @@ async function clickDmSendInPage(
           String((el.parentElement as HTMLElement | null)?.className || ''),
         ].join(' ')
         return pattern.test(names)
+      }
+      const actionRoot = (el: HTMLElement): HTMLElement => {
+        const explicitSend = el.closest<HTMLElement>(sendSelector)
+        if (explicitSend) return explicitSend
+        const explicitAction = el.closest<HTMLElement>(explicitActionSelector)
+        if (explicitAction) return explicitAction
+        const svg = el.closest<HTMLElement>('svg')
+        return svg ?? el
+      }
+      const uniqueActionItems = (root: ParentNode, selectors: string) => {
+        const seen = new Set<HTMLElement>()
+        return Array.from(root.querySelectorAll<HTMLElement>(selectors))
+          .map((el, index) => ({ el: actionRoot(el), index }))
+          .filter(item => {
+            if (seen.has(item.el)) return false
+            seen.add(item.el)
+            return true
+          })
+          .map(item => ({ ...item, rect: item.el.getBoundingClientRect(), text: elementText(item.el) }))
       }
       const isAttachmentControl = (el: HTMLElement, text: string) => {
         const normalized = clean(text)
@@ -362,7 +383,9 @@ async function clickDmSendInPage(
       const centerY = (rect: DOMRect) => rect.top + rect.height / 2
       const sameRow = (rect: DOMRect, editableRect: DOMRect) =>
         centerY(rect) >= editableRect.top - 8 && centerY(rect) <= editableRect.bottom + 8
-      const actionSelectors = 'button,[role="button"],[aria-label*="发送"],[title*="发送"],div[tabindex],span[tabindex],label,.e2e-send-msg-btn,.messageMsgInputpublishRedBtn,.messageMsgInputpublishBtn'
+      const isCompactIcon = (rect: DOMRect) =>
+        rect.width >= 18 && rect.width <= 72 && rect.height >= 18 && rect.height <= 72
+      const actionSelectors = `${explicitActionSelector},${sendSelector},svg,path`
       const findComposerRoot = (editable: HTMLElement) => {
         const editableRect = editable.getBoundingClientRect()
         let current = editable.parentElement
@@ -370,9 +393,8 @@ async function clickDmSendInPage(
           const rect = current.getBoundingClientRect()
           if (rect.width <= editableRect.width + 80 || rect.height <= 0 || rect.height > 160) continue
           if (rect.top > editableRect.top + 16 || rect.bottom < editableRect.bottom - 16) continue
-          const rightActions = Array.from(current.querySelectorAll<HTMLElement>(actionSelectors))
-            .filter(el => el !== editable && !editable.contains(el))
-            .map(el => ({ el, rect: el.getBoundingClientRect(), text: elementText(el) }))
+          const rightActions = uniqueActionItems(current, actionSelectors)
+            .filter(item => item.el !== editable && !editable.contains(item.el))
             .filter(item => item.rect.width > 0 && item.rect.height > 0)
             .filter(item => sameRow(item.rect, editableRect))
             .filter(item => centerX(item.rect) >= editableRect.right - 8)
@@ -392,6 +414,29 @@ async function clickDmSendInPage(
       }
       const iconOnlySend = (el: HTMLElement, rect: DOMRect, editableRect: DOMRect, text: string) =>
         !clean(text) && rightmostComposerAction(rect, editableRect) && hasSendAccent(el)
+      const pickStructuralSend = (
+        rawItems: Array<{ el: HTMLElement; rect: DOMRect; text: string }>,
+        safeItems: Array<{ el: HTMLElement; rect: DOMRect; text: string }>,
+        editableRect: DOMRect,
+      ) => {
+        const rawRowActions = rawItems
+          .filter(item => sameRow(item.rect, editableRect))
+          .filter(item => centerX(item.rect) >= editableRect.right - 8)
+          .filter(item => isCompactIcon(item.rect))
+          .sort((a, b) => centerX(b.rect) - centerX(a.rect))
+        if (rawRowActions.length < 2) return null
+        const safeRowActions = safeItems
+          .filter(item => rawRowActions.some(raw => raw.el === item.el))
+          .sort((a, b) => centerX(b.rect) - centerX(a.rect))
+        const rightmostRaw = rawRowActions[0]
+        const rightmostSafe = safeRowActions[0]
+        const secondRaw = rawRowActions[1]
+        if (!rightmostRaw || !rightmostSafe || rightmostRaw.el !== rightmostSafe.el || !secondRaw) return null
+        if (centerX(rightmostRaw.rect) - centerX(secondRaw.rect) < 12) return null
+        if (!rightmostComposerAction(rightmostRaw.rect, editableRect)) return null
+        if (clean(rightmostRaw.text)) return null
+        return rightmostRaw.el
+      }
       const score = (item: { el: HTMLElement; rect: DOMRect; text: string }, editableRect: DOMRect) => {
         let value = 0
         const role = (item.el.getAttribute('role') || item.el.tagName || '').toLowerCase()
@@ -426,17 +471,18 @@ async function clickDmSendInPage(
       const editableRect = editable.getBoundingClientRect()
       const viewportW = window.innerWidth || document.documentElement.clientWidth || 1
       const viewportH = window.innerHeight || document.documentElement.clientHeight || 1
-      const selectors = 'button,[role="button"],[aria-label*="发送"],[title*="发送"],div[tabindex],span[tabindex],.e2e-send-msg-btn,.messageMsgInputpublishRedBtn,.messageMsgInputpublishBtn'
+      const selectors = `${explicitActionSelector},${sendSelector},svg,path`
       const buttonRoot: ParentNode = composer ?? document
-      const button = Array.from(buttonRoot.querySelectorAll<HTMLElement>(selectors))
-        .map((el, index) => ({ el, index, rect: el.getBoundingClientRect(), text: elementText(el) }))
+      const rawItems = uniqueActionItems(buttonRoot, selectors)
         .filter(item => item.rect.width > 0 && item.rect.height > 0)
         .filter(item => item.rect.left >= viewportW * 0.45)
         .filter(item => item.rect.top >= Math.max(120, viewportH * 0.32))
         .filter(item => !isDisabled(item.el))
-        .filter(item => !isAttachmentControl(item.el, item.text))
         .filter(item => composer?.contains(item.el) || likelySendText(item.text))
-        .filter(item => likelySendText(item.text) || iconOnlySend(item.el, item.rect, editableRect, item.text))
+      const safeItems = rawItems.filter(item => !isAttachmentControl(item.el, item.text))
+      const structuralSend = pickStructuralSend(rawItems, safeItems, editableRect)
+      const button = safeItems
+        .filter(item => likelySendText(item.text) || iconOnlySend(item.el, item.rect, editableRect, item.text) || item.el === structuralSend)
         .sort((a, b) => score(b, editableRect) - score(a, editableRect) || a.index - b.index)[0]?.el ?? null
       if (!button) return { ok: false, reason: 'dm_send_button_not_found' }
       button.scrollIntoView({ block: 'center', inline: 'center' })
@@ -498,26 +544,16 @@ function findDmSendButton(editable: HTMLElement): HTMLElement | null {
   const viewportH = window.innerHeight || document.documentElement.clientHeight || 1
   const composer = findDmComposerRoot(editable)
   const searchRoot: ParentNode = composer ?? document
-  const selectors = [
-    'button',
-    '[role="button"]',
-    '[aria-label*="发送"]',
-    '[title*="发送"]',
-    'div[tabindex]',
-    'span[tabindex]',
-    '.e2e-send-msg-btn',
-    '.messageMsgInputpublishRedBtn',
-    '.messageMsgInputpublishBtn',
-  ].join(',')
-  return Array.from(searchRoot.querySelectorAll<HTMLElement>(selectors))
-    .map((el, index) => ({ el, index, rect: el.getBoundingClientRect(), text: elementText(el) }))
+  const rawItems = uniqueDmActionItems(searchRoot)
     .filter(item => item.rect.width > 0 && item.rect.height > 0)
     .filter(item => item.rect.left >= viewportW * 0.45)
     .filter(item => item.rect.top >= Math.max(120, viewportH * 0.32))
     .filter(item => !isDisabled(item.el))
-    .filter(item => !isAttachmentLikeControl(item.el, item.text))
     .filter(item => composer?.contains(item.el) || isLikelySendButtonText(item.text))
-    .filter(item => isLikelySendButtonText(item.text) || isIconOnlySendButton(item.el, item.rect, editableRect, item.text, composer))
+  const safeItems = rawItems.filter(item => !isAttachmentLikeControl(item.el, item.text))
+  const structuralSend = pickStructuralDmSend(rawItems, safeItems, editableRect, composer)
+  return safeItems
+    .filter(item => isLikelySendButtonText(item.text) || isIconOnlySendButton(item.el, item.rect, editableRect, item.text, composer) || item.el === structuralSend)
     .sort((a, b) => scoreSendButton(b, editableRect, composer) - scoreSendButton(a, editableRect, composer) || a.index - b.index)[0]?.el ?? null
 }
 
@@ -550,15 +586,13 @@ function isIconOnlySendButton(
 
 function findDmComposerRoot(editable: HTMLElement): HTMLElement | null {
   const editableRect = editable.getBoundingClientRect()
-  const selectors = 'button,[role="button"],[aria-label*="发送"],[title*="发送"],div[tabindex],span[tabindex],label,.e2e-send-msg-btn,.messageMsgInputpublishRedBtn,.messageMsgInputpublishBtn'
   let current = editable.parentElement
   for (let depth = 0; current && current !== document.body && depth < 8; depth += 1, current = current.parentElement) {
     const rect = current.getBoundingClientRect()
     if (rect.width <= editableRect.width + 80 || rect.height <= 0 || rect.height > 160) continue
     if (rect.top > editableRect.top + 16 || rect.bottom < editableRect.bottom - 16) continue
-    const rightActions = Array.from(current.querySelectorAll<HTMLElement>(selectors))
-      .filter(el => el !== editable && !editable.contains(el))
-      .map(el => ({ el, rect: el.getBoundingClientRect(), text: elementText(el) }))
+    const rightActions = uniqueDmActionItems(current)
+      .filter(item => item.el !== editable && !editable.contains(item.el))
       .filter(item => item.rect.width > 0 && item.rect.height > 0)
       .filter(item => sameComposerRow(item.rect, editableRect))
       .filter(item => rectCenterX(item.rect) >= editableRect.right - 8)
@@ -568,6 +602,68 @@ function findDmComposerRoot(editable: HTMLElement): HTMLElement | null {
     }
   }
   return null
+}
+
+function dmSendSelector(): string {
+  return '.e2e-send-msg-btn,.messageMsgInputpublishRedBtn,.messageMsgInputpublishBtn'
+}
+
+function dmExplicitActionSelector(): string {
+  return 'button,[role="button"],[aria-label*="发送"],[title*="发送"],div[tabindex],span[tabindex],label'
+}
+
+function dmActionSelector(): string {
+  return `${dmExplicitActionSelector()},${dmSendSelector()},svg,path`
+}
+
+function dmActionRoot(el: HTMLElement): HTMLElement {
+  const explicitSend = el.closest<HTMLElement>(dmSendSelector())
+  if (explicitSend) return explicitSend
+  const explicitAction = el.closest<HTMLElement>(dmExplicitActionSelector())
+  if (explicitAction) return explicitAction
+  const svg = el.closest<HTMLElement>('svg')
+  return svg ?? el
+}
+
+function uniqueDmActionItems(root: ParentNode): Array<{ el: HTMLElement; index: number; rect: DOMRect; text: string }> {
+  const seen = new Set<HTMLElement>()
+  return Array.from(root.querySelectorAll<HTMLElement>(dmActionSelector()))
+    .map((el, index) => ({ el: dmActionRoot(el), index }))
+    .filter(item => {
+      if (seen.has(item.el)) return false
+      seen.add(item.el)
+      return true
+    })
+    .map(item => ({ ...item, rect: item.el.getBoundingClientRect(), text: elementText(item.el) }))
+}
+
+function pickStructuralDmSend(
+  rawItems: Array<{ el: HTMLElement; rect: DOMRect; text: string }>,
+  safeItems: Array<{ el: HTMLElement; rect: DOMRect; text: string }>,
+  editableRect: DOMRect,
+  composer: HTMLElement | null,
+): HTMLElement | null {
+  const rawRowActions = rawItems
+    .filter(item => sameComposerRow(item.rect, editableRect))
+    .filter(item => rectCenterX(item.rect) >= editableRect.right - 8)
+    .filter(item => isCompactDmIcon(item.rect))
+    .sort((a, b) => rectCenterX(b.rect) - rectCenterX(a.rect))
+  if (rawRowActions.length < 2) return null
+  const safeRowActions = safeItems
+    .filter(item => rawRowActions.some(raw => raw.el === item.el))
+    .sort((a, b) => rectCenterX(b.rect) - rectCenterX(a.rect))
+  const rightmostRaw = rawRowActions[0]
+  const secondRaw = rawRowActions[1]
+  const rightmostSafe = safeRowActions[0]
+  if (!rightmostRaw || !secondRaw || !rightmostSafe || rightmostRaw.el !== rightmostSafe.el) return null
+  if (rectCenterX(rightmostRaw.rect) - rectCenterX(secondRaw.rect) < 12) return null
+  if (!isRightmostComposerAction(rightmostRaw.rect, editableRect, composer)) return null
+  if (clean(rightmostRaw.text)) return null
+  return rightmostRaw.el
+}
+
+function isCompactDmIcon(rect: DOMRect): boolean {
+  return rect.width >= 18 && rect.width <= 72 && rect.height >= 18 && rect.height <= 72
 }
 
 function isRightmostComposerAction(rect: DOMRect, editableRect: DOMRect, composer: HTMLElement | null): boolean {
