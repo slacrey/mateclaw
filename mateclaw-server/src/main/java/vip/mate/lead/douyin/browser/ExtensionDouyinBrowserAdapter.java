@@ -929,7 +929,16 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                     followConfirmed, false, false, false, "failed", "DM_PAGE_NOT_CONFIRMED",
                     "未确认进入目标用户私信页，拒绝输入草稿");
         }
-        boolean typedByDmPrimitive = tryOk(browser.service_type_dm_draft_active(dmDraft));
+        JsonNode dmDraftAction = errorNode("NOT_RUN", "type_dm_draft not run");
+        boolean typedByDmPrimitive = false;
+        boolean sentByDmPrimitive = false;
+        try {
+            dmDraftAction = parse(browser.service_type_dm_draft_active(dmDraft, sendDm));
+            typedByDmPrimitive = ok(dmDraftAction);
+            sentByDmPrimitive = actionPayloadBoolean(dmDraftAction, "sent");
+        } catch (RuntimeException ignored) {
+            typedByDmPrimitive = false;
+        }
         if (!typedByDmPrimitive) {
             ClickPoint input = findDmInputPoint(dmPage);
             if (input == null) {
@@ -945,15 +954,42 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         }
         waitMs(500);
         BrowserObservation verify = observeActive("all");
-        boolean draftTyped = looksLikeDouyinDmPage(verify)
-                && (dmDraftVisibleInDmInputArea(verify, dmDraft) || dmDraftVisibleInDmDom(verify, dmDraft));
-        boolean succeeded = draftTyped && (followConfirmed || dmPage.tree().contains("私信"));
-        String failureCode = succeeded ? null : (!draftTyped ? "DRAFT_NOT_OBSERVED" : "FOLLOW_NOT_CONFIRMED");
-        String failureMessage = succeeded ? null : (!draftTyped ? "未能确认私信草稿已输入" : "未能确认已关注目标作者");
+        boolean draftTyped = sentByDmPrimitive
+                || (looksLikeDouyinDmPage(verify)
+                && (dmDraftVisibleInDmInputArea(verify, dmDraft) || dmDraftVisibleInDmDom(verify, dmDraft)));
+        boolean sent = sendDm && sentByDmPrimitive;
+        boolean succeeded = draftTyped && (followConfirmed || dmPage.tree().contains("私信")) && (!sendDm || sent);
+        String failureCode = succeeded ? null
+                : (!draftTyped ? "DRAFT_NOT_OBSERVED"
+                : (!followConfirmed && !dmPage.tree().contains("私信") ? "FOLLOW_NOT_CONFIRMED"
+                : "DM_SEND_NOT_CONFIRMED"));
+        String failureMessage = succeeded ? null
+                : (!draftTyped ? "未能确认私信草稿已输入"
+                : (!followConfirmed && !dmPage.tree().contains("私信") ? "未能确认已关注目标作者"
+                : "未能确认私信已发送"));
         return new EngagementResult(comment, comment.authorName(), verify.url(), true, followConfirmed,
-                true, draftTyped, false, succeeded ? "succeeded" : "failed",
+                true, draftTyped, sent, succeeded ? "succeeded" : "failed",
                 failureCode,
                 failureMessage);
+    }
+
+    private boolean actionPayloadBoolean(JsonNode root, String fieldName) {
+        if (root == null || fieldName == null || fieldName.isBlank()) {
+            return false;
+        }
+        if (root.path(fieldName).isBoolean()) {
+            return root.path(fieldName).asBoolean(false);
+        }
+        JsonNode results = root.path("results");
+        if (results.isArray()) {
+            for (JsonNode result : results) {
+                JsonNode payload = result.path("payload");
+                if (payload.path(fieldName).isBoolean()) {
+                    return payload.path(fieldName).asBoolean(false);
+                }
+            }
+        }
+        return false;
     }
 
     private boolean clickProfileAction(BrowserObservation profile, String actionName, List<String> labels) {

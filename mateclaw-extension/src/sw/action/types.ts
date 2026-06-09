@@ -87,6 +87,7 @@ export interface ClickProfileActionParams {
 
 export interface TypeDmDraftParams {
   text: string
+  send?: boolean
 }
 
 export interface MoveMouseParams {

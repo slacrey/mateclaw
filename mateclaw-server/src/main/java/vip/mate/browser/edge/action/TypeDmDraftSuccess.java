@@ -7,6 +7,8 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 public record TypeDmDraftSuccess(
         @JsonProperty("draftTyped") boolean draftTyped,
         String text,
-        String target
+        String target,
+        @JsonProperty("sent") boolean sent,
+        @JsonProperty("sendTarget") String sendTarget
 ) implements ActionSuccessPayload {
 }

@@ -15,6 +15,7 @@ export const typeDmDraftHandler = (
     if (!text) {
       throw new ActionFailureError('HANDLER_ERROR', 'type_dm_draft text is required', false)
     }
+    const send = params?.send === true
     const chromeApi = deps.chrome ?? globalThis.chrome
     if (!chromeApi?.scripting?.executeScript) {
       throw new ActionFailureError('HANDLER_ERROR', 'chrome.scripting.executeScript is unavailable', true)
@@ -23,14 +24,22 @@ export const typeDmDraftHandler = (
     const results = await chromeApi.scripting.executeScript({
       target: { tabId, allFrames: false },
       func: typeDouyinDmDraftInPage,
-      args: [text],
+      args: [text, send],
     })
     const payload = results?.[0]?.result as
-      | { ok?: boolean; reason?: string; draftTyped?: boolean; target?: string }
+      | { ok?: boolean; reason?: string; draftTyped?: boolean; sent?: boolean; target?: string; sendTarget?: string }
       | undefined
     if (payload?.ok !== true || payload.draftTyped !== true) {
       const cdp = await typeDmDraftByCdp(deps.debugger, tabId, text)
       if (cdp.ok === true) {
+        const sent = send ? await clickDmSendInPage(tabId, text) : { ok: true, sent: false, target: undefined }
+        if (!sent.ok) {
+          throw new ActionFailureError(
+            'GROUNDING_AMBIGUOUS',
+            `dm draft typed but send failed: ${sent.reason || 'send_button_not_found'}`,
+            false,
+          )
+        }
         return {
           ok: true,
           elapsed_ms: 0,
@@ -38,6 +47,8 @@ export const typeDmDraftHandler = (
             draftTyped: true,
             text,
             target: cdp.target || 'dm_cdp_insert_text',
+            sent: sent.sent === true,
+            sendTarget: sent.target,
           },
         }
       }
@@ -54,6 +65,8 @@ export const typeDmDraftHandler = (
         draftTyped: true,
         text,
         target: payload.target || 'dm_editable',
+        sent: payload.sent === true,
+        sendTarget: payload.sendTarget,
       },
     }
   }
@@ -100,7 +113,10 @@ async function typeDmDraftByCdp(
   }
 }
 
-function typeDouyinDmDraftInPage(text: string): { ok: boolean; reason?: string; draftTyped?: boolean; target?: string } {
+async function typeDouyinDmDraftInPage(
+  text: string,
+  send: boolean,
+): Promise<{ ok: boolean; reason?: string; draftTyped?: boolean; sent?: boolean; target?: string; sendTarget?: string }> {
   if (!/douyin\.com$/u.test(location.hostname) && !location.hostname.endsWith('.douyin.com')) {
     return { ok: false, reason: 'not_douyin_page' }
   }
@@ -153,12 +169,273 @@ function typeDouyinDmDraftInPage(text: string): { ok: boolean; reason?: string; 
   const typed = editableText(target).includes(text) ||
     findDmEditableText().includes(text) ||
     clean(document.body?.innerText || document.body?.textContent || '').includes(text)
-  return {
-    ok: typed,
-    draftTyped: typed,
-    reason: typed ? undefined : 'draft_text_not_visible_in_editable',
-    target: targetDescription(target),
+  if (!typed || !send) {
+    return {
+      ok: typed,
+      draftTyped: typed,
+      sent: false,
+      reason: typed ? undefined : 'draft_text_not_visible_in_editable',
+      target: targetDescription(target),
+    }
   }
+  await sleep(160)
+  const sendResult = clickDmSendButton(text, target)
+  if (!sendResult.ok) {
+    return {
+      ok: false,
+      draftTyped: true,
+      sent: false,
+      reason: sendResult.reason,
+      target: targetDescription(target),
+      sendTarget: sendResult.target,
+    }
+  }
+  await sleep(260)
+  const sent = !draftStillVisibleInEditable(text)
+  return {
+    ok: sent,
+    draftTyped: true,
+    sent,
+    reason: sent ? undefined : 'dm_send_not_confirmed_after_click',
+    target: targetDescription(target),
+    sendTarget: sendResult.target,
+  }
+}
+
+async function clickDmSendInPage(
+  tabId: number,
+  text: string,
+): Promise<{ ok: boolean; sent?: boolean; target?: string; reason?: string }> {
+  const [result] = await chrome.scripting.executeScript({
+    target: { tabId, allFrames: false },
+    func: async (draft: string) => {
+      const clean = (value: string) => String(value || '').replace(/\s+/g, '')
+      const elementText = (el: HTMLElement) =>
+        `${el.getAttribute('placeholder') || ''} ${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''} ${el.innerText || el.textContent || ''}`.replace(/\s+/g, '')
+      const editableText = (el: HTMLElement) => {
+        if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return el.value || ''
+        return el.innerText || el.textContent || ''
+      }
+      const isEditable = (el: HTMLElement) =>
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        el.isContentEditable ||
+        (el.getAttribute('role') || '').toLowerCase() === 'textbox' ||
+        el.getAttribute('data-slate-editor') === 'true' ||
+        el.classList.contains('ProseMirror')
+      const editableRoot = (el: HTMLElement): HTMLElement | null => {
+        if (isEditable(el)) return el
+        const closest = el.closest<HTMLElement>('textarea, input, [contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"], [role="textbox"], [data-slate-editor="true"], .ProseMirror')
+        if (closest && isEditable(closest)) return closest
+        const nested = el.querySelector<HTMLElement>('textarea, input, [contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"], [role="textbox"], [data-slate-editor="true"], .ProseMirror')
+        return nested && isEditable(nested) ? nested : null
+      }
+      const findEditable = () => {
+        const selectors = [
+          'textarea',
+          'input',
+          '[contenteditable="true"]',
+          '[contenteditable=""]',
+          '[contenteditable="plaintext-only"]',
+          '[role="textbox"]',
+          '[data-slate-editor="true"]',
+          '.ProseMirror',
+          '[placeholder*="消息"]',
+          '[placeholder*="私信"]',
+          '[placeholder*="发送"]',
+          '[aria-label*="消息"]',
+          '[aria-label*="私信"]',
+        ].join(',')
+        const viewportH = window.innerHeight || document.documentElement.clientHeight || 1
+        const viewportW = window.innerWidth || document.documentElement.clientWidth || 1
+        return Array.from(document.querySelectorAll<HTMLElement>(selectors))
+          .map((el, index) => {
+            const root = editableRoot(el)
+            const rect = (root ?? el).getBoundingClientRect()
+            return { el: root, index, rect, text: root ? elementText(root) : '' }
+          })
+          .filter((item): item is { el: HTMLElement; index: number; rect: DOMRect; text: string } => item.el !== null)
+          .filter(item => item.rect.width > 0 && item.rect.height > 0)
+          .filter(item => item.rect.top >= Math.max(80, viewportH * 0.22))
+          .filter(item => item.rect.left >= viewportW * 0.52)
+          .filter(item => !item.text.includes('搜索'))
+          .sort((a, b) => b.rect.top - a.rect.top || a.index - b.index)[0]?.el ?? null
+      }
+      const allEditableText = () => Array.from(document.querySelectorAll<HTMLElement>('textarea, input, [contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"], [role="textbox"], [data-slate-editor="true"], .ProseMirror'))
+        .map(editableText)
+        .join('\n')
+      const isDisabled = (el: HTMLElement) =>
+        el.getAttribute('aria-disabled') === 'true' ||
+        el.getAttribute('disabled') === 'true' ||
+        (el instanceof HTMLButtonElement && el.disabled)
+      const likelySendText = (text: string) => {
+        const normalized = clean(text)
+        return normalized === '发送' ||
+          normalized === 'Send' ||
+          (/发送/u.test(normalized) && !/发送消息|输入消息|发送一条文字消息|对方回复|关闭会话|消息/u.test(normalized))
+      }
+      const nearEditable = (rect: DOMRect, editableRect: DOMRect) => {
+        const verticalOverlap = rect.top <= editableRect.bottom + 44 && rect.bottom >= editableRect.top - 44
+        const rightOfEditable = rect.left >= editableRect.right - 120 || rect.right >= editableRect.right - 24
+        const plausibleSize = rect.width >= 24 && rect.width <= 140 && rect.height >= 24 && rect.height <= 80
+        return verticalOverlap && rightOfEditable && plausibleSize
+      }
+      const score = (item: { el: HTMLElement; rect: DOMRect; text: string }, editableRect: DOMRect) => {
+        let value = 0
+        const role = (item.el.getAttribute('role') || item.el.tagName || '').toLowerCase()
+        const normalized = clean(item.text)
+        if (role.includes('button')) value += 120
+        if (normalized === '发送' || normalized === 'Send') value += 140
+        if (/发送/u.test(normalized)) value += 80
+        if (nearEditable(item.rect, editableRect)) value += 100
+        if (item.rect.left >= editableRect.right - 120) value += 40
+        if (/搜索|关闭会话|回关|发送消息|输入消息|对方回复/u.test(normalized)) value -= 240
+        return value
+      }
+      const click = (el: HTMLElement) => {
+        el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+        el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, composed: true }))
+        el.click()
+      }
+      await new Promise<void>(resolve => setTimeout(resolve, 160))
+      const editable = findEditable()
+      if (!editable) return { ok: false, reason: 'dm_editable_not_found_before_send' }
+      const wanted = clean(draft)
+      if (!clean(allEditableText()).includes(wanted) && !clean(editableText(editable)).includes(wanted)) {
+        return { ok: false, reason: 'draft_not_visible_before_send' }
+      }
+      const editableRect = editable.getBoundingClientRect()
+      const viewportW = window.innerWidth || document.documentElement.clientWidth || 1
+      const viewportH = window.innerHeight || document.documentElement.clientHeight || 1
+      const selectors = 'button,[role="button"],[aria-label*="发送"],[title*="发送"],div[tabindex],span[tabindex]'
+      const button = Array.from(document.querySelectorAll<HTMLElement>(selectors))
+        .map((el, index) => ({ el, index, rect: el.getBoundingClientRect(), text: elementText(el) }))
+        .filter(item => item.rect.width > 0 && item.rect.height > 0)
+        .filter(item => item.rect.left >= viewportW * 0.45)
+        .filter(item => item.rect.top >= Math.max(120, viewportH * 0.32))
+        .filter(item => !isDisabled(item.el))
+        .filter(item => likelySendText(item.text) || nearEditable(item.rect, editableRect))
+        .sort((a, b) => score(b, editableRect) - score(a, editableRect) || a.index - b.index)[0]?.el ?? null
+      if (!button) return { ok: false, reason: 'dm_send_button_not_found' }
+      button.scrollIntoView({ block: 'center', inline: 'center' })
+      click(button)
+      await new Promise<void>(resolve => setTimeout(resolve, 260))
+      const sent = !clean(allEditableText()).includes(wanted)
+      return {
+        ok: sent,
+        sent,
+        target: button.tagName.toLowerCase(),
+        reason: sent ? undefined : 'dm_send_not_confirmed_after_click',
+      }
+    },
+    args: [text],
+  })
+  const payload = result?.result as { ok?: boolean; sent?: boolean; target?: string; reason?: string } | undefined
+  return {
+    ok: payload?.ok === true,
+    sent: payload?.sent === true,
+    target: payload?.target,
+    reason: payload?.reason,
+  }
+}
+
+function clickDmSendButton(
+  text: string,
+  editable?: HTMLElement | null,
+): { ok: boolean; sent?: boolean; target?: string; reason?: string } {
+  if (!/douyin\.com$/u.test(location.hostname) && !location.hostname.endsWith('.douyin.com')) {
+    return { ok: false, reason: 'not_douyin_page' }
+  }
+  const wanted = clean(text)
+  if (!wanted) return { ok: false, reason: 'empty_draft' }
+  const currentEditable = editable ?? findDmEditable()
+  if (!currentEditable) return { ok: false, reason: 'dm_editable_not_found_before_send' }
+  if (!clean(findDmEditableText()).includes(wanted) && !clean(editableText(currentEditable)).includes(wanted)) {
+    return { ok: false, reason: 'draft_not_visible_before_send' }
+  }
+  const button = findDmSendButton(currentEditable)
+  if (!button) return { ok: false, reason: 'dm_send_button_not_found' }
+  button.scrollIntoView({ block: 'center', inline: 'center' })
+  clickElement(button)
+  const sendTarget = targetDescription(button)
+  return {
+    ok: true,
+    sent: false,
+    target: sendTarget,
+  }
+}
+
+function draftStillVisibleInEditable(text: string): boolean {
+  const wanted = clean(text)
+  return !!wanted && clean(findDmEditableText()).includes(wanted)
+}
+
+function findDmSendButton(editable: HTMLElement): HTMLElement | null {
+  const editableRect = editable.getBoundingClientRect()
+  const viewportW = window.innerWidth || document.documentElement.clientWidth || 1
+  const viewportH = window.innerHeight || document.documentElement.clientHeight || 1
+  const selectors = [
+    'button',
+    '[role="button"]',
+    '[aria-label*="发送"]',
+    '[title*="发送"]',
+    'div[tabindex]',
+    'span[tabindex]',
+  ].join(',')
+  return Array.from(document.querySelectorAll<HTMLElement>(selectors))
+    .map((el, index) => ({ el, index, rect: el.getBoundingClientRect(), text: elementText(el) }))
+    .filter(item => item.rect.width > 0 && item.rect.height > 0)
+    .filter(item => item.rect.left >= viewportW * 0.45)
+    .filter(item => item.rect.top >= Math.max(120, viewportH * 0.32))
+    .filter(item => !isDisabled(item.el))
+    .filter(item => isLikelySendButtonText(item.text) || isNearEditableSendControl(item.rect, editableRect))
+    .sort((a, b) => scoreSendButton(b, editableRect) - scoreSendButton(a, editableRect) || a.index - b.index)[0]?.el ?? null
+}
+
+function isLikelySendButtonText(text: string): boolean {
+  const normalized = clean(text)
+  return normalized === '发送'
+    || normalized === 'Send'
+    || (/发送/u.test(normalized)
+      && !/发送消息|输入消息|发送一条文字消息|对方回复|关闭会话|消息/u.test(normalized))
+}
+
+function isNearEditableSendControl(rect: DOMRect, editableRect: DOMRect): boolean {
+  const verticalOverlap = rect.top <= editableRect.bottom + 44 && rect.bottom >= editableRect.top - 44
+  const rightOfEditable = rect.left >= editableRect.right - 120 || rect.right >= editableRect.right - 24
+  const plausibleSize = rect.width >= 24 && rect.width <= 140 && rect.height >= 24 && rect.height <= 80
+  return verticalOverlap && rightOfEditable && plausibleSize
+}
+
+function scoreSendButton(item: { el: HTMLElement; rect: DOMRect; text: string }, editableRect: DOMRect): number {
+  let score = 0
+  const role = (item.el.getAttribute('role') || item.el.tagName || '').toLowerCase()
+  const text = clean(item.text)
+  if (role.includes('button')) score += 120
+  if (text === '发送' || text === 'Send') score += 140
+  if (/发送/u.test(text)) score += 80
+  if (isNearEditableSendControl(item.rect, editableRect)) score += 100
+  if (item.rect.left >= editableRect.right - 120) score += 40
+  if (/搜索|关闭会话|回关|发送消息|输入消息|对方回复/u.test(text)) score -= 240
+  return score
+}
+
+function clickElement(el: HTMLElement): void {
+  if (typeof PointerEvent === 'function') {
+    el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }))
+  }
+  el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+  if (typeof PointerEvent === 'function') {
+    el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, composed: true }))
+  }
+  el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, composed: true }))
+  el.click()
+}
+
+function isDisabled(el: HTMLElement): boolean {
+  return el.getAttribute('aria-disabled') === 'true'
+    || el.getAttribute('disabled') === 'true'
+    || (el instanceof HTMLButtonElement && el.disabled)
 }
 
 function findDmEditable(): HTMLElement | null {
