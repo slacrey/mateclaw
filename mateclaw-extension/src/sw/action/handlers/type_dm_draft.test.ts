@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ActionFailureError } from '../ActionExecutor'
 import { typeDmDraftHandler } from './type_dm_draft'
 
 function fakeDebugger() {
@@ -128,5 +129,30 @@ describe('type dm draft handler', () => {
     expect(result.payload).toMatchObject({ draftTyped: true, sent: true })
     expect(uploadClick).not.toHaveBeenCalled()
     expect(sendClick).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not fall back to cdp when the draft is typed but send is not confirmed', async () => {
+    const debug = fakeDebugger()
+    const chrome = {
+      scripting: {
+        executeScript: vi.fn(async () => [{
+          result: {
+            ok: false,
+            draftTyped: true,
+            sent: false,
+            reason: 'dm_send_button_not_found',
+            target: 'dm_editable',
+          },
+        }]),
+      },
+    } as unknown as typeof chrome
+    const handler = typeDmDraftHandler({ debugger: debug, chrome })
+
+    await expect(handler(42, { text: '你好', send: true }, 5000)).rejects.toMatchObject({
+      code: 'GROUNDING_AMBIGUOUS',
+      message: 'dm draft typed but send failed: dm_send_button_not_found',
+    } satisfies Partial<ActionFailureError>)
+    expect(debug.attach).not.toHaveBeenCalled()
+    expect(debug.send).not.toHaveBeenCalled()
   })
 })

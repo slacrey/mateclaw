@@ -29,6 +29,26 @@ export const typeDmDraftHandler = (
     const payload = results?.[0]?.result as
       | { ok?: boolean; reason?: string; draftTyped?: boolean; sent?: boolean; target?: string; sendTarget?: string }
       | undefined
+    if (payload?.draftTyped === true) {
+      if (!send || payload.sent === true) {
+        return {
+          ok: true,
+          elapsed_ms: 0,
+          payload: {
+            draftTyped: true,
+            text,
+            target: payload.target || 'dm_editable',
+            sent: payload.sent === true,
+            sendTarget: payload.sendTarget,
+          },
+        }
+      }
+      throw new ActionFailureError(
+        'GROUNDING_AMBIGUOUS',
+        `dm draft typed but send failed: ${payload.reason || 'dm_send_not_confirmed'}`,
+        false,
+      )
+    }
     if (payload?.ok !== true || payload.draftTyped !== true) {
       const cdp = await typeDmDraftByCdp(deps.debugger, tabId, text)
       if (cdp.ok === true) {
