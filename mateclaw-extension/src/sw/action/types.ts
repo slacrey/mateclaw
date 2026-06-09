@@ -88,6 +88,7 @@ export interface ClickProfileActionParams {
 export interface TypeDmDraftParams {
   text: string
   send?: boolean
+  sendOnly?: boolean
 }
 
 export interface MoveMouseParams {

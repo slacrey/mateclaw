@@ -884,14 +884,22 @@ public class ExtensionBrowserTool {
     }
 
     public String service_type_dm_draft_active(String text, boolean send) {
-        String active = service_type_dm_draft(new TabRef.Active(), text, send);
+        String active = service_type_dm_draft(new TabRef.Active(), text, send, false);
         if (!active.contains("\"NO_TARGET_TAB\"") && !active.contains("tab_ref=\\\"active\\\"")) {
             return active;
         }
-        return service_type_dm_draft(new TabRef.Main(), text, send);
+        return service_type_dm_draft(new TabRef.Main(), text, send, false);
     }
 
-    private String service_type_dm_draft(TabRef tabRef, String text, boolean send) {
+    public String service_send_dm_active(String text) {
+        String active = service_type_dm_draft(new TabRef.Active(), text, true, true);
+        if (!active.contains("\"NO_TARGET_TAB\"") && !active.contains("tab_ref=\\\"active\\\"")) {
+            return active;
+        }
+        return service_type_dm_draft(new TabRef.Main(), text, true, true);
+    }
+
+    private String service_type_dm_draft(TabRef tabRef, String text, boolean send, boolean sendOnly) {
         BrowserSession session = resolveSession();
         if (session == null) return noSession();
 
@@ -899,7 +907,7 @@ public class ExtensionBrowserTool {
                 newMsgId(),
                 tabRef,
                 ActionKind.TYPE_DM_DRAFT,
-                new TypeDmDraftPayload(text, send),
+                new TypeDmDraftPayload(text, send, sendOnly),
                 DEFAULT_DEADLINE_MS);
         return executePlan(session, List.of(req));
     }

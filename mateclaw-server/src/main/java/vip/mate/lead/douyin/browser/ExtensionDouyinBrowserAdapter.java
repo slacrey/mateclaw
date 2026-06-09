@@ -942,21 +942,46 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
             dmDraftAction = parse(browser.service_type_dm_draft_active(dmDraft, sendDm));
             typedByDmPrimitive = ok(dmDraftAction);
             sentByDmPrimitive = actionPayloadBoolean(dmDraftAction, "sent");
-        } catch (RuntimeException ignored) {
+        } catch (RuntimeException e) {
+            log.warn("[douyin.lead] type_dm_draft primitive failed; checking whether draft is already visible: {}",
+                    e.getMessage());
             typedByDmPrimitive = false;
         }
         if (!typedByDmPrimitive) {
-            ClickPoint input = findDmInputPoint(dmPage);
-            if (input == null) {
-                input = collector.inferDmInputPoint(dmPage)
-                        .map(point -> new ClickPoint(point.x(), point.y()))
-                        .orElse(null);
+            BrowserObservation afterDraftAttempt = observeActive("all");
+            if (looksLikeDouyinDmPage(afterDraftAttempt)
+                    && (dmDraftVisibleInDmInputArea(afterDraftAttempt, dmDraft) || dmDraftVisibleInDmDom(afterDraftAttempt, dmDraft))) {
+                typedByDmPrimitive = true;
+                dmPage = afterDraftAttempt;
+                log.info("[douyin.lead] dm draft already visible after primitive failure; will continue to send-only path");
+            } else {
+                ClickPoint input = findDmInputPoint(dmPage);
+                if (input == null) {
+                    input = collector.inferDmInputPoint(dmPage)
+                            .map(point -> new ClickPoint(point.x(), point.y()))
+                            .orElse(null);
+                }
+                if (input == null) {
+                    return new EngagementResult(comment, comment.authorName(), dmPage.url(), true,
+                            followConfirmed, true, false, false, "failed", "DM_INPUT_NOT_FOUND", "未找到私信输入框");
+                }
+                requireOk(browser.service_type_active(dmDraft, new TypePayload.FocusTarget(input.x(), input.y())), "type_dm_draft");
             }
-            if (input == null) {
-                return new EngagementResult(comment, comment.authorName(), dmPage.url(), true,
-                        followConfirmed, true, false, false, "failed", "DM_INPUT_NOT_FOUND", "未找到私信输入框");
+        }
+        if (sendDm && !sentByDmPrimitive) {
+            BrowserObservation beforeSend = observeActive("all");
+            if (looksLikeDouyinDmPage(beforeSend)
+                    && (dmDraftVisibleInDmInputArea(beforeSend, dmDraft) || dmDraftVisibleInDmDom(beforeSend, dmDraft))) {
+                try {
+                    JsonNode sendAction = parse(browser.service_send_dm_active(dmDraft));
+                    sentByDmPrimitive = ok(sendAction) && actionPayloadBoolean(sendAction, "sent");
+                    if (sentByDmPrimitive) {
+                        log.info("[douyin.lead] sent existing dm draft by send-only primitive");
+                    }
+                } catch (RuntimeException e) {
+                    log.warn("[douyin.lead] send-only dm primitive failed: {}", e.getMessage());
+                }
             }
-            requireOk(browser.service_type_active(dmDraft, new TypePayload.FocusTarget(input.x(), input.y())), "type_dm_draft");
         }
         waitMs(500);
         BrowserObservation verify = observeActive("all");

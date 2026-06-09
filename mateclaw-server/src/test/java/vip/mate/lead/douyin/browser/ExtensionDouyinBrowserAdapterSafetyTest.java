@@ -210,6 +210,60 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
     }
 
     @Test
+    void followAndDraftSendsExistingDraftAfterDmPrimitiveDetach() {
+        ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
+        ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
+                browser,
+                new ObjectMapper(),
+                mock(DouyinCommentCollector.class));
+        DouyinCommentItem comment = new DouyinCommentItem(
+                "video",
+                "comment",
+                null,
+                "霞姐一百岁",
+                "https://www.douyin.com/user/MS4w",
+                null,
+                "不建议大家用易企秀，慢出心脏病了。",
+                null,
+                null,
+                null,
+                null);
+        String profile = """
+                {"ok":true,"url":"https://www.douyin.com/user/MS4w","title":"霞姐一百岁 - 抖音","viewport":{"w":1280,"h":800},"tree":"Heading[ref=ref_1, frame=0]: 霞姐一百岁 @{520,90 180x36}\\nStaticText[ref=ref_2, frame=0]: 已关注 @{912,224 86x36}\\nButton[ref=ref_3, frame=0]: 私信 @{1010,224 86x36}"}
+                """;
+        String dmPageWithDraft = """
+                {"ok":true,"url":"https://www.douyin.com/im/霞姐一百岁","title":"私信 - 抖音","viewport":{"w":1280,"h":800},"tree":"StaticText[ref=ref_1, frame=0]: 私信 @{420,80 80x28}\\nStaticText[ref=ref_2, frame=0]: 发送消息 @{520,140 120x28}\\nTextbox[ref=ref_3, frame=0]: 你好 @{520,700 360x44}"}
+                """;
+        String dmPageNoDraft = """
+                {"ok":true,"url":"https://www.douyin.com/im/霞姐一百岁","title":"私信 - 抖音","viewport":{"w":1280,"h":800},"tree":"StaticText[ref=ref_1, frame=0]: 私信 @{420,80 80x28}\\nStaticText[ref=ref_2, frame=0]: 发送消息 @{520,140 120x28}\\nTextbox[ref=ref_3, frame=0]:  @{520,700 360x44}"}
+                """;
+
+        when(browser.extension_browser_navigate(any(), any(), any())).thenReturn("{\"ok\":true}");
+        when(browser.service_observe_active("all")).thenReturn(
+                profile,
+                dmPageWithDraft,
+                dmPageWithDraft,
+                dmPageWithDraft,
+                dmPageNoDraft);
+        when(browser.service_click_active(anyDouble(), anyDouble())).thenReturn("{\"ok\":true}");
+        when(browser.service_type_dm_draft_active("你好", true))
+                .thenThrow(new RuntimeException("SESSION_DETACHED: target_closed"));
+        when(browser.service_send_dm_active("你好")).thenReturn("""
+                {"ok":true,"results":[{"payload":{"draftTyped":true,"sent":true,"sendTarget":"button"}}]}
+                """);
+
+        EngagementResult result = adapter.followAndDraft(comment, "你好", true);
+
+        assertThat(result.status()).isEqualTo("succeeded");
+        assertThat(result.dmOpened()).isTrue();
+        assertThat(result.draftTyped()).isTrue();
+        assertThat(result.sent()).isTrue();
+        assertThat(result.failureCode()).isNull();
+        verify(browser).service_send_dm_active("你好");
+        verify(browser, never()).service_type_active(eq("你好"), any());
+    }
+
+    @Test
     void topSearchSubmitButtonRejectsAiSearchAndUsesHeaderSearchButton() {
         ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
                 mock(ExtensionBrowserTool.class),

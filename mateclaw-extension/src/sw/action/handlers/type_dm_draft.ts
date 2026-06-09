@@ -16,9 +16,31 @@ export const typeDmDraftHandler = (
       throw new ActionFailureError('HANDLER_ERROR', 'type_dm_draft text is required', false)
     }
     const send = params?.send === true
+    const sendOnly = params?.sendOnly === true
     const chromeApi = deps.chrome ?? globalThis.chrome
     if (!chromeApi?.scripting?.executeScript) {
       throw new ActionFailureError('HANDLER_ERROR', 'chrome.scripting.executeScript is unavailable', true)
+    }
+    if (sendOnly) {
+      const sent = await clickDmSendInPage(chromeApi, tabId, text)
+      if (!sent.ok) {
+        throw new ActionFailureError(
+          'GROUNDING_AMBIGUOUS',
+          `dm send failed: ${sent.reason || 'send_button_not_found'}`,
+          false,
+        )
+      }
+      return {
+        ok: true,
+        elapsed_ms: 0,
+        payload: {
+          draftTyped: true,
+          text,
+          target: 'dm_existing_draft',
+          sent: sent.sent === true,
+          sendTarget: sent.target,
+        },
+      }
     }
 
     const results = await chromeApi.scripting.executeScript({
@@ -52,7 +74,7 @@ export const typeDmDraftHandler = (
     if (payload?.ok !== true || payload.draftTyped !== true) {
       const cdp = await typeDmDraftByCdp(deps.debugger, tabId, text)
       if (cdp.ok === true) {
-        const sent = send ? await clickDmSendInPage(tabId, text) : { ok: true, sent: false, target: undefined }
+        const sent = send ? await clickDmSendInPage(chromeApi, tabId, text) : { ok: true, sent: false, target: undefined }
         if (!sent.ok) {
           throw new ActionFailureError(
             'GROUNDING_AMBIGUOUS',
@@ -223,10 +245,11 @@ async function typeDouyinDmDraftInPage(
 }
 
 async function clickDmSendInPage(
+  chromeApi: typeof globalThis.chrome,
   tabId: number,
   text: string,
 ): Promise<{ ok: boolean; sent?: boolean; target?: string; reason?: string }> {
-  const [result] = await chrome.scripting.executeScript({
+  const [result] = await chromeApi.scripting.executeScript({
     target: { tabId, allFrames: false },
     func: async (draft: string) => {
       const clean = (value: string) => String(value || '').replace(/\s+/g, '')
@@ -347,9 +370,9 @@ async function clickDmSendInPage(
         }
         return null
       }
-      const composer = findComposerRoot(editable)
-      const composerRect = composer?.getBoundingClientRect()
+      let composer: HTMLElement | null = null
       const rightmostComposerAction = (rect: DOMRect, editableRect: DOMRect) => {
+        const composerRect = composer?.getBoundingClientRect()
         if (!composerRect) return false
         const rightBand = Math.max(64, Math.min(110, composerRect.width * 0.18))
         return sameRow(rect, editableRect) &&
@@ -382,6 +405,7 @@ async function clickDmSendInPage(
       await new Promise<void>(resolve => setTimeout(resolve, 160))
       const editable = findEditable()
       if (!editable) return { ok: false, reason: 'dm_editable_not_found_before_send' }
+      composer = findComposerRoot(editable)
       const wanted = clean(draft)
       if (!clean(allEditableText()).includes(wanted) && !clean(editableText(editable)).includes(wanted)) {
         return { ok: false, reason: 'draft_not_visible_before_send' }
