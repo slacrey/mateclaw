@@ -50,6 +50,22 @@ class DouyinCommentCollectorTest {
     }
 
     @Test
+    void infersDeclaredCommentCountFromVideoActionRailWhenHeaderIsMissing() {
+        DouyinBrowserAdapter.RegionInfo region = DouyinBrowserAdapter.RegionInfo.comments(
+                760, 0, 520, 720, "test");
+        String tree = """
+                StaticText[ref=ref_1, frame=0]: 11.3万 @{205,360 80x28}
+                StaticText[ref=ref_2, frame=0]: 16 @{226,486 36x28}
+                StaticText[ref=ref_3, frame=0]: 7637 @{210,610 60x28}
+                StaticText[ref=ref_4, frame=0]: 1995 @{210,724 60x28}
+                Link[ref=ref_5, frame=0]: 作者 @{780,160 80x24}
+                StaticText[ref=ref_6, frame=0]: 评论内容 @{830,196 180x28}
+                """;
+
+        assertThat(collector.declaredCommentCount(tree, region)).isEqualTo(16);
+    }
+
+    @Test
     void visibleCommentsIgnoreA11yMetadataLinesAndGenericUserIds() {
         DouyinBrowserAdapter.BrowserObservation obs = new DouyinBrowserAdapter.BrowserObservation(
                 true,
@@ -154,6 +170,22 @@ class DouyinCommentCollectorTest {
         assertThat(comments).hasSize(1);
         assertThat(comments.getFirst().authorName()).isEqualTo("Ly");
         assertThat(comments.getFirst().text()).isEqualTo("对于99%的人用豆包就行了。");
+    }
+
+    @Test
+    void extractedRegionKeepsShortStructuredComments() throws Exception {
+        var root = mapper.readTree("""
+                {"ok":true,"results":[{"payload":{"items":[
+                  {"itemType":"douyin_comment","author":"A1","text":"支持","bbox":{"x":10,"y":40,"width":120,"height":28}},
+                  {"itemType":"douyin_comment","author":"A2","text":"[捂脸]","bbox":{"x":10,"y":80,"width":120,"height":28}},
+                  {"itemType":"douyin_comment","author":"A3","text":"回复","bbox":{"x":10,"y":120,"width":120,"height":28}}
+                ]}}]}
+                """);
+
+        List<DouyinCommentItem> comments = collector.commentsFromExtractedRegion(root, "video");
+
+        assertThat(comments).extracting(DouyinCommentItem::text)
+                .containsExactly("支持", "[捂脸]");
     }
 
     @Test

@@ -62,7 +62,14 @@ class DouyinLeadAcquisitionExecutorTest {
                 events,
                 cancellation);
 
-        executor.execute(10L, 20L, DouyinLeadAcquisitionInput.defaults());
+        executor.execute(10L, 20L, new DouyinLeadAcquisitionInput(
+                "openclaw",
+                "most_liked",
+                1,
+                "对于99%的人用豆包就行了。",
+                "你好",
+                false,
+                true));
 
         assertThat(browser.calls).containsExactly(
                 "search",
@@ -127,6 +134,56 @@ class DouyinLeadAcquisitionExecutorTest {
         verify(persistence).markMatches(eq(20L), any());
         verify(persistence, never()).saveProfile(any(), any(), any());
         verify(persistence, never()).saveEngagement(any(), any(), any(), any(), any(), any(), any());
+        verify(runKernel).finishSucceeded(eq(10L), eq("lead-task:20"));
+        verify(runKernel, never()).finishFailed(eq(10L), any(), any());
+    }
+
+    @Test
+    void collectionOnlyDebugRunSkipsMatchingWhenNoRuleProvided() {
+        FakeDouyinBrowserAdapter browser = new FakeDouyinBrowserAdapter();
+        LeadPersistenceService persistence = mock(LeadPersistenceService.class);
+        AgentRunKernel runKernel = mock(AgentRunKernel.class);
+        StepLedgerService steps = mock(StepLedgerService.class);
+        RunEventPublisher events = mock(RunEventPublisher.class);
+        RunCancellationService cancellation = mock(RunCancellationService.class);
+        AtomicLong stepIds = new AtomicLong(1);
+        when(cancellation.isCancellationRequested(10L)).thenReturn(false);
+        when(steps.openStep(any(AgentStepRequest.class))).thenAnswer(invocation -> {
+            AgentStepEntity step = new AgentStepEntity();
+            step.setId(stepIds.getAndIncrement());
+            step.setRunId(10L);
+            step.setStepKey(invocation.getArgument(0, AgentStepRequest.class).stepKey());
+            return step;
+        });
+
+        DouyinLeadAcquisitionExecutor executor = new DouyinLeadAcquisitionExecutor(
+                browser,
+                new CommentMatcher(),
+                persistence,
+                runKernel,
+                steps,
+                events,
+                cancellation);
+
+        executor.execute(10L, 20L, new DouyinLeadAcquisitionInput(
+                "易企秀",
+                "most_liked",
+                1,
+                "",
+                "你好",
+                false,
+                false));
+
+        assertThat(browser.calls).containsExactly(
+                "search",
+                "sort",
+                "open_video:0",
+                "open_comments",
+                "detect_region",
+                "collect_comments");
+        verify(persistence).saveComments(eq(20L), eq(10L), any());
+        verify(persistence, never()).markMatches(eq(20L), any());
+        verify(persistence, never()).saveProfile(any(), any(), any());
         verify(runKernel).finishSucceeded(eq(10L), eq("lead-task:20"));
         verify(runKernel, never()).finishFailed(eq(10L), any(), any());
     }

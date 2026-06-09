@@ -1022,15 +1022,15 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
         DouyinBrowserAdapter.RegionInfo region = DouyinBrowserAdapter.RegionInfo.comments(
                 960d, 80d, 520d, 760d, "test");
         String firstPage = """
-                {"ok":true,"url":"https://www.douyin.com/search/openclaw?modal_id=111","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 2 @{980,88 140x28}\\nLink[ref=ref_2, frame=0]: Ly @{980,180 80x24}\\nStaticText[ref=ref_3, frame=0]: 对于99%的人用豆包就行了。 @{1030,212 260x32}"}
+                {"ok":true,"url":"https://www.douyin.com/search/openclaw?modal_id=111","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 1 @{980,88 140x28}\\nLink[ref=ref_2, frame=0]: Ly @{980,180 80x24}\\nStaticText[ref=ref_3, frame=0]: 对于99%的人用豆包就行了。 @{1030,212 260x32}"}
                 """;
         String lastPage = """
-                {"ok":true,"url":"https://www.douyin.com/search/openclaw?modal_id=111","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 2 @{980,88 140x28}\\nLink[ref=ref_2, frame=0]: Ly @{980,180 80x24}\\nStaticText[ref=ref_3, frame=0]: 对于99%的人用豆包就行了。 @{1030,212 260x32}\\nStaticText[ref=ref_4, frame=0]: 没有更多评论 @{1030,720 160x28}"}
+                {"ok":true,"url":"https://www.douyin.com/search/openclaw?modal_id=111","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 1 @{980,88 140x28}\\nLink[ref=ref_2, frame=0]: Ly @{980,180 80x24}\\nStaticText[ref=ref_3, frame=0]: 对于99%的人用豆包就行了。 @{1030,212 260x32}\\nStaticText[ref=ref_4, frame=0]: 没有更多评论 @{1030,720 160x28}"}
                 """;
         when(browser.service_observe_main("all")).thenReturn(firstPage, lastPage, lastPage);
         when(browser.service_extract_region_main("douyin.comments", 160)).thenReturn("""
                 {"ok":true,"results":[{"payload":{"items":[
-                  {"itemType":"comment_count","text":"2"},
+                  {"itemType":"comment_count","text":"1"},
                   {"itemType":"douyin_comment","author":"Ly","text":"对于99%的人用豆包就行了。","href":"https://www.douyin.com/user/MS4w","bbox":{"x":1030,"y":212,"width":260,"height":32}}
                 ]}}]}
                 """);
@@ -1091,10 +1091,11 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
 
         var result = adapter.collectAllComments(region);
 
-        assertThat(result.complete()).isTrue();
-        assertThat(result.stopReason()).isEqualTo("END_OF_LIST");
+        assertThat(result.complete()).isFalse();
+        assertThat(result.stopReason()).isEqualTo("END_OF_LIST_DECLARED_MISMATCH");
         assertThat(result.metadata()).containsEntry("stableEndMarkerWindows", 2);
         assertThat(result.metadata()).containsEntry("collectedCount", 1);
+        assertThat(result.metadata()).containsEntry("declaredCountMismatch", true);
     }
 
     @Test
@@ -1234,15 +1235,15 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
         DouyinBrowserAdapter.RegionInfo region = DouyinBrowserAdapter.RegionInfo.comments(
                 960d, 80d, 520d, 760d, "test");
         String page = """
-                {"ok":true,"url":"https://www.douyin.com/search/openclaw?modal_id=111","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 50 @{980,88 140x28}\\nLink[ref=ref_2, frame=0]: Ly @{980,180 80x24}\\nStaticText[ref=ref_3, frame=0]: 第一条评论内容。 @{1030,212 260x32}"}
+                {"ok":true,"url":"https://www.douyin.com/search/openclaw?modal_id=111","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 1 @{980,88 140x28}\\nLink[ref=ref_2, frame=0]: Ly @{980,180 80x24}\\nStaticText[ref=ref_3, frame=0]: 第一条评论内容。 @{1030,212 260x32}"}
                 """;
         String endPage = """
-                {"ok":true,"url":"https://www.douyin.com/search/openclaw?modal_id=111","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 50 @{980,88 140x28}\\nLink[ref=ref_2, frame=0]: Ly @{980,180 80x24}\\nStaticText[ref=ref_3, frame=0]: 第一条评论内容。 @{1030,212 260x32}\\nStaticText[ref=ref_4, frame=0]: 暂时没有更多评论 @{1030,720 200x28}"}
+                {"ok":true,"url":"https://www.douyin.com/search/openclaw?modal_id=111","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 1 @{980,88 140x28}\\nLink[ref=ref_2, frame=0]: Ly @{980,180 80x24}\\nStaticText[ref=ref_3, frame=0]: 第一条评论内容。 @{1030,212 260x32}\\nStaticText[ref=ref_4, frame=0]: 暂时没有更多评论 @{1030,720 200x28}"}
                 """;
         when(browser.service_observe_main("all")).thenReturn(page, page, endPage, endPage);
         when(browser.service_extract_region_main("douyin.comments", 160)).thenReturn("""
                 {"ok":true,"results":[{"payload":{"items":[
-                  {"itemType":"comment_count","text":"50"},
+                  {"itemType":"comment_count","text":"1"},
                   {"itemType":"douyin_comment","author":"Ly","text":"第一条评论内容。","href":"https://www.douyin.com/user/MS4w","bbox":{"x":1030,"y":212,"width":260,"height":32}}
                 ]}}]}
                 """);

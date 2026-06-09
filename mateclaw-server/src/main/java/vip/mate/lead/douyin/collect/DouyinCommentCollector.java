@@ -28,6 +28,7 @@ public class DouyinCommentCollector {
     private static final String COUNT_NUMBER = "(?:\\d{1,3}(?:,\\d{3})+|\\d+(?:\\.\\d+)?)";
     private static final Pattern COUNT_AFTER_LABEL = Pattern.compile("评论\\s*[（(]?\\s*(" + COUNT_NUMBER + ")(万|w|k|千)?\\s*[）)]?\\s*(?:条)?", Pattern.CASE_INSENSITIVE);
     private static final Pattern COUNT_BEFORE_LABEL = Pattern.compile("(" + COUNT_NUMBER + ")(万|w|k|千)?\\s*(?:条)?\\s*评论", Pattern.CASE_INSENSITIVE);
+    private static final Pattern COUNT_ONLY = Pattern.compile("^(" + COUNT_NUMBER + ")(万|w|k|千)?$", Pattern.CASE_INSENSITIVE);
     private static final Pattern COMMENT_TIME_LOCATION = Pattern.compile(
             "^(?:刚刚|昨天|前天|\\d{1,3}\\s*(?:秒|分钟|小时|天|周|个?月|年)前)(?:\\s*[·・•]\\s*[^\\s]{1,16})?$");
     private static final Pattern GENERIC_USER_ID = Pattern.compile("^用户\\d{5,}$");
@@ -160,10 +161,10 @@ public class DouyinCommentCollector {
                 continue;
             }
             String text = clean(item.path("text").asText(""));
-            if (!isLikelyCommentText(text)) {
+            String author = clean(item.path("author").asText(""));
+            if (!isStructuredExtractedCommentText(text, author)) {
                 continue;
             }
-            String author = clean(item.path("author").asText(""));
             String href = bestProfileHref(item);
             DouyinCommentItem.ClickTarget target = clickTarget(item.path("bbox"), item.path("href").asText(null));
             String key = stableCommentKey(videoKey, author, href, text);
@@ -468,6 +469,10 @@ public class DouyinCommentCollector {
     }
 
     public int declaredCommentCount(String tree) {
+        return declaredCommentCount(tree, null);
+    }
+
+    public int declaredCommentCount(String tree, DouyinBrowserAdapter.RegionInfo region) {
         int best = 0;
         if (tree == null || tree.isBlank()) {
             return best;
@@ -479,6 +484,9 @@ public class DouyinCommentCollector {
         matcher = COUNT_BEFORE_LABEL.matcher(tree);
         while (matcher.find()) {
             best = Math.max(best, parseCount(matcher.group(1), matcher.group(2)));
+        }
+        if (best <= 0) {
+            best = inferActionRailCommentCount(tree, region);
         }
         return best;
     }
@@ -662,6 +670,50 @@ public class DouyinCommentCollector {
                 || (value.length() >= 14 && !isLikelyCompactUserName(value));
     }
 
+    private boolean isStructuredExtractedCommentText(String text, String author) {
+        String value = clean(text);
+        if (value.isBlank() || value.length() > 600) {
+            return false;
+        }
+        if (!clean(author).isBlank() && clean(value).equals(clean(author))) {
+            return false;
+        }
+        if (value.endsWith("头像")
+                || value.contains("头像")
+                || COMMENT_TIME_LOCATION.matcher(value).matches()
+                || GENERIC_USER_ID.matcher(value).matches()
+                || value.equals("评论")
+                || value.equals("详情")
+                || value.equals("TA的作品")
+                || value.equals("问AI")
+                || value.equals("回复")
+                || value.equals("关注")
+                || value.equals("已关注")
+                || value.equals("互相关注")
+                || value.equals("回关")
+                || value.equals("私信")
+                || value.equals("发私信")
+                || value.equals("条回复")
+                || value.startsWith("展开")
+                || value.equals("点赞")
+                || value.equals("分享")
+                || value.equals("收藏")
+                || value.equals("留下你的精彩评论吧")
+                || value.equals("说点什么")
+                || value.equals("发表评论")
+                || value.equals("没有更多评论")
+                || value.equals("暂时没有更多评论")
+                || value.equals("已展示全部评论")
+                || value.equals("到底了")
+                || value.equals("大家都在搜：")
+                || value.equals("Stop Agent")
+                || value.matches("^\\d+(?:\\.\\d+)?([万wWkK千])?$")
+                || value.matches("^\\d+条?回复$")) {
+            return false;
+        }
+        return true;
+    }
+
     private boolean isLikelyAuthorLine(TreeLine line) {
         String role = line.role().toLowerCase(Locale.ROOT);
         if (!role.equals("link")) {
@@ -784,6 +836,42 @@ public class DouyinCommentCollector {
         } catch (Exception ignored) {
             return 0;
         }
+    }
+
+    private int inferActionRailCommentCount(String tree, DouyinBrowserAdapter.RegionInfo region) {
+        List<CountLine> counts = parseLines(tree).stream()
+                .filter(line -> region == null
+                        || line.centerX() < region.x() - 16.0d
+                        || line.centerX() > region.x() + region.width() + 16.0d)
+                .map(line -> new CountLine(line, parseStandaloneCount(line.name())))
+                .filter(line -> line.count() > 0)
+                .filter(line -> line.line().w() <= 120 && line.line().h() <= 80)
+                .toList();
+        if (counts.size() < 2) {
+            return 0;
+        }
+        int best = 0;
+        int bestGroupSize = 0;
+        for (CountLine anchor : counts) {
+            List<CountLine> group = counts.stream()
+                    .filter(line -> Math.abs(line.line().centerX() - anchor.line().centerX()) <= 90)
+                    .sorted((a, b) -> Integer.compare(a.line().y(), b.line().y()))
+                    .toList();
+            if (group.size() >= 2 && group.size() > bestGroupSize) {
+                bestGroupSize = group.size();
+                best = group.get(1).count();
+            }
+        }
+        return best;
+    }
+
+    private int parseStandaloneCount(String text) {
+        String value = clean(text).replaceAll("\\s+", "");
+        Matcher matcher = COUNT_ONLY.matcher(value);
+        if (!matcher.matches()) {
+            return 0;
+        }
+        return parseCount(matcher.group(1), matcher.group(2));
     }
 
     private DouyinCommentItem.ClickTarget clickTarget(JsonNode bbox, String href) {
@@ -925,5 +1013,8 @@ public class DouyinCommentCollector {
         int centerY() {
             return y + h / 2;
         }
+    }
+
+    private record CountLine(TreeLine line, int count) {
     }
 }

@@ -60,7 +60,7 @@ public class DouyinLeadAcquisitionTool {
             String sort,
             @ToolParam(description = "Number of videos to process. V1 default and recommended value is 1.", required = false)
             Integer videoLimit,
-            @ToolParam(description = "Comment text match rule. Multiple phrases are allowed; matching uses comment text only.", required = false)
+            @ToolParam(description = "Optional comment text match rule. Multiple phrases are allowed; matching uses comment text only. When omitted, collection-only runs skip matching.", required = false)
             String commentMatchRule,
             @ToolParam(description = "DM draft to type after opening the matched author's DM. Default: 你好", required = false)
             String dmDraft,
@@ -119,9 +119,12 @@ public class DouyinLeadAcquisitionTool {
         out.put("advancedWindows", collected.path("advancedWindows").asInt(0));
         out.put("totalNewItems", collected.path("totalNewItems").asInt(0));
         out.put("stableNoNewWindows", collected.path("stableNoNewWindows").asInt(0));
-        out.put("bottomConfirmed", "END_OF_LIST".equals(stopReason));
+        boolean bottomConfirmed = stopReason != null && stopReason.startsWith("END_OF_LIST");
+        out.put("bottomConfirmed", bottomConfirmed);
         out.put("allowedSummary", complete
                 ? "Comment collection reached a defined completion condition. Report the exact stopReason."
+                : bottomConfirmed
+                ? "The bottom marker was observed, but declared and collected counts do not match. Report it as incomplete and include declaredCommentCount, commentsCollected, remainingDeclaredComments, and stopReason."
                 : "Automatic collection is incomplete. Report only the observed counts and stopReason; say the workflow did not confirm the bottom of the comment list.");
         out.put("unsupportedConclusions", unsupportedConclusions());
         return out;

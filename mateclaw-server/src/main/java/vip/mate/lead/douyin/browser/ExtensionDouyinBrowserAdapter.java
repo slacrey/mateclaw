@@ -536,7 +536,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
             }
             declared = Math.max(declared, Math.max(
                     Math.max(networkResult.declaredCommentCount(), extractedResult.declaredCommentCount()),
-                    collector.declaredCommentCount(current.tree())));
+                    collector.declaredCommentCount(current.tree(), region)));
             lastWindowAfterCount = seen.size();
             lastNewItems = Math.max(0, lastWindowAfterCount - lastWindowBeforeCount);
             lastCollectionAdvanced = lastNewItems > 0;
@@ -558,9 +558,9 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                 stableEndMarker = 0;
             }
             if (stableEndMarker >= END_MARKER_STABLE_WINDOWS) {
-                complete = true;
-                stopReason = "END_OF_LIST";
-                return collectionResult(seen, declared, true, stopReason, scrolls, stableNoNew,
+                complete = declared <= 0 || seen.size() >= declared;
+                stopReason = complete ? "END_OF_LIST" : "END_OF_LIST_DECLARED_MISMATCH";
+                return collectionResult(seen, declared, complete, stopReason, scrolls, stableNoNew,
                         stableEndMarker, lastExtractedCount, lastVisibleCount, lastNewItems,
                         lastCollectionAdvanced, lastWindowBeforeCount, lastWindowAfterCount,
                         effectiveScrolls, advancedWindows, forwardScrolls, repeatedWindows, totalNewItems, staleScrolls,
@@ -745,6 +745,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                 : extractedRegionComments > 0 ? "extract_region" : "a11y_tree");
         metadata.put("fullCollectionExpected", declared > 0 && declared <= seen.size());
         metadata.put("partialCollection", declared > 0 && seen.size() < declared);
+        metadata.put("declaredCountMismatch", declared > 0 && seen.size() < declared);
         metadata.put("replyExpansionEnabled", false);
         metadata.put("replyExpansionMode", "disabled_v1_quality_first");
         stopCommentNetworkCapture();

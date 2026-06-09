@@ -111,12 +111,27 @@ public class DouyinLeadAcquisitionExecutor {
             }
 
             var collectedComments = collection.comments();
+            String matchRule = input.commentMatchRule() == null ? "" : input.commentMatchRule().trim();
+            if (matchRule.isBlank()) {
+                events.publish(new RunEvent(runId, null, "lead.comment.match_skipped", "info", Map.of(
+                        "reason", "no_comment_match_rule"), null));
+                if (!input.engage()) {
+                    events.publish(new RunEvent(runId, null, "lead.engagement.skipped", "info", Map.of(
+                            "reason", "engagement_disabled",
+                            "matchedComments", 0), null));
+                    persistence.completeTask(taskId, "succeeded", collection, matches, engagements);
+                    runKernel.finishSucceeded(runId, "lead-task:" + taskId);
+                    return;
+                }
+                throw new DouyinBrowserException("COMMENT_MATCH_RULE_REQUIRED",
+                        "启用关注/私信时必须提供评论匹配规则");
+            }
             matches = step(runId, "match_comment_text", "llm.classify.batch",
-                    () -> matcher.matched(collectedComments, input.commentMatchRule()));
+                    () -> matcher.matched(collectedComments, matchRule));
             persistence.markMatches(taskId, matches);
             events.publish(new RunEvent(runId, null, "lead.comment.matched", "info", Map.of(
                     "matchedComments", matches.size(),
-                    "rule", input.commentMatchRule()), null));
+                    "rule", matchRule), null));
             if (!input.engage()) {
                 events.publish(new RunEvent(runId, null, "lead.engagement.skipped", "info", Map.of(
                         "reason", "engagement_disabled",
@@ -127,7 +142,7 @@ public class DouyinLeadAcquisitionExecutor {
             }
             if (matches.isEmpty()) {
                 throw new DouyinBrowserException("COMMENT_MATCH_NOT_FOUND",
-                        "评论区已采集，但没有命中目标评论: " + input.commentMatchRule());
+                        "评论区已采集，但没有命中目标评论: " + matchRule);
             }
 
             for (CommentMatchResult match : matches) {
