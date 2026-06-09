@@ -131,6 +131,34 @@ describe('type dm draft handler', () => {
     expect(sendClick).toHaveBeenCalledTimes(1)
   })
 
+  it('fails closed instead of clicking an unlabeled folder control when no send button is found', async () => {
+    document.body.innerHTML = `
+      <main>
+        <h1>私信</h1>
+        <div id="editor" role="textbox" contenteditable="true" aria-label="发送消息"></div>
+        <button id="folder"><svg aria-hidden="true"></svg></button>
+      </main>
+    `
+    Object.defineProperty(location, 'hostname', { value: 'www.douyin.com', configurable: true })
+    Object.defineProperty(window, 'innerWidth', { value: 1280, configurable: true })
+    Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true })
+    const editor = document.querySelector<HTMLElement>('#editor')!
+    const folderButton = document.querySelector<HTMLElement>('#folder')!
+    setRect(document.querySelector('main')!, { left: 720, top: 680, width: 540, height: 80 })
+    setRect(editor, { left: 760, top: 700, width: 360, height: 44 })
+    setRect(folderButton, { left: 1190, top: 700, width: 44, height: 44 })
+    const folderClick = vi.fn()
+    folderButton.addEventListener('click', folderClick)
+    const handler = typeDmDraftHandler({ debugger: fakeDebugger(), chrome: chromeWithDomExecution() })
+
+    await expect(handler(42, { text: '你好', send: true }, 5000)).rejects.toMatchObject({
+      code: 'GROUNDING_AMBIGUOUS',
+      message: 'dm draft typed but send failed: dm_send_button_not_found',
+    } satisfies Partial<ActionFailureError>)
+    expect(folderClick).not.toHaveBeenCalled()
+    expect(editor.textContent).toContain('你好')
+  })
+
   it('does not fall back to cdp when the draft is typed but send is not confirmed', async () => {
     const debug = fakeDebugger()
     const chrome = {

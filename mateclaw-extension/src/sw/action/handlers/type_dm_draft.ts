@@ -380,7 +380,7 @@ async function clickDmSendInPage(
           centerX(rect) >= composerRect.right - rightBand
       }
       const iconOnlySend = (el: HTMLElement, rect: DOMRect, editableRect: DOMRect, text: string) =>
-        !clean(text) && rightmostComposerAction(rect, editableRect) && (hasSendAccent(el) || !!composer?.contains(el))
+        !clean(text) && rightmostComposerAction(rect, editableRect) && hasSendAccent(el)
       const score = (item: { el: HTMLElement; rect: DOMRect; text: string }, editableRect: DOMRect) => {
         let value = 0
         const role = (item.el.getAttribute('role') || item.el.tagName || '').toLowerCase()
@@ -529,7 +529,7 @@ function isIconOnlySendButton(
 ): boolean {
   return !clean(text)
     && isRightmostComposerAction(rect, editableRect, composer)
-    && (hasSendAccent(el) || !!composer?.contains(el))
+    && hasSendAccent(el)
 }
 
 function findDmComposerRoot(editable: HTMLElement): HTMLElement | null {
