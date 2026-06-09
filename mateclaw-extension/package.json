@@ -1,6 +1,6 @@
 {
   "name": "mateclaw-extension",
-  "version": "0.1.0",
+  "version": "0.1.6",
   "private": true,
   "description": "MateClaw Browser Agent — Chrome MV3 extension",
   "type": "module",
