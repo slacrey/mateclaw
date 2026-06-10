@@ -87,6 +87,24 @@ class ActionRequestTest {
     }
 
     @Test
+    void closeTab_roundTrips() throws Exception {
+        ActionRequest req = new ActionRequest(
+                "msg-close-tab",
+                new TabRef.Active(),
+                ActionKind.CLOSE_TAB,
+                new CloseTabPayload(),
+                5_000L);
+
+        String json = mapper.writeValueAsString(req);
+        ActionRequest back = mapper.readValue(json, ActionRequest.class);
+
+        assertThat(json)
+                .contains("\"tab_ref\":\"active\"")
+                .contains("\"kind\":\"close_tab\"");
+        assertThat(back).isEqualTo(req);
+    }
+
+    @Test
     void extractRegion_roundTrips() throws Exception {
         ActionRequest req = new ActionRequest(
                 "msg-extract",

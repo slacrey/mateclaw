@@ -1086,13 +1086,16 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         try {
             BrowserObservation main = observeMain("all");
             if (looksLikeVideoOpenHard(main)) {
-                if (tryOk(browser.service_press_key_active("Control+W"))) {
+                if (tryOk(browser.service_close_tab_active())) {
                     waitMs(500L);
                     log.info("[douyin.lead] closed engagement active tab and returned to video: author={}",
                             comment.authorName());
+                    return;
                 }
-                BrowserObservation restored = observeMain("all");
-                if (looksLikeVideoOpenHard(restored)) {
+                if (tryOk(browser.service_press_key_active("Control+W"))) {
+                    waitMs(500L);
+                    log.info("[douyin.lead] closed engagement active tab by keyboard fallback: author={}",
+                            comment.authorName());
                     return;
                 }
             }

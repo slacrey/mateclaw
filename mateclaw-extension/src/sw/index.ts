@@ -44,6 +44,7 @@ import { extractRegionHandler } from './action/handlers/extract_region'
 import { openAuthorFromCommentHandler } from './action/handlers/open_author_from_comment'
 import { clickProfileActionHandler } from './action/handlers/click_profile_action'
 import { typeDmDraftHandler } from './action/handlers/type_dm_draft'
+import { closeTabHandler } from './action/handlers/close_tab'
 import { moveMouseHandler, viewportCenterFromDebugger } from './action/handlers/move_mouse'
 import { waitHandler } from './action/handlers/wait'
 import { douyinCommentNetworkHandler } from './action/handlers/douyin_comment_network'
@@ -262,6 +263,7 @@ const handlers: ActionHandlers = {
   open_author_from_comment: openAuthorFromCommentHandler({ chrome }),
   click_profile_action: clickProfileActionHandler({ chrome }),
   type_dm_draft: typeDmDraftHandler({ debugger: debuggerManager, chrome }),
+  close_tab: closeTabHandler({ chrome }),
   move_mouse: moveMouseHandler({
     debugger: debuggerManager,
     cursorState,

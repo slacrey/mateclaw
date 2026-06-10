@@ -14,6 +14,7 @@ import type {
   OpenAuthorFromCommentParams,
   ClickProfileActionParams,
   TypeDmDraftParams,
+  CloseTabParams,
   MoveMouseParams,
   WaitParams,
   DouyinCommentNetworkParams,
@@ -45,6 +46,7 @@ export interface ActionHandlers {
   open_author_from_comment: ActionHandler<OpenAuthorFromCommentParams>
   click_profile_action: ActionHandler<ClickProfileActionParams>
   type_dm_draft: ActionHandler<TypeDmDraftParams>
+  close_tab: ActionHandler<CloseTabParams>
   move_mouse: ActionHandler<MoveMouseParams>
   wait:       ActionHandler<WaitParams>
   douyin_comment_network: ActionHandler<DouyinCommentNetworkParams>

@@ -228,4 +228,13 @@ class ActionSuccessPayloadTest {
 
         assertThat(back).isEqualTo(new DouyinCommentNetworkSuccess("drain", java.util.List.of(), 0, 0));
     }
+
+    @Test
+    void abstractInterfaceDispatch_closeTab() throws Exception {
+        ActionSuccessPayload back = mapper.readValue(
+                "{\"kind\":\"close_tab\",\"tabId\":42}",
+                ActionSuccessPayload.class);
+
+        assertThat(back).isEqualTo(new CloseTabSuccess(42));
+    }
 }

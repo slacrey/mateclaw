@@ -297,12 +297,13 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
         when(browser.service_observe_active("all")).thenReturn(profile, dmPage, dmPage);
         when(browser.service_click_active(anyDouble(), anyDouble())).thenReturn("{\"ok\":true}");
         when(browser.service_type_dm_draft_active("你好", false)).thenReturn("{\"ok\":true}");
-        when(browser.service_press_key_active("Control+W")).thenReturn("{\"ok\":true}");
+        when(browser.service_close_tab_active()).thenReturn("{\"ok\":true}");
 
         EngagementResult result = adapter.followAndDraft(comment, "你好", false);
 
         assertThat(result.status()).isEqualTo("succeeded");
-        verify(browser).service_press_key_active("Control+W");
+        verify(browser).service_close_tab_active();
+        verify(browser, never()).service_press_key_active("Control+W");
         verify(browser, never()).extension_browser_navigate(
                 eq("https://www.douyin.com/jingxuan/search/易企秀?modal_id=6689257066038676740"),
                 eq("domcontentloaded"),
