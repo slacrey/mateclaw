@@ -1,4 +1,4 @@
--- V132: Agent OS durable run kernel and browser/lead-acquisition facts.
+-- V134: Agent OS durable run kernel and browser/lead-acquisition facts.
 -- H2 dialect. Large browser artifacts stay outside the main tables and are
 -- addressed by URI/hash metadata.
 

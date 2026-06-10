@@ -2761,7 +2761,7 @@ export default {
     kicker: 'AI Operating System',
     subtitle: 'Your intelligent AI assistant',
     heroTitle: 'Move beyond answers. Put AI inside a system that can keep working.',
-    heroDesc: 'MateClaw is not about stuffing more capability into a chat box. It is about pulling context, knowledge, execution, and memory into one reliable operating surface.',
+    heroDesc: 'It is familiar with your organizational structure, proficient in business processes, loyal and secure without any risk of leakage, working nonstop 24/7.',
     pointContext: 'Keep context continuous',
     pointKnowledge: 'Organize knowledge into use',
     pointExecution: 'Turn capability into action',

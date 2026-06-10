@@ -1,3 +1,5 @@
+-- V135: Provider token quota defaults.
+
 CREATE TABLE IF NOT EXISTS mate_provider_token_quota (
     id            BIGINT       NOT NULL PRIMARY KEY,
     workspace_id  BIGINT       NOT NULL,

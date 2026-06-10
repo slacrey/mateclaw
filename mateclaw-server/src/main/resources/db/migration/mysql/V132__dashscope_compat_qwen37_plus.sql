@@ -1,4 +1,4 @@
--- V131: add Qwen3.7 Plus to the DashScope OpenAI-compatible catalog.
+-- V132: add Qwen3.7 Plus to the DashScope OpenAI-compatible catalog.
 -- Existing databases already ran V99, so the fresh-install seed change alone is not enough.
 
 INSERT INTO mate_model_config (id, name, provider, model_name, description, temperature, max_tokens, top_p, builtin, enabled, is_default, create_time, update_time, deleted)

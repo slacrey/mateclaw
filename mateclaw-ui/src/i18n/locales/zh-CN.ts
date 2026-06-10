@@ -564,10 +564,10 @@ export default {
     modelDesc: '管理模型预设与默认模型选择',
     systemTitle: '系统设置',
     systemDesc: '语言与运行行为配置',
-    aboutTitle: '关于 MateClaw',
+    aboutTitle: '关于 化帆AI',
     aboutDesc: '版本与系统信息',
     about: {
-      heroDesc: '一套个人 AI 操作系统，让模型真正进入上下文、记忆、执行、知识和交付的连续流程。',
+      heroDesc: '它熟悉您的组织架构，精通业务流程，忠诚安全不流失，24小时不停歇工作。',
       foundationTitle: '技术栈',
       pillars: {
         contextTitle: '让上下文保持连续',

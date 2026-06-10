@@ -9,11 +9,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class AgentOsMigrationPairTest {
 
-    private static final Path H2 = Path.of("src/main/resources/db/migration/h2/V132__agent_os_run_kernel.sql");
-    private static final Path MYSQL = Path.of("src/main/resources/db/migration/mysql/V132__agent_os_run_kernel.sql");
+    private static final Path H2 = Path.of("src/main/resources/db/migration/h2/V134__agent_os_run_kernel.sql");
+    private static final Path MYSQL = Path.of("src/main/resources/db/migration/mysql/V134__agent_os_run_kernel.sql");
 
     @Test
-    void v132MigrationExistsInH2AndMysqlWithRequiredTables() throws Exception {
+    void v134MigrationExistsInH2AndMysqlWithRequiredTables() throws Exception {
         assertThat(H2).exists();
         assertThat(MYSQL).exists();
         String h2 = Files.readString(H2);
