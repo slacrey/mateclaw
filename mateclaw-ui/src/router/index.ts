@@ -256,13 +256,6 @@ const router = createRouter({
               component: () => import('@/views/Settings/FeatureFlags/index.vue'),
               meta: { title: 'Settings - Feature Flags', requiredCapability: 'manage:settings' },
             },
-            // Phase 3.1: one-click Chrome extension pairing (Direct WSS mode).
-            {
-              path: 'browser',
-              name: 'SettingsBrowser',
-              component: () => import('@/views/Settings/Browser/index.vue'),
-              meta: { title: 'Settings - Browser', requiredCapability: 'manage:settings' },
-            },
             {
               path: 'about',
               name: 'SettingsAbout',
@@ -334,6 +327,7 @@ const router = createRouter({
         { path: 'datasources', redirect: '/settings/datasources' },
         { path: 'mcp-servers', redirect: '/settings/mcp-servers' },
         { path: 'token-usage', redirect: '/settings/token-usage' },
+        { path: 'settings/browser', redirect: '/lead-acquisition' },
         // RFC-090 Phase 1: Tools 顶层降级到 Settings
         { path: 'tools', redirect: '/settings/tools' },
       ],

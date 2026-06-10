@@ -13,7 +13,7 @@
               <el-icon><ChatDotRound /></el-icon>
               <span>用对话启动</span>
             </button>
-            <button class="ghost-button" type="button" @click="openBrowserSettings">
+            <button class="ghost-button" type="button" @click="focusBrowserPanel">
               <el-icon><Connection /></el-icon>
               <span>浏览器连接</span>
             </button>
@@ -37,6 +37,10 @@
               <small>{{ channel.subtitle }}</small>
             </span>
           </button>
+        </section>
+
+        <section ref="browserPanelRef" class="browser-pairing-workspace">
+          <BrowserPairingPanel embedded compact />
         </section>
 
         <section class="lead-workbench">
@@ -149,7 +153,7 @@
               <div class="readiness-list">
                 <div class="readiness-row">
                   <span>浏览器扩展</span>
-                  <button type="button" @click="openBrowserSettings">检查连接</button>
+                  <button type="button" @click="focusBrowserPanel">检查连接</button>
                 </div>
                 <div class="readiness-row">
                   <span>对话模式</span>
@@ -272,6 +276,7 @@ import type {
 } from '@/api'
 import { mcToast } from '@/composables/useMcToast'
 import DouyinLeadRunResult from '@/components/lead/DouyinLeadRunResult.vue'
+import BrowserPairingPanel from '@/views/Settings/Browser/index.vue'
 
 type SortMode = 'most_liked' | 'latest'
 
@@ -298,6 +303,7 @@ const activeChannel = ref('douyin')
 const launching = ref(false)
 const currentRun = ref<DouyinLeadAcquisitionRunResponse | null>(null)
 const launchError = ref('')
+const browserPanelRef = ref<HTMLElement | null>(null)
 
 const channels = [
   {
@@ -488,8 +494,8 @@ function profileName(profileId?: string | null): string {
   return `线索 ${profileId}`
 }
 
-function openBrowserSettings() {
-  router.push('/settings/browser')
+function focusBrowserPanel() {
+  browserPanelRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 function openRunDetail() {
@@ -638,6 +644,10 @@ function buildChatPrompt(): string {
   grid-template-columns: minmax(0, 1fr) 320px;
   gap: 16px;
   align-items: start;
+}
+
+.browser-pairing-workspace {
+  scroll-margin-top: 18px;
 }
 
 .launch-panel,
