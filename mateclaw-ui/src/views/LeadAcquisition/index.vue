@@ -39,8 +39,39 @@
           </button>
         </section>
 
-        <section ref="browserPanelRef" class="browser-pairing-workspace">
-          <BrowserPairingPanel embedded compact />
+        <section
+          ref="browserPanelRef"
+          class="browser-pairing-workspace"
+          :class="{ 'is-open': browserPanelOpen }"
+        >
+          <button
+            class="browser-pairing-toggle"
+            type="button"
+            :aria-expanded="browserPanelOpen"
+            @click="toggleBrowserPanel"
+          >
+            <span class="browser-pairing-toggle__main">
+              <span class="browser-pairing-toggle__icon">
+                <el-icon><Connection /></el-icon>
+              </span>
+              <span>
+                <strong>浏览器连接</strong>
+                <small>{{ browserPanelOpen ? '扩展配对与连接状态' : '默认收起，连接异常时展开检查' }}</small>
+              </span>
+            </span>
+            <span class="browser-pairing-toggle__action">
+              {{ browserPanelOpen ? '收起' : '展开' }}
+              <el-icon class="browser-pairing-toggle__chevron">
+                <ArrowDown />
+              </el-icon>
+            </span>
+          </button>
+
+          <Transition name="browser-panel">
+            <div v-if="browserPanelOpen" class="browser-pairing-body">
+              <BrowserPairingPanel embedded compact />
+            </div>
+          </Transition>
         </section>
 
         <section class="lead-workbench">
@@ -153,7 +184,7 @@
               <div class="readiness-list">
                 <div class="readiness-row">
                   <span>浏览器扩展</span>
-                  <button type="button" @click="focusBrowserPanel">检查连接</button>
+                  <button type="button" @click="openBrowserPanel">检查连接</button>
                 </div>
                 <div class="readiness-row">
                   <span>对话模式</span>
@@ -265,9 +296,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ChatDotRound, Connection, DataAnalysis, Promotion, Search } from '@element-plus/icons-vue'
+import { ArrowDown, ChatDotRound, Connection, DataAnalysis, Promotion, Search } from '@element-plus/icons-vue'
 import { leadAcquisitionApi } from '@/api'
 import type {
   DouyinLeadAcquisitionRunResponse,
@@ -304,6 +335,7 @@ const launching = ref(false)
 const currentRun = ref<DouyinLeadAcquisitionRunResponse | null>(null)
 const launchError = ref('')
 const browserPanelRef = ref<HTMLElement | null>(null)
+const browserPanelOpen = ref(false)
 
 const channels = [
   {
@@ -494,7 +526,19 @@ function profileName(profileId?: string | null): string {
   return `线索 ${profileId}`
 }
 
-function focusBrowserPanel() {
+function toggleBrowserPanel() {
+  browserPanelOpen.value = !browserPanelOpen.value
+  if (browserPanelOpen.value) focusBrowserPanel()
+}
+
+function openBrowserPanel() {
+  browserPanelOpen.value = true
+  focusBrowserPanel()
+}
+
+async function focusBrowserPanel() {
+  browserPanelOpen.value = true
+  await nextTick()
   browserPanelRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
@@ -648,6 +692,97 @@ function buildChatPrompt(): string {
 
 .browser-pairing-workspace {
   scroll-margin-top: 18px;
+  overflow: hidden;
+  border: 1px solid var(--mc-border);
+  border-radius: 8px;
+  background: var(--mc-bg-container);
+}
+
+.browser-pairing-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+  min-height: 58px;
+  border: 0;
+  background: transparent;
+  color: var(--mc-text-primary);
+  cursor: pointer;
+  padding: 12px 16px;
+  text-align: left;
+}
+
+.browser-pairing-toggle:hover {
+  background: var(--mc-bg-muted);
+}
+
+.browser-pairing-toggle__main {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.browser-pairing-toggle__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  color: var(--mc-primary);
+  background: color-mix(in srgb, var(--mc-primary) 10%, transparent);
+}
+
+.browser-pairing-toggle strong,
+.browser-pairing-toggle small {
+  display: block;
+}
+
+.browser-pairing-toggle strong {
+  font-size: 14px;
+}
+
+.browser-pairing-toggle small {
+  margin-top: 4px;
+  color: var(--mc-text-secondary);
+  font-size: 12px;
+}
+
+.browser-pairing-toggle__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  color: var(--mc-text-secondary);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.browser-pairing-toggle__chevron {
+  transition: transform .18s ease;
+}
+
+.browser-pairing-workspace.is-open .browser-pairing-toggle__chevron {
+  transform: rotate(180deg);
+}
+
+.browser-pairing-body {
+  padding: 0 16px 16px;
+  border-top: 1px solid var(--mc-border);
+}
+
+.browser-panel-enter-active,
+.browser-panel-leave-active {
+  transition: opacity .16s ease, transform .16s ease;
+}
+
+.browser-panel-enter-from,
+.browser-panel-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 
 .launch-panel,
