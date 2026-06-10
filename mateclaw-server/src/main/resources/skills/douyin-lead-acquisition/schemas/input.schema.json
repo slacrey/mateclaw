@@ -27,7 +27,7 @@
     "includeReplies": {
       "type": "boolean",
       "default": false,
-      "description": "Whether to expand and collect reply comments when available. V1 defaults to false because reply expansion must be separately region-verified to avoid clicking share/action buttons."
+      "description": "Whether to expand and collect reply comments when available. Defaults to false because reply expansion must be separately region-verified to avoid clicking share/action buttons."
     },
     "commentRule": {
       "type": "object",
@@ -77,7 +77,7 @@
       "type": "string",
       "enum": ["draft_only", "send_after_approval"],
       "default": "draft_only",
-      "description": "V1 defaults to typing drafts only; sending must go through approval."
+      "description": "Defaults to typing drafts only; sending must go through approval."
     },
     "engage": {
       "type": "boolean",

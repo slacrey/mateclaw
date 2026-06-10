@@ -81,7 +81,6 @@
                 <h2>启动任务</h2>
                 <p>默认按最多点赞排序，先采集一级评论并匹配正文。</p>
               </div>
-              <span class="mode-pill">V2</span>
             </div>
 
             <div class="field-grid">
@@ -565,7 +564,7 @@ function buildChatPrompt(): string {
   return [
     '我要执行抖音获客。',
     '请先向我确认这些参数：关键词、排序方式、视频数量、评论匹配规则、私信模板、是否关注、是否发送私信。',
-    '确认后执行抖音获客 V2，并在结束时汇总每个视频的评论声明数、实际采集数、匹配数，以及每个 engagement 的状态。',
+    '确认后执行抖音获客，并在结束时汇总每个视频的评论声明数、实际采集数、匹配数，以及每个 engagement 的状态。',
   ].join('\n')
 }
 </script>
@@ -832,18 +831,6 @@ function buildChatPrompt(): string {
   margin: 5px 0 0;
   color: var(--mc-text-secondary);
   font-size: 13px;
-}
-
-.mode-pill {
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  padding: 0 9px;
-  border-radius: 999px;
-  color: var(--mc-primary);
-  background: color-mix(in srgb, var(--mc-primary) 10%, transparent);
-  font-size: 12px;
-  font-weight: 700;
 }
 
 .field-grid {

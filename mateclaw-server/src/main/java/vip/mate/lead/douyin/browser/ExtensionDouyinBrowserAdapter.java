@@ -852,10 +852,10 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         metadata.put("partialCollection", a11yOnlyCollection || declaredCountMismatch && !domTopLevelEndReached);
         metadata.put("declaredCountMismatch", declaredCountMismatch);
         if (domTopLevelEndReached) {
-            metadata.put("declaredCountMismatchReason", "declared_count_may_include_collapsed_replies_v1_reply_expansion_disabled");
+            metadata.put("declaredCountMismatchReason", "declared_count_may_include_collapsed_replies");
         }
         metadata.put("replyExpansionEnabled", false);
-        metadata.put("replyExpansionMode", "disabled_v1_quality_first");
+        metadata.put("replyExpansionMode", "disabled_quality_first");
         stopCommentNetworkCapture();
         return new CommentCollectionResult(
                 new ArrayList<>(seen.values()),

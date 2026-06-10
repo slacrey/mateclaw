@@ -30,7 +30,7 @@ describe('lead acquisition experience', () => {
   it('lets the lead expert chat surface start from a Douyin lead prompt', () => {
     expect(chatConsole).toContain('function isLeadExpertAgent')
     expect(chatConsole).toContain('function douyinLeadStarterPrompt')
-    expect(chatConsole).toContain('抖音获客 V2')
+    expect(chatConsole).toContain('确认后执行抖音获客，并在结束时汇总')
     expect(chatConsole).toContain('pendingRoutePrompt')
   })
 })

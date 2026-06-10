@@ -561,7 +561,7 @@ export interface DouyinLeadAcquisitionRunResponse {
   matches: DouyinLeadComment[]
   engagements: DouyinLeadEngagement[]
   events: DouyinLeadTimelineEvent[]
-  /** V2 summary counters. Also mirrored in the lead.run.summary event payload. */
+  /** Run summary counters. Also mirrored in the lead.run.summary event payload. */
   requestedVideoLimit?: number | null
   processedVideos?: number | null
   succeededVideos?: number | null

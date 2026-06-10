@@ -51,9 +51,9 @@ public class DouyinLeadAcquisitionRunService {
                 workspaceId == null ? 1L : workspaceId,
                 null,
                 UUID.randomUUID().toString(),
-                "skill.douyin.lead_acquisition.v2",
+                "skill.douyin.lead_acquisition",
                 "skill",
-                "douyin.lead_acquisition.v2",
+                "douyin.lead_acquisition",
                 null,
                 createdBy));
         LeadTaskEntity task = persistence.createTask(run.getId(), run.getWorkspaceId(), input);

@@ -1082,10 +1082,8 @@ function isDouyinLeadAcquisitionSkill(skill: Skill): boolean {
   if (identities.some(v => [
     'douyin-lead-acquisition',
     'douyin.lead_acquisition',
-    'douyin.lead_acquisition.v2',
     'douyin lead acquisition',
-    'skill.douyin.lead_acquisition.v1',
-    'skill.douyin.lead_acquisition.v2',
+    'skill.douyin.lead_acquisition',
     '抖音获客',
   ].includes(v))) {
     return true
