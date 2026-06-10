@@ -18,6 +18,7 @@ class DouyinLeadAcquisitionV3ContractTest {
 
         assertThat(controller).contains("@GetMapping(\"/douyin/runs\")");
         assertThat(controller).contains("@GetMapping(\"/douyin/leads\")");
+        assertThat(controller).contains("@GetMapping(\"/douyin/stats\")");
         assertThat(controller).contains("@GetMapping(\"/douyin/templates\")");
         assertThat(controller).contains("@PostMapping(\"/douyin/templates\")");
         assertThat(controller).contains("@PutMapping(\"/douyin/templates/{id}\")");

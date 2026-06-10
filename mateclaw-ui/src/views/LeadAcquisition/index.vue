@@ -232,6 +232,66 @@
           />
         </section>
 
+        <section class="stats-panel">
+          <div class="panel-head compact">
+            <div>
+              <h2>统计看板</h2>
+              <p>{{ statsLoading ? '正在更新最近任务表现...' : '汇总最近获客任务的采集、命中和触达效果。' }}</p>
+            </div>
+            <button class="text-button" type="button" :disabled="statsLoading" @click="loadLeadStats()">
+              {{ statsLoading ? '刷新中' : '刷新' }}
+            </button>
+          </div>
+
+          <div class="stats-toolbar">
+            <label>
+              <span>关键词筛选</span>
+              <input
+                v-model.trim="statsKeyword"
+                type="text"
+                placeholder="默认统计最近 50 个任务"
+                @keyup.enter="loadLeadStats()"
+              />
+            </label>
+            <button class="text-button" type="button" @click="clearStatsKeyword">清空</button>
+          </div>
+          <div v-if="statsError" class="stats-error">{{ statsError }}</div>
+
+          <div class="stats-card-grid">
+            <article v-for="card in statsCards" :key="card.label" class="metric-card">
+              <span>{{ card.label }}</span>
+              <strong>{{ card.value }}</strong>
+              <small>{{ card.detail }}</small>
+            </article>
+          </div>
+
+          <div class="stats-insights">
+            <div class="rate-strip">
+              <div v-for="rate in statsRates" :key="rate.label" class="rate-item">
+                <span>{{ rate.label }}</span>
+                <strong>{{ rate.value }}</strong>
+                <small>{{ rate.detail }}</small>
+              </div>
+            </div>
+            <div class="failure-card">
+              <div class="failure-card__head">
+                <h3>失败原因分布</h3>
+                <span>{{ failureReasonRows.length }} 类</span>
+              </div>
+              <div v-if="failureReasonRows.length" class="failure-list">
+                <div v-for="reason in failureReasonRows" :key="reason.rawReason" class="failure-row">
+                  <span>{{ reason.label }}</span>
+                  <strong>{{ reason.count }}</strong>
+                  <div class="failure-bar" aria-hidden="true">
+                    <i :style="{ width: reason.percent }"></i>
+                  </div>
+                </div>
+              </div>
+              <div v-else class="empty-inline">最近任务暂无失败记录。</div>
+            </div>
+          </div>
+        </section>
+
         <section class="growth-workspace">
           <section class="history-panel">
             <div class="panel-head compact">
@@ -348,6 +408,7 @@ import type {
   DouyinLeadAcquisitionStartPayload,
   DouyinLeadPoolItem,
   DouyinLeadRunListItem,
+  DouyinLeadStatsResponse,
   DouyinLeadTemplate,
   DouyinLeadTemplatePayload,
 } from '@/api'
@@ -392,6 +453,11 @@ const leadPool = ref<DouyinLeadPoolItem[]>([])
 const leadPoolLoading = ref(false)
 const leadPoolKeyword = ref('')
 const leadPoolStatus = ref<LeadPoolStatus>('all')
+const leadStats = ref<DouyinLeadStatsResponse | null>(null)
+const statsLoading = ref(false)
+const statsReloadQueued = ref(false)
+const statsError = ref('')
+const statsKeyword = ref('')
 const savedTemplates = ref<DouyinLeadTemplate[]>([])
 const templateName = ref('')
 const templateSaving = ref(false)
@@ -462,6 +528,67 @@ const leadPoolRows = computed(() => {
   }))
 })
 
+const statsCards = computed(() => {
+  const stats = leadStats.value ?? emptyStats()
+  return [
+    {
+      label: '任务',
+      value: stats.taskCount,
+      detail: `成功 ${stats.succeededTasks} · 执行中 ${stats.runningTasks} · 失败 ${stats.failedTasks}`,
+    },
+    {
+      label: '视频',
+      value: `${stats.processedVideos}/${stats.requestedVideos || '-'}`,
+      detail: `成功 ${stats.succeededVideos} · 失败 ${stats.failedVideos}`,
+    },
+    {
+      label: '评论',
+      value: stats.commentsCollected,
+      detail: `命中 ${stats.matchedComments} 条评论`,
+    },
+    {
+      label: '触达',
+      value: stats.engagementsCreated,
+      detail: `已发送 ${stats.sentMessages} 条私信`,
+    },
+  ]
+})
+
+const statsRates = computed(() => {
+  const stats = leadStats.value ?? emptyStats()
+  return [
+    {
+      label: '评论命中率',
+      value: formatPercent(stats.matchRate),
+      detail: `${stats.matchedComments}/${stats.commentsCollected || 0}`,
+    },
+    {
+      label: '触达率',
+      value: formatPercent(stats.engagementRate),
+      detail: `${stats.engagementsCreated}/${stats.matchedComments || 0}`,
+    },
+    {
+      label: '发送成功率',
+      value: formatPercent(stats.sendSuccessRate),
+      detail: `${stats.sentMessages}/${stats.engagementsCreated || 0}`,
+    },
+  ]
+})
+
+const failureReasonRows = computed(() => {
+  const rows = leadStats.value?.failureReasons ?? []
+  const total = rows.reduce((sum, item) => sum + Math.max(0, item.count || 0), 0)
+  return rows.map((item) => {
+    const count = Math.max(0, item.count || 0)
+    return {
+      rawReason: item.reason || 'UNKNOWN_FAILURE',
+      label: reasonLabel(item.reason),
+      count,
+      percent: total > 0 ? `${Math.max(6, Math.round((count / total) * 100))}%` : '0%',
+    }
+  })
+})
+
 watch(() => form.value.engage, (engage) => {
   if (!engage) form.value.sendDm = false
 })
@@ -469,6 +596,7 @@ watch(() => form.value.engage, (engage) => {
 onMounted(() => {
   loadRecentRuns()
   loadLeadPool()
+  loadLeadStats()
   loadTemplates()
 })
 
@@ -593,6 +721,7 @@ async function submitDouyinRun() {
     currentRun.value = normalizeRun(run)
     await loadRecentRuns()
     await loadLeadPool()
+    await loadLeadStats({ force: true })
     mcToast.success('抖音获客任务已启动')
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -611,6 +740,7 @@ function handleRunTerminal(run: DouyinLeadAcquisitionRunResponse) {
   currentRun.value = normalizeRun(run)
   loadRecentRuns()
   loadLeadPool()
+  loadLeadStats({ force: true })
 }
 
 function normalizeRun(run: DouyinLeadAcquisitionRunResponse): DouyinLeadAcquisitionRunResponse {
@@ -715,6 +845,57 @@ async function loadLeadPool() {
   }
 }
 
+async function loadLeadStats(options: { force?: boolean } = {}) {
+  if (statsLoading.value) {
+    if (options.force) statsReloadQueued.value = true
+    return
+  }
+  statsLoading.value = true
+  statsError.value = ''
+  try {
+    const response = await leadAcquisitionApi.getDouyinStats({
+      limit: 50,
+      keyword: statsKeyword.value.trim() || undefined,
+    })
+    leadStats.value = unwrapApiData<DouyinLeadStatsResponse>(response, emptyStats())
+  } catch (error) {
+    statsError.value = '统计读取失败，点击刷新重试'
+    leadStats.value = leadStats.value ?? emptyStats()
+  } finally {
+    statsLoading.value = false
+    if (statsReloadQueued.value) {
+      statsReloadQueued.value = false
+      loadLeadStats()
+    }
+  }
+}
+
+function clearStatsKeyword() {
+  statsKeyword.value = ''
+  loadLeadStats({ force: true })
+}
+
+function emptyStats(): DouyinLeadStatsResponse {
+  return {
+    taskCount: 0,
+    runningTasks: 0,
+    succeededTasks: 0,
+    failedTasks: 0,
+    requestedVideos: 0,
+    processedVideos: 0,
+    succeededVideos: 0,
+    failedVideos: 0,
+    commentsCollected: 0,
+    matchedComments: 0,
+    engagementsCreated: 0,
+    sentMessages: 0,
+    matchRate: 0,
+    engagementRate: 0,
+    sendSuccessRate: 0,
+    failureReasons: [],
+  }
+}
+
 function sortLabel(sort?: string | null): string {
   if (sort === 'most_liked') return '最多点赞'
   if (sort === 'latest') return '最新发布'
@@ -737,10 +918,16 @@ function reasonLabel(value?: string | null): string {
   const normalized = String(value || '').trim()
   if (!normalized) return ''
   const labels: Record<string, string> = {
+    ALL_VIDEOS_FAILED: '所有视频处理失败',
     DM_BUTTON_NOT_FOUND: '未找到私信入口',
     DM_PAGE_NOT_CONFIRMED: '未确认进入私信页',
+    ENGAGEMENT_FAILED: '触达执行失败',
     COMMENT_COLLECTION_INCOMPLETE: '评论采集未完整',
+    COMMENT_PANEL_LOST_DURING_SCROLL: '滚动时评论区丢失',
+    END_OF_LIST_DECLARED_MISMATCH: '评论数量与页面声明不一致',
+    RUN_FAILED: '任务执行失败',
     RUN_CANCELLED: '任务已取消',
+    UNKNOWN_FAILURE: '未知失败',
     VIDEO_FAILED: '视频处理失败',
   }
   return labels[normalized] ?? normalized
@@ -760,6 +947,11 @@ function formatDateTime(value?: string | null): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value.replace('T', ' ').slice(0, 16)
   return date.toLocaleString()
+}
+
+function formatPercent(value?: number | null): string {
+  const safe = Number.isFinite(Number(value)) ? Number(value) : 0
+  return `${(Math.max(0, Math.min(1, safe)) * 100).toFixed(1)}%`
 }
 
 function openChatStarter() {
@@ -999,6 +1191,7 @@ function buildChatPrompt(): string {
 .launch-panel,
 .assist-panel,
 .result-panel,
+.stats-panel,
 .history-panel,
 .lead-pool-panel {
   border: 1px solid var(--mc-border);
@@ -1362,6 +1555,193 @@ tr:last-child td {
   margin-top: 14px;
 }
 
+.stats-panel {
+  padding: 16px;
+}
+
+.stats-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.stats-toolbar label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--mc-text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.stats-toolbar input {
+  min-height: 34px;
+  border: 1px solid var(--mc-border);
+  border-radius: 6px;
+  background: var(--mc-bg);
+  color: var(--mc-text-primary);
+  padding: 7px 9px;
+  outline: none;
+}
+
+.stats-toolbar input:focus {
+  border-color: var(--mc-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mc-primary) 14%, transparent);
+}
+
+.stats-toolbar .text-button {
+  align-self: end;
+  min-height: 34px;
+}
+
+.stats-error {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--mc-danger, #dc2626) 32%, var(--mc-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mc-danger, #dc2626) 7%, transparent);
+  color: var(--mc-danger, #dc2626);
+  font-size: 13px;
+}
+
+.stats-card-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metric-card {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--mc-border);
+  border-radius: 8px;
+  background: var(--mc-bg);
+}
+
+.metric-card span,
+.rate-item span {
+  display: block;
+  color: var(--mc-text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.metric-card strong,
+.rate-item strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--mc-text-primary);
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.metric-card small,
+.rate-item small {
+  display: block;
+  margin-top: 6px;
+  color: var(--mc-text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.stats-insights {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, .72fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.rate-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.rate-item,
+.failure-card {
+  min-width: 0;
+  border: 1px solid var(--mc-border);
+  border-radius: 8px;
+  background: var(--mc-bg);
+  padding: 12px;
+}
+
+.failure-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.failure-card__head h3 {
+  margin: 0;
+  color: var(--mc-text-primary);
+  font-size: 14px;
+}
+
+.failure-card__head span {
+  color: var(--mc-text-secondary);
+  font-size: 12px;
+}
+
+.failure-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 180px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.failure-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  align-items: center;
+  color: var(--mc-text-primary);
+  font-size: 13px;
+}
+
+.failure-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.failure-row strong {
+  color: var(--mc-text-secondary);
+  font-size: 12px;
+}
+
+.failure-bar {
+  grid-column: 1 / -1;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--mc-bg-muted);
+}
+
+.failure-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--mc-danger, #dc2626) 65%, var(--mc-primary));
+}
+
+.empty-inline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 86px;
+  border: 1px dashed var(--mc-border);
+  border-radius: 8px;
+  color: var(--mc-text-secondary);
+  font-size: 13px;
+}
+
 .growth-workspace {
   display: grid;
   grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
@@ -1586,6 +1966,7 @@ tr:last-child td {
 @media (max-width: 1080px) {
   .lead-workbench,
   .result-tables,
+  .stats-insights,
   .growth-workspace {
     grid-template-columns: 1fr;
   }
@@ -1628,6 +2009,9 @@ tr:last-child td {
   .field-grid,
   .assist-panel,
   .metric-grid,
+  .stats-card-grid,
+  .stats-toolbar,
+  .rate-strip,
   .lead-pool-filters {
     grid-template-columns: 1fr;
   }

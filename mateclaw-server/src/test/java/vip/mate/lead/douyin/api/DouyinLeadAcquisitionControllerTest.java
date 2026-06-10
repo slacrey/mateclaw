@@ -168,6 +168,44 @@ class DouyinLeadAcquisitionControllerTest {
     }
 
     @Test
+    void statsEndpointReturnsWorkspaceAcquisitionDashboard() {
+        DouyinLeadAcquisitionRunService runService = mock(DouyinLeadAcquisitionRunService.class);
+        DouyinLeadAcquisitionQueryService queryService = mock(DouyinLeadAcquisitionQueryService.class);
+        DouyinLeadAcquisitionEventStreamService eventStreamService = mock(DouyinLeadAcquisitionEventStreamService.class);
+        DouyinLeadTemplateService templateService = mock(DouyinLeadTemplateService.class);
+        AuthService authService = mock(AuthService.class);
+        DouyinLeadAcquisitionController controller = new DouyinLeadAcquisitionController(
+                runService,
+                queryService,
+                eventStreamService,
+                templateService,
+                authService);
+        DouyinLeadStatsDTO stats = new DouyinLeadStatsDTO(
+                2,
+                0,
+                1,
+                1,
+                4,
+                3,
+                2,
+                1,
+                100,
+                8,
+                5,
+                3,
+                0.08d,
+                0.625d,
+                0.6d,
+                List.of(new DouyinLeadStatsDTO.FailureReason("COMMENT_COLLECTION_INCOMPLETE", 1)));
+        when(queryService.stats(eq(7L), eq(30), eq("易企秀"))).thenReturn(stats);
+
+        var response = controller.stats(7L, 30, "易企秀");
+
+        assertThat(response.getData()).isEqualTo(stats);
+        verify(queryService).stats(eq(7L), eq(30), eq("易企秀"));
+    }
+
+    @Test
     void templateEndpointsDelegateToTemplateService() {
         DouyinLeadAcquisitionRunService runService = mock(DouyinLeadAcquisitionRunService.class);
         DouyinLeadAcquisitionQueryService queryService = mock(DouyinLeadAcquisitionQueryService.class);

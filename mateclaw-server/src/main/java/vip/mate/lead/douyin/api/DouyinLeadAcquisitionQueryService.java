@@ -133,6 +133,130 @@ public class DouyinLeadAcquisitionQueryService {
         return rows;
     }
 
+    public DouyinLeadStatsDTO stats(Long workspaceId, int limit, String keyword) {
+        int boundedLimit = Math.max(1, Math.min(200, limit));
+        LambdaQueryWrapper<LeadTaskEntity> taskQuery = new LambdaQueryWrapper<LeadTaskEntity>()
+                .eq(LeadTaskEntity::getPlatform, "douyin")
+                .orderByDesc(LeadTaskEntity::getUpdateTime)
+                .orderByDesc(LeadTaskEntity::getCreateTime)
+                .last("LIMIT " + boundedLimit);
+        if (workspaceId != null) {
+            taskQuery.eq(LeadTaskEntity::getWorkspaceId, workspaceId);
+        }
+        if (keyword != null && !keyword.isBlank()) {
+            taskQuery.like(LeadTaskEntity::getKeyword, keyword.trim());
+        }
+
+        List<LeadTaskEntity> tasks = taskMapper.selectList(taskQuery);
+        if (tasks.isEmpty()) {
+            return DouyinLeadStatsDTO.empty();
+        }
+
+        List<Long> taskIds = new ArrayList<>();
+        Set<Long> runIds = new HashSet<>();
+        for (LeadTaskEntity task : tasks) {
+            if (task.getId() != null) {
+                taskIds.add(task.getId());
+            }
+            if (task.getRunId() != null) {
+                runIds.add(task.getRunId());
+            }
+        }
+
+        Map<Long, AgentRunEntity> runsById = new LinkedHashMap<>();
+        if (!runIds.isEmpty()) {
+            for (AgentRunEntity run : runMapper.selectBatchIds(runIds)) {
+                if (run.getId() != null) {
+                    runsById.put(run.getId(), run);
+                }
+            }
+        }
+
+        Map<Long, Integer> engagementsByTask = new LinkedHashMap<>();
+        Map<String, Integer> failureCounts = new LinkedHashMap<>();
+        int sentMessages = 0;
+        if (!taskIds.isEmpty()) {
+            List<LeadEngagementEntity> engagements = engagementMapper.selectList(new LambdaQueryWrapper<LeadEngagementEntity>()
+                    .in(LeadEngagementEntity::getTaskId, taskIds));
+            for (LeadEngagementEntity engagement : engagements) {
+                if (engagement.getTaskId() != null) {
+                    engagementsByTask.merge(engagement.getTaskId(), 1, Integer::sum);
+                }
+                if (isMessageSent(engagement)) {
+                    sentMessages++;
+                }
+                if (isFailedEngagement(engagement)) {
+                    addFailure(failureCounts, firstNonBlank(
+                            engagement.getFailureCode(),
+                            engagement.getFailureMessage(),
+                            "ENGAGEMENT_FAILED"));
+                }
+            }
+        }
+
+        int runningTasks = 0;
+        int succeededTasks = 0;
+        int failedTasks = 0;
+        int requestedVideos = 0;
+        int processedVideos = 0;
+        int succeededVideos = 0;
+        int failedVideos = 0;
+        int commentsCollected = 0;
+        int matchedComments = 0;
+        int engagementsCreated = 0;
+
+        for (LeadTaskEntity task : tasks) {
+            AgentRunEntity run = task.getRunId() == null ? null : runsById.get(task.getRunId());
+            String status = run == null || run.getStatus() == null ? task.getStatus() : run.getStatus();
+            if (isRunningStatus(status)) {
+                runningTasks++;
+            } else if (isSucceededStatus(status)) {
+                succeededTasks++;
+            } else if (isFailedStatus(status)) {
+                failedTasks++;
+                if (run != null) {
+                    addFailure(failureCounts, firstNonBlank(
+                            run.getFailureCode(),
+                            run.getFailureMessage(),
+                            "RUN_FAILED"));
+                }
+            }
+
+            JsonNode summary = parseSummary(task);
+            JsonNode input = parseJson(task.getInputJson());
+            requestedVideos += summary.path("requestedVideoLimit").asInt(input.path("videoLimit").asInt(0));
+            processedVideos += summary.path("processedVideos").asInt(countVideoResults(summary));
+            succeededVideos += summary.path("succeededVideos").asInt(countVideoResultsByStatus(summary, "succeeded"));
+            failedVideos += summary.path("failedVideos").asInt(countVideoFailures(summary));
+            commentsCollected += summaryIntOrCommentCount(summary, "commentsCollected", task.getId(), false);
+            matchedComments += summaryIntOrCommentCount(summary, "matchedComments", task.getId(), true);
+            engagementsCreated += summaryIntOrDefault(summary, "engagementsCreated",
+                    engagementsByTask.getOrDefault(task.getId(), 0));
+            collectVideoFailures(summary, failureCounts);
+        }
+
+        List<DouyinLeadStatsDTO.FailureReason> failureReasons = failureCounts.entrySet().stream()
+                .map(entry -> new DouyinLeadStatsDTO.FailureReason(entry.getKey(), entry.getValue()))
+                .toList();
+        return new DouyinLeadStatsDTO(
+                tasks.size(),
+                runningTasks,
+                succeededTasks,
+                failedTasks,
+                requestedVideos,
+                processedVideos,
+                succeededVideos,
+                failedVideos,
+                commentsCollected,
+                matchedComments,
+                engagementsCreated,
+                sentMessages,
+                commentsCollected > 0 ? matchedComments / (double) commentsCollected : 0.0d,
+                matchedComments > 0 ? engagementsCreated / (double) matchedComments : 0.0d,
+                engagementsCreated > 0 ? sentMessages / (double) engagementsCreated : 0.0d,
+                failureReasons);
+    }
+
     public List<DouyinLeadPoolItem> leadPool(Long workspaceId, int limit, String status, String keyword) {
         int boundedLimit = Math.max(1, Math.min(100, limit));
         int taskScanLimit = Math.max(50, Math.min(250, boundedLimit * 5));
@@ -377,6 +501,74 @@ public class DouyinLeadAcquisitionQueryService {
         return total;
     }
 
+    private int countVideoResults(JsonNode summary) {
+        JsonNode videoResults = summary.path("videoResults");
+        return videoResults.isArray() ? videoResults.size() : 0;
+    }
+
+    private int summaryIntOrCommentCount(JsonNode summary, String fieldName, Long taskId, boolean matchedOnly) {
+        if (summary.has(fieldName) && !summary.path(fieldName).isNull()) {
+            return Math.max(0, summary.path(fieldName).asInt(0));
+        }
+        return countComments(taskId, matchedOnly);
+    }
+
+    private int summaryIntOrDefault(JsonNode summary, String fieldName, int fallback) {
+        if (summary.has(fieldName) && !summary.path(fieldName).isNull()) {
+            return Math.max(0, summary.path(fieldName).asInt(0));
+        }
+        return Math.max(0, fallback);
+    }
+
+    private int countVideoResultsByStatus(JsonNode summary, String status) {
+        JsonNode videoResults = summary.path("videoResults");
+        if (!videoResults.isArray()) {
+            return 0;
+        }
+        int total = 0;
+        for (JsonNode video : videoResults) {
+            if (status.equalsIgnoreCase(video.path("status").asText(""))) {
+                total++;
+            }
+        }
+        return total;
+    }
+
+    private int countVideoFailures(JsonNode summary) {
+        JsonNode videoResults = summary.path("videoResults");
+        if (!videoResults.isArray()) {
+            return 0;
+        }
+        int total = 0;
+        for (JsonNode video : videoResults) {
+            if (isFailedStatus(video.path("status").asText(""))
+                    || hasText(video.path("failureCode").asText(""))
+                    || hasText(video.path("errorCode").asText(""))) {
+                total++;
+            }
+        }
+        return total;
+    }
+
+    private void collectVideoFailures(JsonNode summary, Map<String, Integer> failureCounts) {
+        JsonNode videoResults = summary.path("videoResults");
+        if (!videoResults.isArray()) {
+            return;
+        }
+        for (JsonNode video : videoResults) {
+            boolean failed = isFailedStatus(video.path("status").asText(""))
+                    || hasText(video.path("failureCode").asText(""))
+                    || hasText(video.path("errorCode").asText(""));
+            if (failed) {
+                addFailure(failureCounts, firstNonBlank(
+                        video.path("failureCode").asText(""),
+                        video.path("errorCode").asText(""),
+                        video.path("stopReason").asText(""),
+                        "VIDEO_FAILED"));
+            }
+        }
+    }
+
     private int countComments(Long taskId, boolean matchedOnly) {
         if (taskId == null) {
             return 0;
@@ -416,6 +608,57 @@ public class DouyinLeadAcquisitionQueryService {
                 && ("send_dm".equalsIgnoreCase(engagement.getEngagementType())
                 || "dm_draft".equalsIgnoreCase(engagement.getEngagementType()))
                 && "succeeded".equalsIgnoreCase(engagement.getStatus());
+    }
+
+    private boolean isMessageSent(LeadEngagementEntity engagement) {
+        return engagement != null
+                && "send_dm".equalsIgnoreCase(engagement.getEngagementType())
+                && "succeeded".equalsIgnoreCase(engagement.getStatus());
+    }
+
+    private boolean isFailedEngagement(LeadEngagementEntity engagement) {
+        return engagement != null
+                && ("failed".equalsIgnoreCase(engagement.getStatus())
+                || hasText(engagement.getFailureCode())
+                || hasText(engagement.getFailureMessage()));
+    }
+
+    private boolean isRunningStatus(String status) {
+        String normalized = status == null ? "" : status.trim().toLowerCase();
+        return normalized.isBlank()
+                || (!isSucceededStatus(normalized) && !isFailedStatus(normalized));
+    }
+
+    private boolean isSucceededStatus(String status) {
+        String normalized = status == null ? "" : status.trim().toLowerCase();
+        return "succeeded".equals(normalized)
+                || "success".equals(normalized)
+                || "completed".equals(normalized);
+    }
+
+    private boolean isFailedStatus(String status) {
+        String normalized = status == null ? "" : status.trim().toLowerCase();
+        return "failed".equals(normalized)
+                || "aborted".equals(normalized)
+                || "cancelled".equals(normalized)
+                || "canceled".equals(normalized);
+    }
+
+    private void addFailure(Map<String, Integer> failureCounts, String reason) {
+        String normalized = firstNonBlank(reason, "UNKNOWN_FAILURE");
+        failureCounts.merge(normalized, 1, Integer::sum);
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return "UNKNOWN_FAILURE";
+        }
+        for (String value : values) {
+            if (hasText(value)) {
+                return value.trim();
+            }
+        }
+        return "UNKNOWN_FAILURE";
     }
 
     private boolean hasText(String value) {
