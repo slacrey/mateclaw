@@ -416,11 +416,17 @@ watch(() => props.initialRun, (run) => {
 
 watch(() => props.runId, () => {
   resetConnection()
-  if (props.runId && !terminal.value) connectStream()
+  if (props.runId && !terminal.value) {
+    startPolling()
+    connectStream()
+  }
 })
 
 onMounted(() => {
-  if (props.runId && !terminal.value) connectStream()
+  if (props.runId && !terminal.value) {
+    startPolling()
+    connectStream()
+  }
 })
 
 onUnmounted(() => {
@@ -430,8 +436,8 @@ onUnmounted(() => {
 function connectStream() {
   if (!props.runId) return
   stopStream()
-  stopPolling()
   fallbackActive.value = false
+  startPolling()
 
   const url = leadAcquisitionApi.streamDouyinRunEventsUrl(props.runId, lastEventId.value)
   source = new EventSource(url)
@@ -525,7 +531,7 @@ function resetConnection() {
 }
 
 async function refreshSnapshot() {
-  if (!props.runId) return
+  if (!props.runId || refreshing.value) return
   refreshing.value = true
   try {
     const response = await leadAcquisitionApi.getDouyinRun(props.runId)
