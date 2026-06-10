@@ -67,7 +67,7 @@
 
         <details v-if="timelineItems.length" class="timeline-collapse">
           <summary>查看完整时间线（{{ timelineItems.length }} 条）</summary>
-          <ol class="timeline-list">
+          <ol class="timeline-list timeline-scroll">
             <li
               v-for="item in timelineItems"
               :key="item.key"
@@ -1185,10 +1185,22 @@ button:disabled {
 }
 
 .timeline-collapse summary {
+  width: fit-content;
+  max-width: 100%;
   cursor: pointer;
+  border-radius: 6px;
+  padding: 2px 4px;
   color: var(--mc-text-secondary);
   font-size: 13px;
   font-weight: 700;
+}
+
+.timeline-collapse summary:focus {
+  outline: none;
+}
+
+.timeline-collapse summary:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--mc-primary) 22%, transparent);
 }
 
 .timeline-list {
@@ -1196,6 +1208,12 @@ button:disabled {
   list-style: none;
   margin: 14px 0 0;
   padding: 0;
+}
+
+.timeline-scroll {
+  max-height: 420px;
+  overflow: auto;
+  padding-right: 8px;
 }
 
 .timeline-list::before {

@@ -17,9 +17,9 @@
           </div>
         </header>
 
-        <details v-if="timelineItems.length" class="timeline-collapse">
+        <details v-if="timelineItems.length" class="panel-collapse">
           <summary>展开完整时间线</summary>
-          <ol class="timeline-list">
+          <ol class="timeline-list panel-scroll-body">
             <li
               v-for="item in timelineItems"
               :key="item.key"
@@ -63,48 +63,51 @@
           </div>
         </header>
 
-        <div v-if="commentRows.length" class="table-wrap">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>作者</th>
-                <th>评论内容</th>
-                <th>匹配结果</th>
-                <th>来源视频</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="comment in commentRows" :key="comment.id || comment.commentKey || comment.text || 'comment'">
-                <td>
-                  <a
-                    v-if="comment.authorProfileUrl"
-                    class="link-quiet"
-                    :href="comment.authorProfileUrl"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {{ comment.authorName || '未识别作者' }}
-                  </a>
-                  <span v-else>{{ comment.authorName || '未识别作者' }}</span>
-                </td>
-                <td>
-                  <p class="comment-text">{{ comment.text || '-' }}</p>
-                  <span v-if="comment.commentKey" class="muted-code">{{ comment.commentKey }}</span>
-                </td>
-                <td>
-                  <span class="status-pill" :class="comment.matched ? 'status-succeeded' : 'status-muted'">
-                    {{ comment.matched ? '已命中' : '未命中' }}
-                  </span>
-                  <span v-if="comment.matchScore != null" class="score-text">
-                    {{ formatPercent(comment.matchScore) }}
-                  </span>
-                  <p v-if="comment.matchReason" class="reason-text">{{ comment.matchReason }}</p>
-                </td>
-                <td><span class="muted-code">{{ comment.videoKey || '-' }}</span></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <details v-if="commentRows.length" class="panel-collapse">
+          <summary>展开评论明细</summary>
+          <div class="table-wrap panel-scroll-body">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>作者</th>
+                  <th>评论内容</th>
+                  <th>匹配结果</th>
+                  <th>来源视频</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="comment in commentRows" :key="comment.id || comment.commentKey || comment.text || 'comment'">
+                  <td>
+                    <a
+                      v-if="comment.authorProfileUrl"
+                      class="link-quiet"
+                      :href="comment.authorProfileUrl"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {{ comment.authorName || '未识别作者' }}
+                    </a>
+                    <span v-else>{{ comment.authorName || '未识别作者' }}</span>
+                  </td>
+                  <td>
+                    <p class="comment-text">{{ comment.text || '-' }}</p>
+                    <span v-if="comment.commentKey" class="muted-code">{{ comment.commentKey }}</span>
+                  </td>
+                  <td>
+                    <span class="status-pill" :class="comment.matched ? 'status-succeeded' : 'status-muted'">
+                      {{ comment.matched ? '已命中' : '未命中' }}
+                    </span>
+                    <span v-if="comment.matchScore != null" class="score-text">
+                      {{ formatPercent(comment.matchScore) }}
+                    </span>
+                    <p v-if="comment.matchReason" class="reason-text">{{ comment.matchReason }}</p>
+                  </td>
+                  <td><span class="muted-code">{{ comment.videoKey || '-' }}</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </details>
         <div v-else class="empty-block">暂无评论数据。</div>
       </section>
     </div>
@@ -765,11 +768,6 @@ function commentLabel(commentId: string | null): string {
   background: var(--mc-bg-elevated, #fff);
 }
 
-.result-panel--timeline {
-  max-height: 680px;
-  overflow: auto;
-}
-
 .panel-header {
   display: flex;
   align-items: center;
@@ -798,15 +796,32 @@ function commentLabel(commentId: string | null): string {
   padding: 12px 0 0;
 }
 
-.timeline-collapse {
+.panel-collapse {
   padding-top: 12px;
 }
 
-.timeline-collapse summary {
+.panel-collapse summary {
+  width: fit-content;
+  max-width: 100%;
   cursor: pointer;
+  border-radius: 6px;
+  padding: 2px 4px;
   color: var(--mc-text-secondary);
   font-size: 13px;
   font-weight: 700;
+}
+
+.panel-collapse summary:focus {
+  outline: none;
+}
+
+.panel-collapse summary:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--mc-primary) 22%, transparent);
+}
+
+.panel-scroll-body {
+  max-height: 420px;
+  overflow: auto;
 }
 
 .timeline-list::before {
@@ -950,7 +965,6 @@ function commentLabel(commentId: string | null): string {
 }
 
 .table-wrap {
-  max-height: 420px;
   overflow: auto;
 }
 

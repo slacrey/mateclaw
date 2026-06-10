@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import leadPage from '../LeadAcquisition/index.vue?raw'
 import livePanel from '../../components/lead/LeadRunLivePanel.vue?raw'
+import runResult from '../../components/lead/DouyinLeadRunResult.vue?raw'
 import api from '../../api/index.ts?raw'
 import chatConsole from '../ChatConsole.vue?raw'
 import router from '../../router/index.ts?raw'
@@ -44,6 +45,7 @@ describe('lead acquisition experience', () => {
     expect(livePanel).toContain('lead.comments.collecting')
     expect(livePanel).toContain('lead.engagement.completed')
     expect(livePanel).toContain('查看完整时间线')
+    expect(livePanel).toContain('timeline-scroll')
     expect(livePanel).toContain('搜索与排序')
     expect(livePanel).toContain('线索触达')
     expect(livePanel).toContain('实时连接恢复中，已切换为 2 秒刷新一次。')
@@ -51,6 +53,8 @@ describe('lead acquisition experience', () => {
     expect(livePanel).toContain('leadAcquisitionApi.getDouyinRun')
     expect(livePanel).toContain('最终汇总')
     expect(livePanel).toContain('技术明细')
+    expect(runResult).toContain('展开评论明细')
+    expect(runResult).toContain('panel-scroll-body')
   })
 
   it('retires the old browser settings entry after moving pairing into acquisition', () => {

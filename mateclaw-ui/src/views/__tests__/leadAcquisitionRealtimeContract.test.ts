@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import leadPage from '../LeadAcquisition/index.vue?raw'
 import api from '../../api/index.ts?raw'
 import livePanel from '../../components/lead/LeadRunLivePanel.vue?raw'
+import runResult from '../../components/lead/DouyinLeadRunResult.vue?raw'
 
 describe('lead acquisition realtime execution contract', () => {
   const combined = [leadPage, api, livePanel].join('\n')
@@ -30,6 +31,9 @@ describe('lead acquisition realtime execution contract', () => {
     expect(combined).toContain('lead.comment.matched')
     expect(combined).toContain('lead.engagement.completed')
     expect(combined).toContain('查看完整时间线')
+    expect(combined).toContain('timeline-scroll')
+    expect(runResult).toContain('展开评论明细')
+    expect(runResult).toContain('panel-scroll-body')
     expect(combined).toContain('评论匹配')
     expect(combined).toContain('触达记录')
   })
