@@ -206,7 +206,7 @@ html.dark {
   --mc-text-primary: #F4F8FF;
   --mc-text-secondary: #C7D5FF;
   --mc-text-tertiary: #8EA1D5;
-  --mc-text-inverse: #071442;
+  --mc-text-inverse: #ffffff;
 
   /* shadows */
   --mc-shadow-soft: 0 16px 36px rgba(0, 8, 32, 0.28);
@@ -750,6 +750,10 @@ body.workflow-canvas-fullscreen .mc-page-frame::before {
 
 html.dark .mc-surface-card {
   background: linear-gradient(180deg, rgba(18, 42, 104, 0.92), rgba(8, 22, 66, 0.96));
+}
+
+html.dark .save-tip {
+  color: #071442;
 }
 
 @media (max-width: 768px) {
