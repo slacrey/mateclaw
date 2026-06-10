@@ -12,52 +12,54 @@
       <section class="result-panel result-panel--timeline">
         <header class="panel-header">
           <div>
-            <h3>Timeline</h3>
-            <p>{{ timelineItems.length }} events</p>
+            <h3>时间线</h3>
+            <p>{{ timelineItems.length }} 条事件</p>
           </div>
         </header>
 
-        <ol v-if="timelineItems.length" class="timeline-list">
-          <li
-            v-for="item in timelineItems"
-            :key="item.key"
-            class="timeline-item"
-            :class="[`tone-${item.tone}`, { 'is-lead-event': item.isLeadEvent }]"
-          >
-            <div class="timeline-node" aria-hidden="true">
-              <el-icon v-if="item.icon === 'success'"><CircleCheckFilled /></el-icon>
-              <el-icon v-else-if="item.icon === 'error'"><CircleCloseFilled /></el-icon>
-              <el-icon v-else-if="item.icon === 'running'"><Clock /></el-icon>
-              <span v-else class="timeline-dot" />
-            </div>
-            <div class="timeline-body">
-              <div class="timeline-line">
-                <span class="timeline-title">{{ item.title }}</span>
-                <code class="timeline-type">{{ item.event.type }}</code>
-                <span class="timeline-time">{{ item.timeLabel }}</span>
+        <details v-if="timelineItems.length" class="timeline-collapse">
+          <summary>展开完整时间线</summary>
+          <ol class="timeline-list">
+            <li
+              v-for="item in timelineItems"
+              :key="item.key"
+              class="timeline-item"
+              :class="[`tone-${item.tone}`, { 'is-lead-event': item.isLeadEvent }]"
+            >
+              <div class="timeline-node" aria-hidden="true">
+                <el-icon v-if="item.icon === 'success'"><CircleCheckFilled /></el-icon>
+                <el-icon v-else-if="item.icon === 'error'"><CircleCloseFilled /></el-icon>
+                <el-icon v-else-if="item.icon === 'running'"><Clock /></el-icon>
+                <span v-else class="timeline-dot" />
               </div>
-              <p v-if="item.summary" class="timeline-summary">{{ item.summary }}</p>
-              <dl v-if="item.fields.length" class="timeline-fields">
-                <template v-for="field in item.fields" :key="field.key">
-                  <dt>{{ field.label }}</dt>
-                  <dd>{{ field.value }}</dd>
-                </template>
-              </dl>
-              <details v-if="item.payloadText" class="timeline-payload">
-                <summary>Payload</summary>
-                <pre>{{ item.payloadText }}</pre>
-              </details>
-            </div>
-          </li>
-        </ol>
-        <div v-else class="empty-block">No timeline events yet.</div>
+              <div class="timeline-body">
+                <div class="timeline-line">
+                  <span class="timeline-title">{{ item.title }}</span>
+                  <span class="timeline-time">{{ item.timeLabel }}</span>
+                </div>
+                <p v-if="item.summary" class="timeline-summary">{{ item.summary }}</p>
+                <dl v-if="item.fields.length" class="timeline-fields">
+                  <template v-for="field in item.fields" :key="field.key">
+                    <dt>{{ field.label }}</dt>
+                    <dd>{{ field.value }}</dd>
+                  </template>
+                </dl>
+                <details v-if="item.payloadText" class="timeline-payload">
+                  <summary>原始数据</summary>
+                  <pre>{{ item.payloadText }}</pre>
+                </details>
+              </div>
+            </li>
+          </ol>
+        </details>
+        <div v-else class="empty-block">暂无时间线事件。</div>
       </section>
 
       <section class="result-panel">
         <header class="panel-header">
           <div>
-            <h3>Matched Comments</h3>
-            <p>{{ matchedRows.length }} of {{ commentRows.length }} comments matched</p>
+            <h3>评论匹配</h3>
+            <p>{{ matchedRows.length }} / {{ commentRows.length }} 条评论命中</p>
           </div>
         </header>
 
@@ -65,10 +67,10 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>Author</th>
-                <th>Comment</th>
-                <th>Match</th>
-                <th>Video</th>
+                <th>作者</th>
+                <th>评论内容</th>
+                <th>匹配结果</th>
+                <th>来源视频</th>
               </tr>
             </thead>
             <tbody>
@@ -81,9 +83,9 @@
                     target="_blank"
                     rel="noreferrer"
                   >
-                    {{ comment.authorName || 'Unknown author' }}
+                    {{ comment.authorName || '未识别作者' }}
                   </a>
-                  <span v-else>{{ comment.authorName || 'Unknown author' }}</span>
+                  <span v-else>{{ comment.authorName || '未识别作者' }}</span>
                 </td>
                 <td>
                   <p class="comment-text">{{ comment.text || '-' }}</p>
@@ -91,7 +93,7 @@
                 </td>
                 <td>
                   <span class="status-pill" :class="comment.matched ? 'status-succeeded' : 'status-muted'">
-                    {{ comment.matched ? 'Matched' : 'No match' }}
+                    {{ comment.matched ? '已命中' : '未命中' }}
                   </span>
                   <span v-if="comment.matchScore != null" class="score-text">
                     {{ formatPercent(comment.matchScore) }}
@@ -103,7 +105,7 @@
             </tbody>
           </table>
         </div>
-        <div v-else class="empty-block">No comments have been collected.</div>
+        <div v-else class="empty-block">暂无评论数据。</div>
       </section>
     </div>
 
@@ -111,8 +113,8 @@
       <section class="result-panel">
         <header class="panel-header">
           <div>
-            <h3>Profiles</h3>
-            <p>{{ profileRows.length }} saved profiles</p>
+            <h3>线索资料</h3>
+            <p>已保存 {{ profileRows.length }} 个线索资料</p>
           </div>
         </header>
 
@@ -120,10 +122,10 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Handle</th>
-                <th>Profile</th>
-                <th>Bio</th>
+                <th>昵称</th>
+                <th>账号标识</th>
+                <th>主页</th>
+                <th>简介</th>
               </tr>
             </thead>
             <tbody>
@@ -138,7 +140,7 @@
                     target="_blank"
                     rel="noreferrer"
                   >
-                    Open profile
+                    打开主页
                   </a>
                   <span v-else>-</span>
                 </td>
@@ -147,14 +149,14 @@
             </tbody>
           </table>
         </div>
-        <div v-else class="empty-block">No profiles have been saved.</div>
+        <div v-else class="empty-block">暂无线索资料。</div>
       </section>
 
       <section class="result-panel">
         <header class="panel-header">
           <div>
-            <h3>Engagements</h3>
-            <p>{{ engagementRows.length }} engagement records</p>
+            <h3>触达记录</h3>
+            <p>{{ engagementRows.length }} 条触达记录</p>
           </div>
         </header>
 
@@ -162,18 +164,18 @@
           <table class="data-table">
             <thead>
               <tr>
-                <th>Action</th>
-                <th>Status</th>
-                <th>Lead</th>
-                <th>Draft or Error</th>
+                <th>动作</th>
+                <th>状态</th>
+                <th>线索</th>
+                <th>草稿或失败原因</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="engagement in engagementRows" :key="engagement.id">
-                <td>{{ titleCase(engagement.actionType || 'engagement') }}</td>
+                <td>{{ actionLabel(engagement.actionType || 'engagement') }}</td>
                 <td>
                   <span class="status-pill" :class="statusClass(engagement.status, engagement.sent)">
-                    {{ engagement.sent ? 'Sent' : titleCase(engagement.status || 'pending') }}
+                    {{ engagement.sent ? '已发送' : statusLabel(engagement.status || 'pending') }}
                   </span>
                 </td>
                 <td>
@@ -182,7 +184,7 @@
                 </td>
                 <td>
                   <p v-if="engagement.failureMessage || engagement.failureCode" class="reason-text is-error">
-                    {{ engagement.failureCode ? `${engagement.failureCode}: ` : '' }}{{ engagement.failureMessage }}
+                    {{ engagement.failureCode ? `${reasonLabel(engagement.failureCode)}：` : '' }}{{ engagement.failureMessage }}
                   </p>
                   <p v-else class="comment-text">{{ engagement.draftText || '-' }}</p>
                   <a
@@ -192,14 +194,14 @@
                     target="_blank"
                     rel="noreferrer"
                   >
-                    Evidence
+                    查看凭证
                   </a>
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
-        <div v-else class="empty-block">No engagements have been created.</div>
+        <div v-else class="empty-block">暂无触达记录。</div>
       </section>
     </div>
   </section>
@@ -325,49 +327,49 @@ const runSummary = computed(() => {
 const metrics = computed(() => [
   {
     key: 'requestedVideoLimit',
-    label: 'Requested videos',
+    label: '请求视频数',
     value: formatCount(runSummary.value.requestedVideoLimit),
-    hint: 'limit',
+    hint: '上限',
     tone: '',
   },
   {
     key: 'processedVideos',
-    label: 'Processed videos',
+    label: '已处理视频',
     value: formatCount(runSummary.value.processedVideos),
     hint: '',
     tone: '',
   },
   {
     key: 'succeededVideos',
-    label: 'Succeeded videos',
+    label: '成功视频',
     value: formatCount(runSummary.value.succeededVideos),
     hint: '',
     tone: 'tone-success',
   },
   {
     key: 'failedVideos',
-    label: 'Failed videos',
+    label: '失败视频',
     value: formatCount(runSummary.value.failedVideos),
     hint: '',
     tone: runSummary.value.failedVideos > 0 ? 'tone-danger' : '',
   },
   {
     key: 'commentsCollected',
-    label: 'Comments collected',
+    label: '采集评论',
     value: formatCount(runSummary.value.commentsCollected),
     hint: '',
     tone: '',
   },
   {
     key: 'matchedComments',
-    label: 'Matched comments',
+    label: '命中评论',
     value: formatCount(runSummary.value.matchedComments),
     hint: '',
     tone: 'tone-accent',
   },
   {
     key: 'engagementsCreated',
-    label: 'Engagements created',
+    label: '触达记录',
     value: formatCount(runSummary.value.engagementsCreated),
     hint: '',
     tone: 'tone-accent',
@@ -484,30 +486,81 @@ function titleCase(value: string): string {
     .replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
+function statusLabel(value?: string | null): string {
+  const normalized = String(value || '').toLowerCase()
+  if (normalized === 'running') return '执行中'
+  if (normalized === 'created') return '已创建'
+  if (normalized === 'succeeded' || normalized === 'success' || normalized === 'completed') return '成功'
+  if (normalized === 'failed' || normalized === 'error') return '失败'
+  if (normalized === 'aborted' || normalized === 'cancelled' || normalized === 'canceled') return '已停止'
+  if (normalized === 'sent') return '已发送'
+  if (normalized === 'pending') return '待处理'
+  return value || '-'
+}
+
+function reasonLabel(value?: string | null): string {
+  const normalized = String(value || '').trim()
+  if (!normalized) return '-'
+  const labels: Record<string, string> = {
+    END_OF_LIST: '已到达评论列表底部',
+    END_OF_LIST_TOP_LEVEL: '一级评论已触底',
+    END_OF_LIST_DECLARED_MISMATCH: '已触底但声明数与采集数不一致',
+    COMMENT_COLLECTION_INCOMPLETE: '评论采集未完整',
+    COMMENT_PANEL_LOST_DURING_SCROLL: '滚动时评论面板丢失',
+    COMMENT_PANEL_LOST_AFTER_SCROLL: '滚动后评论面板丢失',
+    COMMENT_EXTRACTION_NOT_ADVANCING: '评论提取没有继续推进',
+    COMMENTS_TRIGGER_NOT_FOUND: '未找到评论入口',
+    DM_BUTTON_NOT_FOUND: '未找到私信入口',
+    DM_PAGE_NOT_CONFIRMED: '未确认进入私信页',
+    RUN_CANCELLED: '任务已取消',
+    VIDEO_FAILED: '视频处理失败',
+    ALL_VIDEOS_FAILED: '所有视频均失败',
+    DOUYIN_RUN_FAILED: '抖音获客任务失败',
+  }
+  return labels[normalized] ?? normalized
+}
+
+function actionLabel(value?: string | null): string {
+  const normalized = String(value || '').toLowerCase()
+  const labels: Record<string, string> = {
+    engagement: '触达',
+    dm_draft: '私信草稿',
+    follow: '关注',
+    dm: '私信',
+  }
+  return labels[normalized] ?? titleCase(value || 'engagement')
+}
+
 function eventTitle(type: string): string {
   const labels: Record<string, string> = {
-    'lead.video.started': 'Video started',
-    'lead.video.completed': 'Video completed',
-    'lead.video.failed': 'Video failed',
-    'lead.run.summary': 'Run summary',
-    'lead.video.opened': 'Video opened',
-    'lead.comments.opened': 'Comments opened',
-    'lead.comments.region_detected': 'Comment region detected',
-    'lead.comments.collected': 'Comments collected',
-    'lead.comment.matched': 'Comments matched',
-    'lead.comment.match_skipped': 'Comment matching skipped',
-    'lead.engagement.completed': 'Engagement completed',
-    'lead.engagement.skipped': 'Engagement skipped',
-    'lead.run.failed': 'Run failed',
-    run_created: 'Run created',
-    run_started: 'Run started',
-    run_status_changed: 'Run status changed',
-    step_started: 'Step started',
-    step_completed: 'Step completed',
-    step_failed: 'Step failed',
-    policy_decision: 'Policy decision',
+    'lead.search.started': '开始搜索',
+    'lead.search.completed': '搜索完成',
+    'lead.sort.started': '开始应用排序',
+    'lead.sort.completed': '排序已应用',
+    'lead.video.started': '开始处理视频',
+    'lead.video.completed': '视频处理完成',
+    'lead.video.failed': '视频处理失败',
+    'lead.run.summary': '任务汇总',
+    'lead.video.opened': '视频已打开',
+    'lead.comments.opened': '评论区已打开',
+    'lead.comments.region_detected': '评论区已定位',
+    'lead.comments.collecting': '正在采集评论',
+    'lead.comments.collected': '评论采集完成',
+    'lead.comment.matched': '评论匹配完成',
+    'lead.comment.match_skipped': '跳过评论匹配',
+    'lead.engagement.started': '开始触达线索',
+    'lead.engagement.completed': '触达完成',
+    'lead.engagement.skipped': '跳过触达',
+    'lead.run.failed': '任务失败',
+    run_created: '任务已创建',
+    run_started: '任务开始执行',
+    run_status_changed: '任务状态更新',
+    step_started: '步骤开始',
+    step_completed: '步骤完成',
+    step_failed: '步骤失败',
+    policy_decision: '策略决策',
   }
-  return labels[type] ?? titleCase(type)
+  return labels[type] ?? '任务事件'
 }
 
 function eventTone(event: DouyinLeadTimelineEvent, type: string): string {
@@ -534,22 +587,25 @@ function payloadSummary(payload: JsonRecord, type: string): string {
     const matched = firstNumber(payload.matchedComments)
     const engagements = firstNumber(payload.engagementsCreated, payload.engagements)
     const pieces = [
-      requested != null ? `${requested} requested` : '',
-      processed != null ? `${processed} processed` : '',
-      matched != null ? `${matched} matched` : '',
-      engagements != null ? `${engagements} engagements` : '',
+      requested != null ? `请求 ${requested} 个视频` : '',
+      processed != null ? `已处理 ${processed} 个视频` : '',
+      matched != null ? `命中 ${matched} 条评论` : '',
+      engagements != null ? `触达 ${engagements} 次` : '',
     ].filter(Boolean)
-    if (pieces.length) return pieces.join(', ')
+    if (pieces.length) return pieces.join('，')
   }
 
   const message = stringValue(payload.message)
-  if (message) return message.length > 240 ? `${message.slice(0, 240)}...` : message
+  if (message) {
+    const translated = reasonLabel(message)
+    return translated.length > 240 ? `${translated.slice(0, 240)}...` : translated
+  }
   const title = stringValue(payload.title)
   if (title) return title
   const reason = stringValue(payload.reason)
-  if (reason) return titleCase(reason)
+  if (reason) return reasonLabel(reason)
   const status = stringValue(payload.status)
-  if (status) return titleCase(status)
+  if (status) return statusLabel(status)
   return ''
 }
 
@@ -564,12 +620,43 @@ function payloadFields(payload: JsonRecord, type: string): Array<{ key: string; 
     if (value == null || value === '') continue
     fields.push({
       key,
-      label: titleCase(key),
-      value: typeof value === 'object' ? JSON.stringify(value) : String(value),
+      label: fieldLabel(key),
+      value: fieldValue(key, value),
     })
     if (fields.length >= 6) break
   }
   return fields
+}
+
+function fieldLabel(key: string): string {
+  const labels: Record<string, string> = {
+    requestedVideoLimit: '请求视频',
+    processedVideos: '已处理视频',
+    succeededVideos: '成功视频',
+    failedVideos: '失败视频',
+    commentsCollected: '评论数',
+    declaredCommentCount: '声明评论',
+    matchedComments: '匹配数',
+    engagementsCreated: '触达数',
+    videoKey: '视频标识',
+    commentKey: '评论标识',
+    author: '作者',
+    status: '状态',
+    stopReason: '停止原因',
+    failureCode: '失败代码',
+    code: '代码',
+    url: '链接',
+    sent: '已发送',
+  }
+  return labels[key] ?? key
+}
+
+function fieldValue(key: string, value: unknown): string {
+  if (typeof value === 'object') return JSON.stringify(value)
+  if (key === 'status') return statusLabel(stringValue(value))
+  if (key === 'stopReason' || key === 'failureCode' || key === 'code') return reasonLabel(stringValue(value))
+  if (key === 'sent') return value === true ? '是' : '否'
+  return String(value)
 }
 
 function statusClass(status: string | null, sent: boolean): string {
@@ -580,16 +667,16 @@ function statusClass(status: string | null, sent: boolean): string {
 }
 
 function profileLabel(profileId: string | null): string {
-  if (!profileId) return 'Profile not linked'
+  if (!profileId) return '未关联线索资料'
   const profile = profilesById.value.get(String(profileId))
-  return profile?.displayName || profile?.handle || `Profile ${profileId}`
+  return profile?.displayName || profile?.handle || `线索 ${profileId}`
 }
 
 function commentLabel(commentId: string | null): string {
-  if (!commentId) return 'Comment not linked'
+  if (!commentId) return '未关联评论'
   const comment = commentsById.value.get(String(commentId))
   const text = comment?.text?.trim()
-  if (!text) return `Comment ${commentId}`
+  if (!text) return `评论 ${commentId}`
   return text.length > 54 ? `${text.slice(0, 54)}...` : text
 }
 </script>
@@ -709,6 +796,17 @@ function commentLabel(commentId: string | null): string {
   list-style: none;
   margin: 0;
   padding: 12px 0 0;
+}
+
+.timeline-collapse {
+  padding-top: 12px;
+}
+
+.timeline-collapse summary {
+  cursor: pointer;
+  color: var(--mc-text-secondary);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .timeline-list::before {
@@ -875,7 +973,6 @@ function commentLabel(commentId: string | null): string {
   top: 0;
   z-index: 1;
   font-size: 11px;
-  text-transform: uppercase;
   color: var(--mc-text-tertiary);
   background: var(--mc-bg-elevated, #fff);
 }

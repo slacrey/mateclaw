@@ -5,8 +5,8 @@
         <span class="live-kicker">实时执行</span>
         <h2>{{ terminal ? '获客任务已结束' : '获客任务执行中' }}</h2>
         <p>
-          Run {{ runId || '-' }}
-          <span v-if="taskId"> · Task {{ taskId }}</span>
+          任务 {{ runId || '-' }}
+          <span v-if="taskId"> · 子任务 {{ taskId }}</span>
           <span> · {{ statusLabel(displayRun?.status) }}</span>
         </p>
       </div>
@@ -42,34 +42,55 @@
         <div class="section-head">
           <div>
             <h3>执行进展</h3>
-            <p>{{ timelineItems.length }} 条进展</p>
+            <p>{{ currentStageText }}</p>
           </div>
         </div>
 
-        <ol v-if="timelineItems.length" class="timeline-list">
-          <li
-            v-for="item in timelineItems"
-            :key="item.key"
-            class="timeline-item"
-            :class="`tone-${item.tone}`"
+        <div v-if="progressGroups.length" class="stage-list">
+          <div
+            v-for="group in progressGroups"
+            :key="group.key"
+            class="stage-card"
+            :class="`tone-${group.tone}`"
           >
-            <span class="timeline-node" aria-hidden="true"></span>
-            <div class="timeline-body">
-              <div class="timeline-line">
-                <strong>{{ item.title }}</strong>
-                <span>{{ item.time }}</span>
+            <span class="stage-dot" aria-hidden="true"></span>
+            <div class="stage-card__body">
+              <div class="stage-card__line">
+                <strong>{{ group.title }}</strong>
+                <span>{{ group.count }} 条</span>
               </div>
-              <p v-if="item.summary">{{ item.summary }}</p>
-              <dl v-if="item.fields.length" class="timeline-fields">
-                <template v-for="field in item.fields" :key="field.key">
-                  <dt>{{ field.label }}</dt>
-                  <dd>{{ field.value }}</dd>
-                </template>
-              </dl>
+              <p>{{ group.summary }}</p>
             </div>
-          </li>
-        </ol>
+          </div>
+        </div>
         <div v-else class="empty-block">任务刚启动，正在等待第一条进展。</div>
+
+        <details v-if="timelineItems.length" class="timeline-collapse">
+          <summary>查看完整时间线（{{ timelineItems.length }} 条）</summary>
+          <ol class="timeline-list">
+            <li
+              v-for="item in timelineItems"
+              :key="item.key"
+              class="timeline-item"
+              :class="`tone-${item.tone}`"
+            >
+              <span class="timeline-node" aria-hidden="true"></span>
+              <div class="timeline-body">
+                <div class="timeline-line">
+                  <strong>{{ item.title }}</strong>
+                  <span>{{ item.time }}</span>
+                </div>
+                <p v-if="item.summary">{{ item.summary }}</p>
+                <dl v-if="item.fields.length" class="timeline-fields">
+                  <template v-for="field in item.fields" :key="field.key">
+                    <dt>{{ field.label }}</dt>
+                    <dd>{{ field.value }}</dd>
+                  </template>
+                </dl>
+              </div>
+            </li>
+          </ol>
+        </details>
       </section>
 
       <aside class="status-panel">
@@ -129,7 +150,7 @@
               <td>{{ statusLabel(video.status) }}</td>
               <td>{{ countLabel(video.commentsCollected) }} / {{ countLabel(video.declaredCommentCount) }}</td>
               <td>{{ countLabel(video.matchedComments) }}</td>
-              <td>{{ video.stopReason || video.failureCode || video.errorCode || '-' }}</td>
+              <td>{{ videoReason(video) }}</td>
             </tr>
             <tr v-if="!videoRows.length">
               <td colspan="5">暂无视频明细</td>
@@ -326,6 +347,7 @@ const timelineItems = computed(() => {
     const payload = parsePayload(event.payloadJson)
     return {
       key: event.id || `${event.type}-${index}`,
+      type: event.type,
       title: businessTitle(event.type),
       tone: eventTone(event),
       time: formatTime(event.createTime, index),
@@ -333,6 +355,36 @@ const timelineItems = computed(() => {
       fields: eventFields(event.type, payload),
     }
   })
+})
+
+const progressGroups = computed(() => {
+  const groups = [
+    { key: 'search', title: '搜索与排序', types: ['lead.search.started', 'lead.search.completed', 'lead.sort.started', 'lead.sort.completed'] },
+    { key: 'video', title: '视频处理', types: ['lead.video.started', 'lead.video.opened', 'lead.video.completed', 'lead.video.failed'] },
+    { key: 'comments', title: '评论采集', types: ['lead.comments.opened', 'lead.comments.region_detected', 'lead.comments.collecting', 'lead.comments.collected'] },
+    { key: 'match', title: '评论匹配', types: ['lead.comment.matched', 'lead.comment.match_skipped'] },
+    { key: 'engagement', title: '线索触达', types: ['lead.engagement.started', 'lead.engagement.completed', 'lead.engagement.skipped'] },
+    { key: 'summary', title: '任务收尾', types: ['lead.run.summary', 'lead.run.failed', 'run_snapshot', 'done'] },
+  ]
+  return groups
+    .map((group) => {
+      const items = timelineItems.value.filter(item => group.types.includes(item.type))
+      const latest = items.at(-1)
+      return {
+        key: group.key,
+        title: group.title,
+        count: items.length,
+        tone: latest?.tone ?? 'neutral',
+        summary: latest?.summary || latest?.title || '等待执行',
+      }
+    })
+    .filter(group => group.count > 0)
+})
+
+const currentStageText = computed(() => {
+  if (!timelineItems.value.length) return '等待第一条进展'
+  const latest = progressGroups.value.at(-1)
+  return latest ? `${latest.title}：${latest.summary}` : `${timelineItems.value.length} 条进展`
 })
 
 const connectionTone = computed(() => {
@@ -686,7 +738,30 @@ function statusLabel(status?: string | null): string {
   if (normalized === 'failed') return '失败'
   if (normalized === 'aborted' || normalized === 'cancelled' || normalized === 'canceled') return '已停止'
   if (normalized === 'sent') return '已发送'
+  if (normalized === 'pending') return '待处理'
   return status || '-'
+}
+
+function reasonLabel(value?: string | null): string {
+  const normalized = String(value || '').trim()
+  if (!normalized) return '-'
+  const labels: Record<string, string> = {
+    END_OF_LIST: '已到达评论列表底部',
+    END_OF_LIST_TOP_LEVEL: '一级评论已触底',
+    END_OF_LIST_DECLARED_MISMATCH: '已触底但声明数与采集数不一致',
+    COMMENT_COLLECTION_INCOMPLETE: '评论采集未完整',
+    COMMENT_PANEL_LOST_DURING_SCROLL: '滚动时评论面板丢失',
+    COMMENT_PANEL_LOST_AFTER_SCROLL: '滚动后评论面板丢失',
+    COMMENT_EXTRACTION_NOT_ADVANCING: '评论提取没有继续推进',
+    COMMENTS_TRIGGER_NOT_FOUND: '未找到评论入口',
+    DM_BUTTON_NOT_FOUND: '未找到私信入口',
+    DM_PAGE_NOT_CONFIRMED: '未确认进入私信页',
+    RUN_CANCELLED: '任务已取消',
+    VIDEO_FAILED: '视频处理失败',
+    ALL_VIDEOS_FAILED: '所有视频均失败',
+    DOUYIN_RUN_FAILED: '抖音获客任务失败',
+  }
+  return labels[normalized] ?? normalized
 }
 
 function severityFor(type: string): string {
@@ -735,7 +810,7 @@ function businessTitle(type: string): string {
 
 function eventSummary(type: string, payload: JsonRecord): string {
   const message = stringValue(payload.message)
-  if (message) return message
+  if (message) return reasonLabel(message)
   if (type === 'lead.comments.collected') {
     const comments = firstNumber(payload.commentsCollected, payload.commentsInPage, payload.newComments)
     const declared = firstNumber(payload.declaredCommentCount)
@@ -752,7 +827,7 @@ function eventSummary(type: string, payload: JsonRecord): string {
     return author ? `${author}：${sent}` : sent
   }
   if (type === 'lead.video.failed' || type === 'lead.run.failed') {
-    return stringValue(payload.failureCode) || stringValue(payload.errorCode) || stringValue(payload.reason) || '执行失败'
+    return reasonLabel(stringValue(payload.failureCode) || stringValue(payload.errorCode) || stringValue(payload.reason)) || '执行失败'
   }
   const title = stringValue(payload.title)
   if (title) return clip(title, 100)
@@ -771,7 +846,7 @@ function eventFields(type: string, payload: JsonRecord): Array<{ key: string; la
     .map(key => ({
       key,
       label: fieldLabel(key),
-      value: typeof payload[key] === 'object' ? JSON.stringify(payload[key]) : String(payload[key]),
+      value: fieldValue(key, payload[key]),
     }))
 }
 
@@ -792,6 +867,14 @@ function fieldLabel(key: string): string {
     failureCode: '失败代码',
   }
   return labels[key] ?? key
+}
+
+function fieldValue(key: string, value: unknown): string {
+  if (typeof value === 'object') return JSON.stringify(value)
+  if (key === 'status') return statusLabel(stringValue(value))
+  if (key === 'stopReason' || key === 'failureCode') return reasonLabel(stringValue(value))
+  if (key === 'sent') return value === true ? '是' : '否'
+  return String(value)
 }
 
 function formatTime(value: string | null | undefined, index: number): string {
@@ -815,6 +898,10 @@ function displayVideoNumber(videoNumberValue: unknown, videoIndexValue: unknown,
 function videoNumber(video: DouyinLeadRunVideoResult): string {
   const value = displayVideoNumber(video.videoNumber, video.index)
   return value == null ? '-' : String(value)
+}
+
+function videoReason(video: DouyinLeadRunVideoResult): string {
+  return reasonLabel(String(video.stopReason || video.failureCode || video.errorCode || ''))
 }
 </script>
 
@@ -1017,6 +1104,85 @@ button:disabled {
   margin-bottom: 5px;
   color: var(--mc-text-secondary);
   font-size: 12px;
+}
+
+.stage-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.stage-card {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--mc-border);
+  border-radius: 8px;
+  background: var(--mc-bg-container);
+  padding: 10px;
+}
+
+.stage-dot {
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: var(--mc-text-tertiary);
+}
+
+.stage-card.tone-running .stage-dot { background: var(--mc-primary); }
+.stage-card.tone-success .stage-dot { background: #16a34a; }
+.stage-card.tone-warning .stage-dot { background: #d97706; }
+.stage-card.tone-danger .stage-dot { background: #dc2626; }
+
+.stage-card__body {
+  min-width: 0;
+}
+
+.stage-card__line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.stage-card__line strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mc-text-primary);
+  font-size: 13px;
+}
+
+.stage-card__line span {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--mc-text-tertiary);
+  font-size: 12px;
+}
+
+.stage-card p {
+  margin: 6px 0 0;
+  color: var(--mc-text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.timeline-collapse {
+  margin-top: 14px;
+  border-top: 1px solid var(--mc-border);
+  padding-top: 10px;
+}
+
+.timeline-collapse summary {
+  cursor: pointer;
+  color: var(--mc-text-secondary);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .timeline-list {

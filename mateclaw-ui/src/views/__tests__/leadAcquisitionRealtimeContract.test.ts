@@ -29,5 +29,8 @@ describe('lead acquisition realtime execution contract', () => {
     expect(combined).toContain('lead.comments.collected')
     expect(combined).toContain('lead.comment.matched')
     expect(combined).toContain('lead.engagement.completed')
+    expect(combined).toContain('查看完整时间线')
+    expect(combined).toContain('评论匹配')
+    expect(combined).toContain('触达记录')
   })
 })

@@ -2,18 +2,18 @@
   <section class="douyin-detail">
     <header class="detail-header">
       <div class="detail-heading">
-        <span class="detail-kicker">Douyin Lead Acquisition</span>
+        <span class="detail-kicker">抖音获客</span>
         <h2>{{ heading }}</h2>
         <div class="detail-meta">
-          <span v-if="run?.status" class="status-pill" :class="runStatusClass">{{ titleCase(run.status) }}</span>
-          <span v-if="run?.taskId" class="meta-code">task {{ run.taskId }}</span>
-          <span v-if="run?.runId" class="meta-code">run {{ run.runId }}</span>
+          <span v-if="run?.status" class="status-pill" :class="runStatusClass">{{ statusLabel(run.status) }}</span>
+          <span v-if="run?.taskId" class="meta-code">子任务 {{ run.taskId }}</span>
+          <span v-if="run?.runId" class="meta-code">任务 {{ run.runId }}</span>
         </div>
       </div>
       <div class="detail-actions">
         <button class="action-button" :disabled="loading" @click="refresh">
           <el-icon :class="{ 'is-loading': loading }"><Refresh /></el-icon>
-          <span>Refresh</span>
+          <span>刷新</span>
         </button>
       </div>
     </header>
@@ -23,18 +23,18 @@
       <p>{{ loadError }}</p>
       <button class="action-button" @click="refresh">
         <el-icon><Refresh /></el-icon>
-        <span>Retry</span>
+        <span>重试</span>
       </button>
     </div>
 
     <div v-else-if="!run && loading" class="state-block">
       <span class="spinner" aria-hidden="true" />
-      <p>Loading Douyin lead run...</p>
+      <p>正在加载抖音获客任务...</p>
     </div>
 
     <div v-else-if="!run" class="state-block">
       <span class="state-mark state-mark--empty" aria-hidden="true" />
-      <p>Select a Douyin lead run to view its result.</p>
+      <p>请选择一个抖音获客任务查看结果。</p>
     </div>
 
     <template v-else>
@@ -91,10 +91,10 @@ const loadError = ref('')
 const relatedError = ref('')
 
 const heading = computed(() => {
-  if (run.value?.runId) return `Run ${run.value.runId}`
-  if (props.runId) return `Run ${props.runId}`
-  if (props.taskId) return `Task ${props.taskId}`
-  return 'Run Detail'
+  if (run.value?.runId) return `任务 ${run.value.runId}`
+  if (props.runId) return `任务 ${props.runId}`
+  if (props.taskId) return `子任务 ${props.taskId}`
+  return '任务详情'
 })
 
 const runStatusClass = computed(() => {
@@ -121,7 +121,7 @@ async function refresh() {
       ? await leadAcquisitionApi.getDouyinTask(taskTarget)
       : await leadAcquisitionApi.getDouyinRun(runTarget as string | number)
     const nextRun = unwrapApiData<DouyinLeadAcquisitionRunResponse | null>(response, null)
-    if (!nextRun) throw new Error('Douyin lead run was not returned.')
+    if (!nextRun) throw new Error('没有返回抖音获客任务。')
 
     run.value = normalizeRun(nextRun)
     comments.value = run.value.comments ?? []
@@ -159,7 +159,7 @@ async function loadRelated(taskId: string | number) {
     comments.value = run.value?.comments ?? []
     engagements.value = run.value?.engagements ?? []
     profiles.value = []
-    relatedError.value = `Related lead data could not be loaded: ${error instanceof Error ? error.message : String(error)}`
+    relatedError.value = `关联线索数据加载失败：${error instanceof Error ? error.message : String(error)}`
   } finally {
     relatedLoading.value = false
   }
@@ -182,12 +182,14 @@ function normalizeRun(value: DouyinLeadAcquisitionRunResponse): DouyinLeadAcquis
   }
 }
 
-function titleCase(value: string): string {
-  return value
-    .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+function statusLabel(value?: string | null): string {
+  const normalized = String(value || '').toLowerCase()
+  if (normalized === 'running') return '执行中'
+  if (normalized === 'created') return '已创建'
+  if (normalized === 'succeeded' || normalized === 'success' || normalized === 'completed') return '成功'
+  if (normalized === 'failed' || normalized === 'error') return '失败'
+  if (normalized === 'aborted' || normalized === 'cancelled' || normalized === 'canceled') return '已停止'
+  return value || '-'
 }
 
 watch(() => props.initialRun, (value) => {
