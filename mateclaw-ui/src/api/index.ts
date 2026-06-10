@@ -510,6 +510,9 @@ export interface DouyinLeadRunVideoResult {
   errorCode?: string | null
   errorMessage?: string | null
   commentsCollected?: number | null
+  declaredCommentCount?: number | null
+  remainingDeclaredComments?: number | null
+  collectionCoverage?: number | null
   matchedComments?: number | null
   engagementsCreated?: number | null
   [key: string]: unknown
@@ -521,6 +524,9 @@ export interface DouyinLeadRunSummary {
   succeededVideos: number
   failedVideos: number
   commentsCollected: number
+  declaredCommentCount?: number | null
+  remainingDeclaredComments?: number | null
+  collectionCoverage?: number | null
   matchedComments: number
   engagementsCreated: number
   videoResults?: DouyinLeadRunVideoResult[]
@@ -547,6 +553,9 @@ export interface DouyinLeadAcquisitionRunResponse {
   taskId: string | null
   status: string
   commentsCollected: number
+  declaredCommentCount?: number | null
+  remainingDeclaredComments?: number | null
+  collectionCoverage?: number | null
   matchedComments: number
   comments: DouyinLeadComment[]
   matches: DouyinLeadComment[]

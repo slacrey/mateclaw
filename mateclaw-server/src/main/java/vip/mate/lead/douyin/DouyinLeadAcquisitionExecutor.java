@@ -338,6 +338,7 @@ public class DouyinLeadAcquisitionExecutor {
         int succeeded = 0;
         int failed = 0;
         int comments = 0;
+        int declared = 0;
         int matches = 0;
         int engagements = 0;
         List<Map<String, Object>> videoResults = new ArrayList<>();
@@ -348,16 +349,21 @@ public class DouyinLeadAcquisitionExecutor {
                 failed++;
             }
             comments += video.commentsCollected();
+            declared += video.declaredCommentCount();
             matches += video.matches.size();
             engagements += video.engagements.size();
             videoResults.add(video.toPayload());
         }
+        int remainingDeclared = declared > 0 ? Math.max(0, declared - comments) : 0;
         return new DouyinLeadRunSummary(
                 requestedVideoLimit,
                 processed,
                 succeeded,
                 failed,
                 comments,
+                declared,
+                remainingDeclared,
+                declared > 0 ? Math.min(1.0d, comments / (double) declared) : 0.0d,
                 matches,
                 engagements,
                 videoResults);
@@ -379,6 +385,9 @@ public class DouyinLeadAcquisitionExecutor {
                 "succeededVideos", summary.succeededVideos(),
                 "failedVideos", summary.failedVideos(),
                 "commentsCollected", summary.commentsCollected(),
+                "declaredCommentCount", summary.declaredCommentCount(),
+                "remainingDeclaredComments", summary.remainingDeclaredComments(),
+                "collectionCoverage", summary.collectionCoverage(),
                 "matchedComments", summary.matchedComments(),
                 "engagementsCreated", summary.engagementsCreated(),
                 "videoResults", summary.videoResults());
@@ -416,6 +425,10 @@ public class DouyinLeadAcquisitionExecutor {
             return collection == null ? 0 : collection.comments().size();
         }
 
+        private int declaredCommentCount() {
+            return collection == null ? 0 : collection.declaredCommentCount();
+        }
+
         private Map<String, Object> toPayload() {
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("videoIndex", index);
@@ -425,7 +438,13 @@ public class DouyinLeadAcquisitionExecutor {
             out.put("title", videoTitle);
             out.put("target", videoTarget);
             out.put("commentsCollected", commentsCollected());
-            out.put("declaredCommentCount", collection == null ? 0 : collection.declaredCommentCount());
+            out.put("declaredCommentCount", declaredCommentCount());
+            out.put("remainingDeclaredComments", declaredCommentCount() > 0
+                    ? Math.max(0, declaredCommentCount() - commentsCollected())
+                    : 0);
+            out.put("collectionCoverage", declaredCommentCount() > 0
+                    ? Math.min(1.0d, commentsCollected() / (double) declaredCommentCount())
+                    : 0.0d);
             out.put("collectionComplete", collection != null && collection.complete());
             out.put("stopReason", collection == null ? "" : collection.stopReason());
             out.put("matchedComments", matches.size());

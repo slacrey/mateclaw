@@ -56,11 +56,21 @@ public class DouyinLeadAcquisitionQueryService {
         List<LeadCommentDTO> matches = comments.stream().filter(LeadCommentDTO::matched).toList();
         List<LeadEngagementDTO> engagements = taskId == null ? List.of() : engagements(taskId);
         JsonNode summary = parseSummary(task);
+        int commentsCollected = summary.path("commentsCollected").asInt(comments.size());
+        int declaredCommentCount = summary.path("declaredCommentCount")
+                .asInt(sumVideoResultInt(summary, "declaredCommentCount"));
+        int remainingDeclaredComments = summary.path("remainingDeclaredComments").asInt(
+                declaredCommentCount > 0 ? Math.max(0, declaredCommentCount - commentsCollected) : 0);
         return new DouyinLeadAcquisitionRunResponse(
                 String.valueOf(run.getId()),
                 taskId == null ? null : String.valueOf(taskId),
                 run.getStatus(),
-                summary.path("commentsCollected").asInt(comments.size()),
+                commentsCollected,
+                declaredCommentCount,
+                remainingDeclaredComments,
+                summary.path("collectionCoverage").asDouble(declaredCommentCount > 0
+                        ? Math.min(1.0d, commentsCollected / (double) declaredCommentCount)
+                        : 0.0d),
                 summary.path("matchedComments").asInt(matches.size()),
                 summary.path("requestedVideoLimit").asInt(0),
                 summary.path("processedVideos").asInt(0),
@@ -139,5 +149,17 @@ public class DouyinLeadAcquisitionQueryService {
         } catch (Exception ignored) {
             return objectMapper.createObjectNode();
         }
+    }
+
+    private int sumVideoResultInt(JsonNode summary, String fieldName) {
+        JsonNode videoResults = summary.path("videoResults");
+        if (!videoResults.isArray()) {
+            return 0;
+        }
+        int total = 0;
+        for (JsonNode video : videoResults) {
+            total += Math.max(0, video.path(fieldName).asInt(0));
+        }
+        return total;
     }
 }

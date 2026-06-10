@@ -16,9 +16,12 @@ import vip.mate.lead.douyin.api.DouyinLeadAcquisitionRunResponse;
 import vip.mate.lead.douyin.api.RunTimelineEventDTO;
 import vip.mate.lead.douyin.model.DouyinLeadAcquisitionInput;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Component
 @RequiredArgsConstructor
@@ -105,37 +108,52 @@ public class DouyinLeadAcquisitionTool {
     }
 
     private Map<String, Object> reportingGuidance(DouyinLeadAcquisitionRunResponse result) {
-        JsonNode collected = latestEventPayload(result, "lead.comments.collected");
+        List<JsonNode> collectedEvents = eventPayloads(result, "lead.comments.collected");
         Map<String, Object> out = new LinkedHashMap<>();
-        if (collected == null || collected.isMissingNode()) {
+        if (collectedEvents.isEmpty()) {
             out.put("collectionStatus", "not_reported");
             out.put("allowedSummary", "No comment collection event was returned; do not report collection totals.");
             out.put("unsupportedConclusions", unsupportedConclusions());
             return out;
         }
-        boolean complete = collected.path("complete").asBoolean(false);
-        int declared = collected.path("declaredCommentCount").asInt(0);
-        int collectedCount = collected.path("commentsCollected").asInt(0);
+        JsonNode collected = collectedEvents.getLast();
+        JsonNode runSummary = latestEventPayload(result, "lead.run.summary");
+        boolean multiVideo = collectedEvents.size() > 1
+                || runSummary != null && runSummary.path("processedVideos").asInt(0) > 1;
+        boolean complete = collectedEvents.stream().allMatch(event -> event.path("complete").asBoolean(false));
+        int declared = aggregateCount(runSummary, collectedEvents, "declaredCommentCount");
+        int collectedCount = aggregateCount(runSummary, collectedEvents, "commentsCollected");
         String stopReason = collected.path("stopReason").asText("");
         out.put("collectionStatus", complete ? "complete" : "partial_unverified");
         out.put("complete", complete);
+        out.put("multiVideo", multiVideo);
+        out.put("collectionEventCount", collectedEvents.size());
         out.put("declaredCommentCount", declared);
         out.put("commentsCollected", collectedCount);
-        out.put("collectionCoverage", collected.path("collectionCoverage").asDouble(0.0d));
+        out.put("collectionCoverage", aggregateCoverage(runSummary, declared, collectedCount));
+        out.put("remainingDeclaredComments", declared > 0 ? Math.max(0, declared - collectedCount) : 0);
         out.put("stopReason", stopReason);
-        out.put("effectiveScrolls", collected.path("effectiveScrolls").asInt(0));
-        out.put("advancedWindows", collected.path("advancedWindows").asInt(0));
-        out.put("totalNewItems", collected.path("totalNewItems").asInt(0));
-        out.put("stableNoNewWindows", collected.path("stableNoNewWindows").asInt(0));
-        boolean bottomConfirmed = stopReason != null && stopReason.startsWith("END_OF_LIST");
-        boolean topLevelComplete = collected.path("topLevelCollectionComplete").asBoolean(false);
-        boolean declaredTotalMayIncludeReplies = collected.path("declaredTotalMayIncludeReplies").asBoolean(false);
+        out.put("stopReasons", stopReasons(collectedEvents));
+        out.put("effectiveScrolls", sumEventInt(collectedEvents, "effectiveScrolls"));
+        out.put("advancedWindows", sumEventInt(collectedEvents, "advancedWindows"));
+        out.put("totalNewItems", sumEventInt(collectedEvents, "totalNewItems"));
+        out.put("stableNoNewWindows", sumEventInt(collectedEvents, "stableNoNewWindows"));
+        boolean bottomConfirmed = collectedEvents.stream()
+                .allMatch(event -> isEndOfListStop(event.path("stopReason").asText("")));
+        boolean topLevelComplete = collectedEvents.stream()
+                .allMatch(event -> event.path("topLevelCollectionComplete").asBoolean(false)
+                        || event.path("complete").asBoolean(false));
+        boolean declaredTotalMayIncludeReplies = collectedEvents.stream()
+                .anyMatch(event -> event.path("declaredTotalMayIncludeReplies").asBoolean(false));
         out.put("topLevelCollectionComplete", topLevelComplete);
-        out.put("declaredCountMismatch", collected.path("declaredCountMismatch").asBoolean(false));
+        out.put("declaredCountMismatch", declared > 0 && collectedCount < declared);
         out.put("declaredTotalMayIncludeReplies", declaredTotalMayIncludeReplies);
         out.put("replyExpansionMode", collected.path("replyExpansionMode").asText(""));
         out.put("bottomConfirmed", bottomConfirmed);
-        out.put("allowedSummary", complete && declaredTotalMayIncludeReplies
+        out.put("perVideoCollections", perVideoCollections(collectedEvents));
+        out.put("allowedSummary", multiVideo
+                ? "This is a multi-video V2 run. Report aggregate declaredCommentCount and commentsCollected from reportingGuidance, not the latest per-video lead.comments.collected event. Use perVideoCollections only for per-video rows. If declared and collected counts differ while topLevelCollectionComplete=true, state that V1 reply expansion is disabled and declared totals may include collapsed replies."
+                : complete && declaredTotalMayIncludeReplies
                 ? "The comment list bottom marker was observed and V1 completed top-level DOM comment collection. The declared total may include collapsed replies because reply expansion is disabled; report declaredCommentCount, commentsCollected, stopReason, and that replies were not expanded."
                 : complete
                 ? "Comment collection reached a defined completion condition. Report the exact stopReason."
@@ -144,6 +162,60 @@ public class DouyinLeadAcquisitionTool {
                 : "Automatic collection is incomplete. Report only the observed counts and stopReason; say the workflow did not confirm the bottom of the comment list.");
         out.put("unsupportedConclusions", unsupportedConclusions());
         return out;
+    }
+
+    private int aggregateCount(JsonNode runSummary, List<JsonNode> collectedEvents, String fieldName) {
+        if (runSummary != null && runSummary.has(fieldName)) {
+            return Math.max(0, runSummary.path(fieldName).asInt(0));
+        }
+        return sumEventInt(collectedEvents, fieldName);
+    }
+
+    private double aggregateCoverage(JsonNode runSummary, int declared, int collected) {
+        if (runSummary != null && runSummary.has("collectionCoverage")) {
+            return runSummary.path("collectionCoverage").asDouble(0.0d);
+        }
+        return declared > 0 ? Math.min(1.0d, collected / (double) declared) : 0.0d;
+    }
+
+    private int sumEventInt(List<JsonNode> events, String fieldName) {
+        int total = 0;
+        for (JsonNode event : events) {
+            total += Math.max(0, event.path(fieldName).asInt(0));
+        }
+        return total;
+    }
+
+    private List<String> stopReasons(List<JsonNode> events) {
+        Set<String> reasons = new LinkedHashSet<>();
+        for (JsonNode event : events) {
+            String reason = event.path("stopReason").asText("");
+            if (!reason.isBlank()) {
+                reasons.add(reason);
+            }
+        }
+        return List.copyOf(reasons);
+    }
+
+    private List<Map<String, Object>> perVideoCollections(List<JsonNode> events) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (JsonNode event : events) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("videoIndex", event.path("videoIndex").asInt(0));
+            row.put("commentsCollected", event.path("commentsCollected").asInt(0));
+            row.put("declaredCommentCount", event.path("declaredCommentCount").asInt(0));
+            row.put("collectionCoverage", event.path("collectionCoverage").asDouble(0.0d));
+            row.put("complete", event.path("complete").asBoolean(false));
+            row.put("stopReason", event.path("stopReason").asText(""));
+            row.put("topLevelCollectionComplete", event.path("topLevelCollectionComplete").asBoolean(false));
+            row.put("declaredTotalMayIncludeReplies", event.path("declaredTotalMayIncludeReplies").asBoolean(false));
+            out.add(row);
+        }
+        return out;
+    }
+
+    private boolean isEndOfListStop(String stopReason) {
+        return stopReason != null && stopReason.startsWith("END_OF_LIST");
     }
 
     private List<String> unsupportedConclusions() {
@@ -156,17 +228,22 @@ public class DouyinLeadAcquisitionTool {
     }
 
     private JsonNode latestEventPayload(DouyinLeadAcquisitionRunResponse result, String type) {
+        List<JsonNode> payloads = eventPayloads(result, type);
+        return payloads.isEmpty() ? null : payloads.getLast();
+    }
+
+    private List<JsonNode> eventPayloads(DouyinLeadAcquisitionRunResponse result, String type) {
         if (result == null || result.events() == null) {
-            return null;
+            return List.of();
         }
-        JsonNode latest = null;
+        List<JsonNode> payloads = new ArrayList<>();
         for (RunTimelineEventDTO event : result.events()) {
             if (event == null || !type.equals(event.type())) {
                 continue;
             }
-            latest = parsePayload(event.payloadJson());
+            payloads.add(parsePayload(event.payloadJson()));
         }
-        return latest;
+        return payloads;
     }
 
     private JsonNode parsePayload(String payloadJson) {

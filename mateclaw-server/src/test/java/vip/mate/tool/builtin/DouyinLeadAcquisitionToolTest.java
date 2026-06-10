@@ -137,4 +137,102 @@ class DouyinLeadAcquisitionToolTest {
                 .contains("top-level DOM comment collection")
                 .contains("reply expansion is disabled");
     }
+
+    @Test
+    void multiVideoGuidanceAggregatesAllCommentCollectionEvents() throws Exception {
+        DouyinLeadAcquisitionRunService runService = mock(DouyinLeadAcquisitionRunService.class);
+        DouyinLeadAcquisitionQueryService queryService = mock(DouyinLeadAcquisitionQueryService.class);
+        DouyinLeadAcquisitionTool tool = new DouyinLeadAcquisitionTool(runService, queryService, mapper);
+        var response = new DouyinLeadAcquisitionRunResponse(
+                "1",
+                "2",
+                "succeeded",
+                100,
+                1,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(
+                        new RunTimelineEventDTO(
+                                "3",
+                                null,
+                                "lead.comments.collected",
+                                "info",
+                                """
+                                {
+                                  "videoIndex": 0,
+                                  "commentsCollected": 65,
+                                  "declaredCommentCount": 90,
+                                  "complete": true,
+                                  "stopReason": "END_OF_LIST_TOP_LEVEL",
+                                  "collectionCoverage": 0.7222,
+                                  "topLevelCollectionComplete": true,
+                                  "declaredCountMismatch": true,
+                                  "declaredTotalMayIncludeReplies": true,
+                                  "replyExpansionMode": "disabled_v1_quality_first"
+                                }
+                                """),
+                        new RunTimelineEventDTO(
+                                "4",
+                                null,
+                                "lead.comments.collected",
+                                "info",
+                                """
+                                {
+                                  "videoIndex": 1,
+                                  "commentsCollected": 35,
+                                  "declaredCommentCount": 43,
+                                  "complete": true,
+                                  "stopReason": "END_OF_LIST_TOP_LEVEL",
+                                  "collectionCoverage": 0.814,
+                                  "topLevelCollectionComplete": true,
+                                  "declaredCountMismatch": true,
+                                  "declaredTotalMayIncludeReplies": true,
+                                  "replyExpansionMode": "disabled_v1_quality_first"
+                                }
+                                """),
+                        new RunTimelineEventDTO(
+                                "5",
+                                null,
+                                "lead.run.summary",
+                                "info",
+                                """
+                                {
+                                  "requestedVideoLimit": 2,
+                                  "processedVideos": 2,
+                                  "succeededVideos": 2,
+                                  "failedVideos": 0,
+                                  "commentsCollected": 100,
+                                  "declaredCommentCount": 133,
+                                  "remainingDeclaredComments": 33,
+                                  "collectionCoverage": 0.7518796992,
+                                  "matchedComments": 1,
+                                  "engagementsCreated": 1
+                                }
+                                """)));
+        when(runService.runSync(eq(1L), eq(1L), any(DouyinLeadAcquisitionInput.class), eq(queryService)))
+                .thenReturn(response);
+
+        String raw = tool.douyinLeadAcquisitionRun(
+                "易企秀",
+                "most_liked",
+                2,
+                "慢出心脏病",
+                "你好",
+                true,
+                true,
+                null);
+
+        var guidance = mapper.readTree(raw).path("reportingGuidance");
+        assertThat(guidance.path("multiVideo").asBoolean()).isTrue();
+        assertThat(guidance.path("declaredCommentCount").asInt()).isEqualTo(133);
+        assertThat(guidance.path("commentsCollected").asInt()).isEqualTo(100);
+        assertThat(guidance.path("remainingDeclaredComments").asInt()).isEqualTo(33);
+        assertThat(guidance.path("perVideoCollections")).hasSize(2);
+        assertThat(guidance.path("perVideoCollections").get(1).path("declaredCommentCount").asInt())
+                .isEqualTo(43);
+        assertThat(guidance.path("allowedSummary").asText())
+                .contains("multi-video V2 run")
+                .contains("not the latest per-video");
+    }
 }

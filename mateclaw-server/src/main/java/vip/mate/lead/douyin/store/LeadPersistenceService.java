@@ -149,6 +149,13 @@ public class LeadPersistenceService {
                 collection != null && collection.complete() ? 1 : 0,
                 collection == null || collection.complete() ? 0 : 1,
                 collection == null ? 0 : collection.comments().size(),
+                collection == null ? 0 : collection.declaredCommentCount(),
+                collection == null || collection.declaredCommentCount() <= 0
+                        ? 0
+                        : Math.max(0, collection.declaredCommentCount() - collection.comments().size()),
+                collection == null || collection.declaredCommentCount() <= 0
+                        ? 0.0d
+                        : Math.min(1.0d, collection.comments().size() / (double) collection.declaredCommentCount()),
                 matches == null ? 0 : matches.size(),
                 engagements == null ? 0 : engagements.size(),
                 List.of(Map.of(

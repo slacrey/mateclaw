@@ -7,6 +7,9 @@ public record DouyinLeadAcquisitionRunResponse(
         String taskId,
         String status,
         int commentsCollected,
+        int declaredCommentCount,
+        int remainingDeclaredComments,
+        double collectionCoverage,
         int matchedComments,
         int requestedVideoLimit,
         int processedVideos,
@@ -27,7 +30,7 @@ public record DouyinLeadAcquisitionRunResponse(
 
     public static DouyinLeadAcquisitionRunResponse started(Long runId, Long taskId, String status) {
         return new DouyinLeadAcquisitionRunResponse(
-                id(runId), id(taskId), status, 0, 0, 0, 0, 0, 0, 0,
+                id(runId), id(taskId), status, 0, 0, 0, 0.0d, 0, 0, 0, 0, 0, 0,
                 List.of(), List.of(), List.of(), List.of());
     }
 
@@ -42,7 +45,7 @@ public record DouyinLeadAcquisitionRunResponse(
             List<LeadEngagementDTO> engagements,
             List<RunTimelineEventDTO> events
     ) {
-        this(runId, taskId, status, commentsCollected, matchedComments, 0, 0, 0, 0, engagements == null ? 0 : engagements.size(),
+        this(runId, taskId, status, commentsCollected, 0, 0, 0.0d, matchedComments, 0, 0, 0, 0, engagements == null ? 0 : engagements.size(),
                 comments, matches, engagements, events);
     }
 
