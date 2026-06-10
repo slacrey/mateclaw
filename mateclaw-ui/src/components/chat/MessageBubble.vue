@@ -1370,7 +1370,7 @@ watch(isGenerating, (generating) => {
 }
 
 .user-bubble {
-  background: var(--mc-user-bubble-bg, #D97757);
+  background: var(--mc-user-bubble-bg, linear-gradient(135deg, #2447CC, #3455F4));
   color: var(--mc-user-bubble-color, white);
   border-radius: 18px 4px 18px 18px;
 }
@@ -1383,7 +1383,7 @@ watch(isGenerating, (generating) => {
 .thinking-toggle {
   width: 100%;
   border: 0;
-  background: var(--mc-thinking-bg, rgba(217, 119, 87, 0.06));
+  background: var(--mc-thinking-bg, rgba(71, 108, 255, 0.08));
   border-radius: 10px;
   padding: 10px 14px;
   display: flex;
@@ -1396,7 +1396,7 @@ watch(isGenerating, (generating) => {
 }
 
 .thinking-toggle:hover {
-  background: var(--mc-thinking-hover, rgba(217, 119, 87, 0.1));
+  background: var(--mc-thinking-hover, rgba(71, 108, 255, 0.12));
 }
 
 .thinking-toggle__indicator {
@@ -1406,8 +1406,8 @@ watch(isGenerating, (generating) => {
   align-items: center;
   justify-content: center;
   border-radius: 6px;
-  background: var(--mc-thinking-icon-bg, rgba(217, 119, 87, 0.12));
-  color: var(--mc-primary, #D97757);
+  background: var(--mc-thinking-icon-bg, rgba(71, 108, 255, 0.12));
+  color: var(--mc-primary, #476CFF);
   flex-shrink: 0;
   transition: all 0.3s ease;
 }
@@ -1471,7 +1471,7 @@ watch(isGenerating, (generating) => {
   color: var(--mc-text-secondary, #64748b);
   font-size: 13px;
   line-height: 1.65;
-  border-left: 2px solid var(--mc-thinking-border, rgba(217, 119, 87, 0.2));
+  border-left: 2px solid var(--mc-thinking-border, rgba(71, 108, 255, 0.22));
   margin-left: 12px;
   margin-top: 8px;
 }
@@ -1488,7 +1488,7 @@ watch(isGenerating, (generating) => {
 .execution-toggle {
   width: 100%;
   border: 0;
-  background: var(--mc-thinking-bg, rgba(217, 119, 87, 0.06));
+  background: var(--mc-thinking-bg, rgba(71, 108, 255, 0.08));
   border-radius: 10px;
   padding: 8px 14px;
   display: flex;
@@ -1502,7 +1502,7 @@ watch(isGenerating, (generating) => {
 }
 
 .execution-toggle:hover {
-  background: var(--mc-thinking-hover, rgba(217, 119, 87, 0.1));
+  background: var(--mc-thinking-hover, rgba(71, 108, 255, 0.12));
 }
 
 .execution-toggle__indicator {
@@ -1512,8 +1512,8 @@ watch(isGenerating, (generating) => {
   align-items: center;
   justify-content: center;
   border-radius: 6px;
-  background: var(--mc-thinking-icon-bg, rgba(217, 119, 87, 0.12));
-  color: var(--mc-primary, #D97757);
+  background: var(--mc-thinking-icon-bg, rgba(71, 108, 255, 0.12));
+  color: var(--mc-primary, #476CFF);
   flex-shrink: 0;
 }
 
@@ -1546,7 +1546,7 @@ watch(isGenerating, (generating) => {
 .execution-content {
   padding: 10px 14px 6px;
   margin-top: 8px;
-  border-left: 2px solid rgba(217, 119, 87, 0.2);
+  border-left: 2px solid var(--mc-thinking-border, rgba(71, 108, 255, 0.22));
   margin-left: 12px;
 }
 
@@ -1567,7 +1567,7 @@ watch(isGenerating, (generating) => {
 }
 
 .tool-call--running {
-  background: rgba(217, 119, 87, 0.06);
+  background: rgba(71, 108, 255, 0.08);
 }
 
 .tool-call--awaiting {
@@ -1759,11 +1759,11 @@ watch(isGenerating, (generating) => {
 
 .action-routing {
   font-size: 11px;
-  color: var(--mc-primary, #d96d46);
+  color: var(--mc-primary, #476CFF);
   margin-left: 4px;
   padding: 1px 6px;
   border-radius: 4px;
-  background: var(--mc-primary-bg, rgba(217, 109, 70, 0.1));
+  background: var(--mc-primary-bg, rgba(71, 108, 255, 0.10));
   font-family: var(--mc-mono-font, ui-monospace, "SF Mono", Menlo, monospace);
   user-select: text;
   white-space: nowrap;
@@ -2218,7 +2218,7 @@ watch(isGenerating, (generating) => {
 .markdown-body :deep(blockquote) {
   margin: 14px 0;
   padding: 12px 16px;
-  border-left: 4px solid var(--mc-primary, #D97757);
+  border-left: 4px solid var(--mc-primary, #476CFF);
   background: var(--mc-bg-elevated, #f8fafc);
   border-radius: 0 8px 8px 0;
   color: var(--mc-text-secondary, #64748b);
@@ -2251,14 +2251,14 @@ watch(isGenerating, (generating) => {
 }
 
 .markdown-body :deep(a) {
-  color: var(--mc-primary, #D97757);
+  color: var(--mc-primary, #476CFF);
   text-decoration: none;
   border-bottom: 1px solid transparent;
   transition: border-color 0.15s ease;
 }
 
 .markdown-body :deep(a:hover) {
-  border-bottom-color: var(--mc-primary, #D97757);
+  border-bottom-color: var(--mc-primary, #476CFF);
 }
 
 .user-bubble .markdown-body :deep(a) {

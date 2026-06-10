@@ -3,6 +3,16 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const css = readFileSync(new URL('../main.css', import.meta.url), 'utf8')
+const chatSurfaceFiles = [
+  '../../views/ChatConsole.vue',
+  '../../components/chat/ConversationSidebar.vue',
+  '../../components/chat/ChatInput.vue',
+  '../../components/chat/MessageBubble.vue',
+] as const
+
+const chatSurfaceSource = chatSurfaceFiles
+  .map((file) => readFileSync(new URL(file, import.meta.url), 'utf8'))
+  .join('\n')
 
 describe('lightfield theme tokens', () => {
   it('uses the approved cold-blue brand palette instead of the old warm palette', () => {
@@ -26,5 +36,12 @@ describe('lightfield theme tokens', () => {
     expect(css).toContain('--mc-lightfield-grid')
     expect(css).toContain('--mc-sidebar-bg: rgba(8, 22, 66, 0.88)')
     expect(css).toContain('--mc-sidebar-active: linear-gradient(135deg, #476CFF, #6E8BFF)')
+  })
+
+  it('keeps chat console surfaces on cold lightfield fallbacks', () => {
+    expect(chatSurfaceSource).not.toMatch(/217,\s*(?:109|119),\s*(?:70|87)/)
+    expect(chatSurfaceSource).not.toMatch(/#(?:D97757|d97757|d96d46|bb4f27)\b/)
+    expect(chatSurfaceSource).not.toMatch(/border(?:-[^:]+)?:\s*var\(--mc-user-bubble-bg/)
+    expect(chatSurfaceSource).not.toMatch(/color:\s*var\(--mc-user-bubble-bg/)
   })
 })
