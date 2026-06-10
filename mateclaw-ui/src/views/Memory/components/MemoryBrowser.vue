@@ -50,6 +50,10 @@ const files = ref<FileInfo[]>([])
 const currentFile = ref('')
 const sections = ref<MemorySectionData[]>([])
 const loading = ref(false)
+const markerOpen = '<' + '!--'
+const markerClose = '--' + '>'
+const userEditedMarkerStart = `${markerOpen} user-edited`
+const userEditedMarkerLine = new RegExp(`^[ \\t]*${userEditedMarkerStart}:.*${markerClose}[ \\t]*$`, 'gm')
 
 watch(() => props.agentId, () => { loadFileList() }, { immediate: true })
 
@@ -92,8 +96,8 @@ function parseSections(content: string): MemorySectionData[] {
     if (match) {
       const heading = match[1].trim()
       const rawBody = match[2].trim()
-      const userEdited = rawBody.includes('\x3C!-- user-edited')
-      // Strip the hidden marker from the display body — it is metadata, and
+      const userEdited = rawBody.includes(userEditedMarkerStart)
+      // Strip the hidden marker from the display body; it is metadata, and
       // since renderMarkdown escapes HTML it would otherwise show as raw text.
       result.push({ heading, body: stripMarker(rawBody), userEdited })
     } else if (part.trim() && result.length === 0) {
@@ -107,7 +111,7 @@ function parseSections(content: string): MemorySectionData[] {
 // Strip the hidden user-edited marker so it never shows up as raw text in the
 // editor (and never accumulates when a section is edited repeatedly).
 function stripMarker(body: string): string {
-  return body.replace(/^[ \t]*\x3C!-- user-edited:.*--\x3E[ \t]*$/gm, '').trim()
+  return body.replace(userEditedMarkerLine, '').trim()
 }
 
 /**

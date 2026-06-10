@@ -872,6 +872,10 @@ export interface ProviderInfo {
   cooldownRemainingMs?: number
   /** RFC-074: whether the user has explicitly opted this provider into the dropdown. */
   enabled?: boolean
+  quotaLimitTokens?: number
+  quotaUsedTokens?: number
+  quotaRemainingTokens?: number
+  quotaExhausted?: boolean
 
   // Issue #81: derived liveness fields powering the chat-console popup state machine.
   /** CONFIGURED / MISSING / NOT_REQUIRED / OAUTH_PENDING. */

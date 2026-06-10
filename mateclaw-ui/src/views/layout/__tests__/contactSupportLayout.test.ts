@@ -18,3 +18,12 @@ describe('contact support sidebar entry', () => {
     expect(en).toContain('Scan the QR code')
   })
 })
+
+describe('account expiry placement', () => {
+  it('shows account expiry in the logo metadata slot instead of the package version', () => {
+    expect(layout).toContain('class="logo-expiry"')
+    expect(layout).toContain('{{ accountExpiryText }}')
+    expect(layout).not.toContain('logo-version')
+    expect(layout).not.toContain('appVersion')
+  })
+})

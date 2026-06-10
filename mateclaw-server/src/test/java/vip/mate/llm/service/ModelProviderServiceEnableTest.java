@@ -9,6 +9,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationEventPublisher;
 import vip.mate.exception.MateClawException;
 import vip.mate.llm.anthropic.oauth.ClaudeCodeOAuthService;
+import vip.mate.llm.config.DefaultProviderKeyProperties;
 import vip.mate.llm.event.ModelConfigChangedEvent;
 import vip.mate.llm.failover.AvailableProviderPool;
 import vip.mate.llm.failover.ProviderHealthProperties;
@@ -75,7 +76,8 @@ class ModelProviderServiceEnableTest {
         when(initProbeProvider.getIfAvailable()).thenReturn(initProbe);
 
         service = new ModelProviderService(providerMapper, modelConfigService, eventPublisher,
-                claudeCodeOAuthProvider, pool, healthTracker, initProbeProvider);
+                claudeCodeOAuthProvider, pool, healthTracker, new DefaultProviderKeyProperties(),
+                mock(ProviderTokenQuotaService.class), initProbeProvider);
     }
 
     @Test

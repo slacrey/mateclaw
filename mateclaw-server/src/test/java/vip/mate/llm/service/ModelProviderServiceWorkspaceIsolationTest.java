@@ -14,14 +14,20 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 import vip.mate.llm.anthropic.oauth.ClaudeCodeOAuthService;
+import vip.mate.llm.config.DefaultProviderKeyProperties;
 import vip.mate.llm.failover.AvailableProviderPool;
 import vip.mate.llm.failover.ProviderHealthProperties;
 import vip.mate.llm.failover.ProviderHealthTracker;
 import vip.mate.llm.failover.ProviderInitProbe;
 import vip.mate.llm.model.ModelProviderEntity;
+import vip.mate.llm.model.ProviderInfoDTO;
+import vip.mate.llm.model.ProviderTokenQuotaDTO;
 import vip.mate.llm.model.ProviderConfigRequest;
 import vip.mate.llm.repository.ModelProviderMapper;
 
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
@@ -31,6 +37,7 @@ class ModelProviderServiceWorkspaceIsolationTest {
     private ModelProviderMapper providerMapper;
     private ModelConfigService modelConfigService;
     private ApplicationEventPublisher eventPublisher;
+    private ProviderTokenQuotaService quotaService;
     private ModelProviderService service;
 
     @BeforeAll
@@ -46,6 +53,7 @@ class ModelProviderServiceWorkspaceIsolationTest {
         providerMapper = mock(ModelProviderMapper.class);
         modelConfigService = mock(ModelConfigService.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
+        quotaService = mock(ProviderTokenQuotaService.class);
         ObjectProvider<ClaudeCodeOAuthService> claudeCodeOAuthProvider = mock(ObjectProvider.class);
         when(claudeCodeOAuthProvider.getIfAvailable()).thenReturn(null);
         ObjectProvider<ProviderInitProbe> initProbeProvider = mock(ObjectProvider.class);
@@ -58,6 +66,8 @@ class ModelProviderServiceWorkspaceIsolationTest {
                 claudeCodeOAuthProvider,
                 new AvailableProviderPool(),
                 new ProviderHealthTracker(new ProviderHealthProperties()),
+                defaultProviderKeys(),
+                quotaService,
                 initProbeProvider);
     }
 
@@ -99,6 +109,55 @@ class ModelProviderServiceWorkspaceIsolationTest {
         verify(providerMapper).updateById(any(ModelProviderEntity.class));
     }
 
+    @Test
+    void seedWorkspaceModelsInjectsConfiguredDefaultKeysForNewRegistrations() {
+        when(providerMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(List.of())
+                .thenReturn(List.of(
+                        provider("dashscope", 1L, ""),
+                        provider("deepseek", 1L, ""),
+                        provider("openai", 1L, "sk-template")));
+
+        service.seedWorkspaceModels(20L);
+
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<ModelProviderEntity> captor =
+                org.mockito.ArgumentCaptor.forClass(ModelProviderEntity.class);
+        verify(providerMapper, times(3)).insert(captor.capture());
+        List<ModelProviderEntity> copies = captor.getAllValues();
+
+        ModelProviderEntity dashscope = copyByProvider(copies, "dashscope");
+        assertEquals(20L, dashscope.getWorkspaceId());
+        assertEquals("sk-test-dashscope-default", dashscope.getApiKey());
+        assertTrue(dashscope.getEnabled());
+
+        ModelProviderEntity deepseek = copyByProvider(copies, "deepseek");
+        assertEquals(20L, deepseek.getWorkspaceId());
+        assertEquals("sk-test-deepseek-default", deepseek.getApiKey());
+        assertTrue(deepseek.getEnabled());
+
+        ModelProviderEntity openai = copyByProvider(copies, "openai");
+        assertEquals("", openai.getApiKey());
+        verify(quotaService).ensureDefaultQuotas(20L);
+    }
+
+    @Test
+    void listProvidersIncludesQuotaFieldsForManagedProviders() {
+        withWorkspace(20L);
+        when(providerMapper.selectList(any(LambdaQueryWrapper.class)))
+                .thenReturn(List.of(provider("dashscope", 20L, "sk-test")));
+        when(modelConfigService.listModels()).thenReturn(List.of());
+        when(quotaService.getQuota(20L, "dashscope"))
+                .thenReturn(new ProviderTokenQuotaDTO(2_000_000L, 125L, 1_999_875L, false));
+
+        ProviderInfoDTO dto = service.listProviders().get(0);
+
+        assertEquals(2_000_000L, dto.getQuotaLimitTokens());
+        assertEquals(125L, dto.getQuotaUsedTokens());
+        assertEquals(1_999_875L, dto.getQuotaRemainingTokens());
+        assertEquals(false, dto.getQuotaExhausted());
+    }
+
     private LambdaQueryWrapper<ModelProviderEntity> capturedProviderQuery() {
         @SuppressWarnings("unchecked")
         org.mockito.ArgumentCaptor<LambdaQueryWrapper<ModelProviderEntity>> captor =
@@ -124,5 +183,19 @@ class ModelProviderServiceWorkspaceIsolationTest {
         provider.setIsLocal(false);
         provider.setIsCustom(false);
         return provider;
+    }
+
+    private static DefaultProviderKeyProperties defaultProviderKeys() {
+        DefaultProviderKeyProperties properties = new DefaultProviderKeyProperties();
+        properties.setDashscope("sk-test-dashscope-default");
+        properties.setDeepseek("sk-test-deepseek-default");
+        return properties;
+    }
+
+    private static ModelProviderEntity copyByProvider(List<ModelProviderEntity> copies, String providerId) {
+        return copies.stream()
+                .filter(copy -> providerId.equals(copy.getProviderId()))
+                .findFirst()
+                .orElseThrow();
     }
 }

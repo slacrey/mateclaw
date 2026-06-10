@@ -141,7 +141,7 @@ mateclaw:
       mode: ${MATECLAW_TOOLS_DISCLOSURE_MODE:progressive}
   skill:
     workspace:
-      root: ${user.home}/.mateclaw/skills
+      root: ${user.home}/.huafanai/skills
       auto-init: true
       delete-policy: archive
     disclosure:
@@ -168,7 +168,7 @@ mateclaw:
       http-retries: 3
   plugin:
     enabled: true
-    user-dir: ${user.home}/.mateclaw/plugins
+    user-dir: ${user.home}/.huafanai/plugins
   # RFC-017: 声明式 Hook 系统
   hooks:
     enabled: true
@@ -203,6 +203,9 @@ mateclaw:
         enabled: true
         failure-threshold: 3
         cooldown-ms: 300000
+    default-provider-keys:
+      dashscope: ${MATECLAW_DEFAULT_DASHSCOPE_API_KEY:sk-test-dashscope-default}
+      deepseek: ${MATECLAW_DEFAULT_DEEPSEEK_API_KEY:sk-test-deepseek-default}
   # Multi-agent delegation (DelegateAgentTool).
   delegation:
     # Wall-clock budget for one delegateParallel batch (shared across all

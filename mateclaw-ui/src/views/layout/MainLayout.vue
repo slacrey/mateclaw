@@ -16,7 +16,13 @@
         <transition name="fade">
           <div v-if="!effectiveCollapsed" class="logo-text">
             <span class="logo-name">化帆<span class="logo-name-highlight">AI</span></span>
-            <span class="logo-version">v{{ appVersion }}</span>
+            <span
+              class="logo-expiry"
+              :class="{ 'is-expired': accountStore.expired }"
+              :title="accountExpiryText"
+            >
+              {{ accountExpiryText }}
+            </span>
           </div>
         </transition>
         <button
@@ -160,13 +166,6 @@
               <div class="user-name">{{ username }}</div>
               <div class="user-meta">
                 <span class="user-role">{{ roleLabel }}</span>
-                <span
-                  class="account-expiry-badge"
-                  :class="{ 'is-expired': accountStore.expired }"
-                  :title="accountExpiryText"
-                >
-                  {{ accountExpiryText }}
-                </span>
               </div>
             </div>
             <button class="change-password-btn" @click="showChangePassword = true" :title="t('auth.changePassword')">
@@ -201,15 +200,6 @@
 
     <!-- 主内容区 -->
     <main class="main-content">
-      <div class="account-status-bar">
-        <span
-          class="account-expiry-badge account-expiry-badge--top"
-          :class="{ 'is-expired': accountStore.expired }"
-          :title="accountExpiryText"
-        >
-          {{ accountExpiryText }}
-        </span>
-      </div>
       <!-- 移动端顶部栏 -->
       <div v-if="isMobile" class="mobile-topbar">
         <button class="mobile-menu-btn" @click="mobileMenuOpen = true" :title="t('common.expandSidebar')">
@@ -309,7 +299,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { useIsMobile, useMediaQuery } from '@/composables/useBreakpoint'
 import { useI18n } from 'vue-i18n'
 import { useThemeStore } from '@/stores/useThemeStore'
-import { version as appVersion } from '../../../package.json'
 import type { ThemeMode } from '@/stores/useThemeStore'
 import { http, settingsApi, setupApi, approvalApi } from '@/api/index'
 import type { ActiveGrantsSummary } from '@/types'
@@ -879,12 +868,22 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
   color: var(--mc-primary);
 }
 
-.logo-version {
+.logo-expiry {
   display: block;
+  min-width: 0;
+  max-width: 100%;
   font-size: 10px;
   color: var(--mc-text-tertiary);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  line-height: 1.45;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.logo-expiry.is-expired {
+  color: var(--mc-danger, #C0392B);
+  font-weight: 700;
 }
 
 .collapse-btn {
@@ -1360,15 +1359,6 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
   color: var(--mc-danger, #C0392B);
 }
 
-.account-expiry-badge--top {
-  max-width: min(360px, calc(100vw - 340px));
-  padding: 5px 10px;
-  border-radius: 8px;
-  background: var(--mc-surface-overlay);
-  box-shadow: var(--mc-shadow-soft);
-  font-size: 11px;
-}
-
 .change-password-btn,
 .logout-btn {
   width: 26px;
@@ -1524,20 +1514,6 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
   position: relative;
   z-index: 1;
   padding: 14px 14px 14px 18px;
-}
-
-.account-status-bar {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  z-index: 5;
-  display: flex;
-  justify-content: flex-end;
-  pointer-events: none;
-}
-
-.account-status-bar .account-expiry-badge {
-  pointer-events: auto;
 }
 
 /* ===== 移动端元素（桌面端隐藏） ===== */
@@ -1770,16 +1746,6 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
     flex-shrink: 0;
   }
 
-  .account-status-bar {
-    top: 12px;
-    right: 14px;
-    max-width: calc(100% - 78px);
-  }
-
-  .account-expiry-badge--top {
-    max-width: 100%;
-  }
-
   .mobile-topbar-title {
     font-size: 16px;
     font-weight: 700;
@@ -1869,17 +1835,6 @@ watch(() => workspaceStore.currentWorkspaceId, () => {
   .mobile-menu-btn {
     width: 32px;
     height: 32px;
-  }
-
-  .account-status-bar {
-    top: 8px;
-    right: 8px;
-    max-width: calc(100% - 58px);
-  }
-
-  .account-expiry-badge--top {
-    padding: 4px 8px;
-    font-size: 10px;
   }
 
   .main-content {

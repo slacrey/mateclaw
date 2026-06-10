@@ -33,8 +33,8 @@ import java.util.List;
  * <p>Spill files live under one of, in order:</p>
  * <ol>
  *   <li>{@code ToolResultProperties.storageBaseDir} when explicitly set</li>
- *   <li>{@code <workspaceBasePath>/.mateclaw/tool-results/<conversationId>/} when a workspace is bound</li>
- *   <li>{@code ${java.io.tmpdir}/mateclaw/tool-results/<conversationId>/} as the universal fallback</li>
+ *   <li>{@code <workspaceBasePath>/.huafanai/tool-results/<conversationId>/} when a workspace is bound</li>
+ *   <li>{@code ${java.io.tmpdir}/huafanai/tool-results/<conversationId>/} as the universal fallback</li>
  * </ol>
  *
  * <p>Failures (disk full, IO error) degrade silently: the original result is
@@ -286,11 +286,11 @@ public class ToolResultStorage {
         if (!props.getStorageBaseDir().isEmpty()) {
             base = Paths.get(props.getStorageBaseDir());
         } else if (workspaceBasePath != null && !workspaceBasePath.isBlank()) {
-            base = Paths.get(workspaceBasePath, ".mateclaw", "tool-results");
+            base = Paths.get(workspaceBasePath, ".huafanai", "tool-results");
         } else {
             String tmp = System.getProperty("java.io.tmpdir");
             if (tmp == null || tmp.isEmpty()) return null;
-            base = Paths.get(tmp, "mateclaw", "tool-results");
+            base = Paths.get(tmp, "huafanai", "tool-results");
         }
         // Register so the retention sweep and conversation-delete hook can
         // reach this root even when the workspace path is no longer in scope.
