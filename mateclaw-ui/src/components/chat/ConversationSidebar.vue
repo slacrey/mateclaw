@@ -780,13 +780,14 @@ function onMenuSelect(item: DropdownMenuItem) {
   flex-shrink: 0;
   font-size: 10px;
   font-weight: 500;
-  color: #b45309;
-  background: rgba(251, 191, 36, 0.15);
-  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: #fde68a;
+  background: rgba(251, 191, 36, 0.16);
+  border: 1px solid rgba(253, 230, 138, 0.34);
   padding: 1px 6px 1px 5px;
   border-radius: 10px;
   line-height: 1.3;
   white-space: nowrap;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12);
 }
 
 .conv-running-badge-pulse {

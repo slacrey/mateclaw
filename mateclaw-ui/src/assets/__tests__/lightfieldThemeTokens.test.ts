@@ -1,20 +1,19 @@
 // @vitest-environment node
-// @ts-expect-error Vitest runs this in node, while the app tsconfig intentionally omits Node types.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import chatConsoleSource from '../../views/ChatConsole.vue?raw'
+import conversationSidebarSource from '../../components/chat/ConversationSidebar.vue?raw'
+import chatInputSource from '../../components/chat/ChatInput.vue?raw'
+import messageBubbleSource from '../../components/chat/MessageBubble.vue?raw'
+import dashboardSource from '../../views/Dashboard.vue?raw'
 
 const css = readFileSync(new URL('../main.css', import.meta.url), 'utf8')
-const chatSurfaceFiles = [
-  '../../views/ChatConsole.vue',
-  '../../components/chat/ConversationSidebar.vue',
-  '../../components/chat/ChatInput.vue',
-  '../../components/chat/MessageBubble.vue',
-] as const
-
-const chatSurfaceSource = chatSurfaceFiles
-  .map((file) => readFileSync(new URL(file, import.meta.url), 'utf8'))
-  .join('\n')
-const dashboardSource = readFileSync(new URL('../../views/Dashboard.vue', import.meta.url), 'utf8')
+const chatSurfaceSource = [
+  chatConsoleSource,
+  conversationSidebarSource,
+  chatInputSource,
+  messageBubbleSource,
+].join('\n')
 
 describe('lightfield theme tokens', () => {
   it('uses the approved cold-blue brand palette instead of the old warm palette', () => {

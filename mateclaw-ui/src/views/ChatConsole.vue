@@ -2485,6 +2485,11 @@ function handleCodeCopy(e: MouseEvent) {
     gap: 8px;
   }
 
+  .chat-header-right {
+    min-width: 0;
+    flex-shrink: 1;
+  }
+
   .agent-badge {
     padding: 4px 8px;
   }
@@ -2497,7 +2502,7 @@ function handleCodeCopy(e: MouseEvent) {
     display: none;
   }
 
-  .model-select-trigger {
+  :deep(.model-select-trigger) {
     max-width: 160px;
   }
 
@@ -2519,9 +2524,10 @@ function handleCodeCopy(e: MouseEvent) {
 
   .chat-header-right {
     gap: 4px;
+    min-width: 0;
   }
 
-  .model-select-trigger {
+  :deep(.model-select-trigger) {
     max-width: 120px;
     height: 30px;
     padding: 0 8px;
