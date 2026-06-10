@@ -267,10 +267,29 @@ function calcDuration(run: any) {
 
 <style scoped>
 .home-shell {
+  --home-surface-bg: rgba(255, 255, 255, 0.82);
+  --home-surface-strong-bg: rgba(255, 255, 255, 0.90);
+  --home-surface-border: rgba(155, 181, 255, 0.32);
+  --home-surface-border-strong: rgba(155, 181, 255, 0.34);
+  --home-surface-shadow: 0 14px 34px rgba(45, 83, 180, 0.10);
+  --home-row-border: rgba(155, 181, 255, 0.22);
+  --home-table-head-bg: rgba(231, 240, 255, 0.82);
+  --home-row-hover-bg: rgba(71, 108, 255, 0.06);
   background: transparent;
   height: 100%;
   min-height: 0;
   overflow: hidden;
+}
+
+:global(html.dark) .home-shell {
+  --home-surface-bg: rgba(12, 27, 70, 0.82);
+  --home-surface-strong-bg: rgba(10, 24, 62, 0.90);
+  --home-surface-border: rgba(157, 181, 255, 0.26);
+  --home-surface-border-strong: rgba(157, 181, 255, 0.30);
+  --home-surface-shadow: 0 18px 42px rgba(0, 0, 0, 0.28);
+  --home-row-border: rgba(157, 181, 255, 0.18);
+  --home-table-head-bg: rgba(19, 42, 98, 0.78);
+  --home-row-hover-bg: rgba(71, 108, 255, 0.16);
 }
 
 .home-frame {
@@ -470,10 +489,10 @@ function calcDuration(run: any) {
   gap: 9px;
   min-height: 180px;
   padding: 17px;
-  border: 1px solid rgba(155, 181, 255, 0.32);
+  border: 1px solid var(--home-surface-border);
   border-radius: var(--mc-radius-md);
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 14px 34px rgba(45, 83, 180, 0.10);
+  background: var(--home-surface-bg);
+  box-shadow: var(--home-surface-shadow);
   text-align: left;
   cursor: pointer;
   transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
@@ -560,10 +579,10 @@ function calcDuration(run: any) {
 
 .home-runs {
   overflow: hidden;
-  border: 1px solid rgba(155, 181, 255, 0.34);
+  border: 1px solid var(--home-surface-border-strong);
   border-radius: var(--mc-radius-md);
-  background: rgba(255, 255, 255, 0.90);
-  box-shadow: 0 14px 34px rgba(45, 83, 180, 0.10);
+  background: var(--home-surface-strong-bg);
+  box-shadow: var(--home-surface-shadow);
 }
 
 .home-runs table {
@@ -574,7 +593,7 @@ function calcDuration(run: any) {
 .home-runs th,
 .home-runs td {
   padding: 12px 15px;
-  border-bottom: 1px solid rgba(155, 181, 255, 0.22);
+  border-bottom: 1px solid var(--home-row-border);
   color: var(--mc-text-secondary);
   font-size: 13px;
   text-align: left;
@@ -583,7 +602,7 @@ function calcDuration(run: any) {
 
 .home-runs th {
   color: var(--mc-text-tertiary);
-  background: rgba(231, 240, 255, 0.82);
+  background: var(--home-table-head-bg);
   font-size: 12px;
   font-weight: 800;
 }
@@ -593,7 +612,7 @@ function calcDuration(run: any) {
 }
 
 .home-runs tbody tr:hover {
-  background: rgba(71, 108, 255, 0.06);
+  background: var(--home-row-hover-bg);
 }
 
 .home-runs tr:last-child td {
