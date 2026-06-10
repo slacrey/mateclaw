@@ -60,6 +60,16 @@ public class DouyinLeadAcquisitionController {
         return R.ok(queryService.recentRuns(workspaceId == null ? 1L : workspaceId, limit));
     }
 
+    @GetMapping("/douyin/leads")
+    @RequireWorkspaceRole("viewer")
+    public R<List<DouyinLeadPoolItem>> leadPool(
+            @RequestHeader(value = "X-Workspace-Id", required = false) Long workspaceId,
+            @RequestParam(value = "limit", required = false, defaultValue = "50") int limit,
+            @RequestParam(value = "status", required = false) String status,
+            @RequestParam(value = "keyword", required = false) String keyword) {
+        return R.ok(queryService.leadPool(workspaceId == null ? 1L : workspaceId, limit, status, keyword));
+    }
+
     @GetMapping("/runs/{runId}")
     @RequireWorkspaceRole("viewer")
     public R<DouyinLeadAcquisitionRunResponse> run(@PathVariable Long runId) {

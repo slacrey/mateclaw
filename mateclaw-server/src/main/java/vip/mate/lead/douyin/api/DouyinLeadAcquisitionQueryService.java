@@ -18,8 +18,12 @@ import vip.mate.os.run.repository.LeadEngagementMapper;
 import vip.mate.os.run.repository.LeadProfileMapper;
 import vip.mate.os.run.repository.LeadTaskMapper;
 
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @Service
 public class DouyinLeadAcquisitionQueryService {
@@ -125,6 +129,145 @@ public class DouyinLeadAcquisitionQueryService {
                     run == null ? null : run.getFailureMessage(),
                     task.getCreateTime() == null ? null : task.getCreateTime().toString(),
                     task.getUpdateTime() == null ? null : task.getUpdateTime().toString()));
+        }
+        return rows;
+    }
+
+    public List<DouyinLeadPoolItem> leadPool(Long workspaceId, int limit, String status, String keyword) {
+        int boundedLimit = Math.max(1, Math.min(100, limit));
+        int taskScanLimit = Math.max(50, Math.min(250, boundedLimit * 5));
+        int commentScanLimit = Math.max(boundedLimit, Math.min(500, boundedLimit * 5));
+        String statusFilter = status == null || status.isBlank() ? "all" : status.trim().toLowerCase();
+        LambdaQueryWrapper<LeadTaskEntity> taskQuery = new LambdaQueryWrapper<LeadTaskEntity>()
+                .eq(LeadTaskEntity::getPlatform, "douyin")
+                .orderByDesc(LeadTaskEntity::getUpdateTime)
+                .orderByDesc(LeadTaskEntity::getCreateTime)
+                .last("LIMIT " + taskScanLimit);
+        if (workspaceId != null) {
+            taskQuery.eq(LeadTaskEntity::getWorkspaceId, workspaceId);
+        }
+        if (keyword != null && !keyword.isBlank()) {
+            taskQuery.like(LeadTaskEntity::getKeyword, keyword.trim());
+        }
+
+        List<LeadTaskEntity> tasks = taskMapper.selectList(taskQuery);
+        if (tasks.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, LeadTaskEntity> tasksById = new LinkedHashMap<>();
+        Set<Long> runIds = new HashSet<>();
+        List<Long> taskIds = new ArrayList<>();
+        for (LeadTaskEntity task : tasks) {
+            if (task.getId() == null) {
+                continue;
+            }
+            tasksById.put(task.getId(), task);
+            taskIds.add(task.getId());
+            if (task.getRunId() != null) {
+                runIds.add(task.getRunId());
+            }
+        }
+        if (taskIds.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, AgentRunEntity> runsById = new LinkedHashMap<>();
+        if (!runIds.isEmpty()) {
+            for (AgentRunEntity run : runMapper.selectBatchIds(runIds)) {
+                if (run.getId() != null) {
+                    runsById.put(run.getId(), run);
+                }
+            }
+        }
+
+        List<LeadCommentEntity> comments = commentMapper.selectList(new LambdaQueryWrapper<LeadCommentEntity>()
+                .in(LeadCommentEntity::getTaskId, taskIds)
+                .eq(LeadCommentEntity::getMatched, true)
+                .orderByDesc(LeadCommentEntity::getCreateTime)
+                .last("LIMIT " + commentScanLimit));
+        if (comments.isEmpty()) {
+            return List.of();
+        }
+
+        Set<Long> commentIds = new HashSet<>();
+        for (LeadCommentEntity comment : comments) {
+            if (comment.getId() != null) {
+                commentIds.add(comment.getId());
+            }
+        }
+
+        Map<Long, LeadEngagementEntity> engagementsByCommentId = new LinkedHashMap<>();
+        Set<Long> profileIds = new HashSet<>();
+        if (!commentIds.isEmpty()) {
+            List<LeadEngagementEntity> engagements = engagementMapper.selectList(new LambdaQueryWrapper<LeadEngagementEntity>()
+                    .in(LeadEngagementEntity::getCommentId, commentIds)
+                    .orderByDesc(LeadEngagementEntity::getUpdateTime)
+                    .orderByDesc(LeadEngagementEntity::getId));
+            for (LeadEngagementEntity engagement : engagements) {
+                if (engagement.getCommentId() != null) {
+                    engagementsByCommentId.putIfAbsent(engagement.getCommentId(), engagement);
+                }
+                if (engagement.getProfileId() != null) {
+                    profileIds.add(engagement.getProfileId());
+                }
+            }
+        }
+
+        Map<Long, LeadProfileEntity> profilesById = new LinkedHashMap<>();
+        if (!profileIds.isEmpty()) {
+            for (LeadProfileEntity profile : profileMapper.selectBatchIds(profileIds)) {
+                if (profile.getId() != null) {
+                    profilesById.put(profile.getId(), profile);
+                }
+            }
+        }
+
+        List<DouyinLeadPoolItem> rows = new ArrayList<>();
+        for (LeadCommentEntity comment : comments) {
+            LeadTaskEntity task = comment.getTaskId() == null ? null : tasksById.get(comment.getTaskId());
+            if (task == null) {
+                continue;
+            }
+            AgentRunEntity run = task.getRunId() == null ? null : runsById.get(task.getRunId());
+            LeadEngagementEntity engagement = comment.getId() == null ? null : engagementsByCommentId.get(comment.getId());
+            if (!matchesLeadStatus(statusFilter, engagement)) {
+                continue;
+            }
+            LeadProfileEntity profile = engagement == null || engagement.getProfileId() == null
+                    ? null
+                    : profilesById.get(engagement.getProfileId());
+            rows.add(new DouyinLeadPoolItem(
+                    DouyinLeadAcquisitionRunResponse.id(task.getRunId()),
+                    DouyinLeadAcquisitionRunResponse.id(task.getId()),
+                    task.getKeyword(),
+                    task.getSortMode(),
+                    run == null || run.getStatus() == null ? task.getStatus() : run.getStatus(),
+                    DouyinLeadAcquisitionRunResponse.id(comment.getId()),
+                    comment.getCommentKey(),
+                    comment.getVideoKey(),
+                    comment.getAuthorName(),
+                    comment.getAuthorProfileUrl(),
+                    comment.getCommentText(),
+                    comment.getMatchScore(),
+                    comment.getMatchReason(),
+                    engagement == null ? null : DouyinLeadAcquisitionRunResponse.id(engagement.getId()),
+                    engagement == null ? null : DouyinLeadAcquisitionRunResponse.id(engagement.getProfileId()),
+                    profile == null ? null : profile.getProfileUrl(),
+                    profile == null ? null : profile.getDisplayName(),
+                    engagement == null ? null : engagement.getEngagementType(),
+                    engagement == null ? "pending" : engagement.getStatus(),
+                    isSent(engagement),
+                    engagement == null ? null : engagement.getDraftText(),
+                    engagement == null ? null : engagement.getFailureCode(),
+                    engagement == null ? null : engagement.getFailureMessage(),
+                    engagement == null ? null : engagement.getEvidenceRef(),
+                    comment.getCreateTime() == null ? null : comment.getCreateTime().toString(),
+                    engagement != null && engagement.getUpdateTime() != null
+                            ? engagement.getUpdateTime().toString()
+                            : comment.getCreateTime() == null ? null : comment.getCreateTime().toString()));
+            if (rows.size() >= boundedLimit) {
+                return rows;
+            }
         }
         return rows;
     }
@@ -254,5 +397,28 @@ public class DouyinLeadAcquisitionQueryService {
         Long count = engagementMapper.selectCount(new LambdaQueryWrapper<LeadEngagementEntity>()
                 .eq(LeadEngagementEntity::getTaskId, taskId));
         return count == null ? 0 : count.intValue();
+    }
+
+    private boolean matchesLeadStatus(String statusFilter, LeadEngagementEntity engagement) {
+        return switch (statusFilter) {
+            case "pending" -> engagement == null;
+            case "engaged" -> engagement != null;
+            case "sent" -> isSent(engagement);
+            case "failed" -> engagement != null && ("failed".equalsIgnoreCase(engagement.getStatus())
+                    || hasText(engagement.getFailureCode())
+                    || hasText(engagement.getFailureMessage()));
+            default -> true;
+        };
+    }
+
+    private boolean isSent(LeadEngagementEntity engagement) {
+        return engagement != null
+                && ("send_dm".equalsIgnoreCase(engagement.getEngagementType())
+                || "dm_draft".equalsIgnoreCase(engagement.getEngagementType()))
+                && "succeeded".equalsIgnoreCase(engagement.getStatus());
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 }

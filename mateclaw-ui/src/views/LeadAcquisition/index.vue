@@ -250,8 +250,33 @@
             <div class="panel-head compact">
               <div>
                 <h2>线索池</h2>
-                <p>{{ currentRun ? `当前任务发现 ${leadPoolRows.length} 条命中线索` : '选择任务后查看命中评论和触达状态。' }}</p>
+                <p>{{ leadPoolLoading ? '正在读取跨任务线索...' : `展示 ${leadPoolRows.length} 条跨任务命中线索。` }}</p>
               </div>
+              <button class="text-button" type="button" :disabled="leadPoolLoading" @click="loadLeadPool">
+                {{ leadPoolLoading ? '刷新中' : '刷新' }}
+              </button>
+            </div>
+
+            <div class="lead-pool-filters">
+              <label>
+                <span>关键词</span>
+                <input
+                  v-model.trim="leadPoolKeyword"
+                  type="text"
+                  placeholder="按任务关键词筛选"
+                  @keyup.enter="loadLeadPool"
+                />
+              </label>
+              <label>
+                <span>状态</span>
+                <select v-model="leadPoolStatus" @change="loadLeadPool">
+                  <option value="all">全部线索</option>
+                  <option value="pending">待触达</option>
+                  <option value="engaged">已触达</option>
+                  <option value="sent">已发送</option>
+                  <option value="failed">失败</option>
+                </select>
+              </label>
             </div>
 
             <div v-if="leadPoolRows.length" class="lead-pool-list">
@@ -273,11 +298,17 @@
                 <p>{{ lead.text }}</p>
                 <div class="lead-card__meta">
                   <span>{{ lead.videoKey || '来源视频未记录' }}</span>
+                  <span>{{ lead.keyword || '未知关键词' }}</span>
                   <span v-if="lead.failureReason">{{ lead.failureReason }}</span>
+                  <button v-if="lead.runId" class="inline-link" type="button" @click="openRunById(lead.runId)">
+                    回看任务
+                  </button>
                 </div>
               </article>
             </div>
-            <div v-else class="empty-card">暂无命中线索。</div>
+            <div v-else class="empty-card">
+              {{ leadPoolLoading ? '正在读取线索池...' : '暂无命中线索。' }}
+            </div>
           </section>
         </section>
       </div>
@@ -293,7 +324,7 @@ import { leadAcquisitionApi } from '@/api'
 import type {
   DouyinLeadAcquisitionRunResponse,
   DouyinLeadAcquisitionStartPayload,
-  DouyinLeadEngagement,
+  DouyinLeadPoolItem,
   DouyinLeadRunListItem,
 } from '@/api'
 import { mcToast } from '@/composables/useMcToast'
@@ -301,6 +332,7 @@ import LeadRunLivePanel from '@/components/lead/LeadRunLivePanel.vue'
 import BrowserPairingPanel from '@/views/Settings/Browser/index.vue'
 
 type SortMode = 'most_liked' | 'latest'
+type LeadPoolStatus = 'all' | 'pending' | 'engaged' | 'sent' | 'failed'
 
 interface LeadForm {
   keyword: string
@@ -329,6 +361,10 @@ const browserPanelRef = ref<HTMLElement | null>(null)
 const browserPanelOpen = ref(false)
 const recentRuns = ref<DouyinLeadRunListItem[]>([])
 const recentLoading = ref(false)
+const leadPool = ref<DouyinLeadPoolItem[]>([])
+const leadPoolLoading = ref(false)
+const leadPoolKeyword = ref('')
+const leadPoolStatus = ref<LeadPoolStatus>('all')
 
 const channels = [
   {
@@ -381,30 +417,19 @@ const launchButtonText = computed(() => {
   return '开始获客'
 })
 
-const engagementByCommentId = computed(() => {
-  const map = new Map<string, DouyinLeadEngagement>()
-  for (const engagement of currentRun.value?.engagements ?? []) {
-    if (engagement.commentId) map.set(engagement.commentId, engagement)
-  }
-  return map
-})
-
 const leadPoolRows = computed(() => {
-  return (currentRun.value?.matches ?? [])
-    .filter(comment => comment.matched)
-    .map((comment, index) => {
-      const engagement = comment.id ? engagementByCommentId.value.get(comment.id) : null
-      return {
-        key: comment.id || comment.commentKey || `${comment.text}-${index}`,
-        authorName: comment.authorName || '未识别作者',
-        authorProfileUrl: comment.authorProfileUrl,
-        text: comment.text || '-',
-        videoKey: comment.videoKey,
-        engagementStatus: engagement?.status || '待触达',
-        sent: engagement?.sent === true,
-        failureReason: reasonLabel(engagement?.failureCode || engagement?.failureMessage || ''),
-      }
-    })
+  return leadPool.value.map((lead, index) => ({
+    key: lead.commentId || lead.commentKey || `${lead.text}-${index}`,
+    runId: lead.runId,
+    keyword: lead.keyword,
+    authorName: lead.displayName || lead.authorName || '未识别作者',
+    authorProfileUrl: lead.profileUrl || lead.authorProfileUrl,
+    text: lead.text || '-',
+    videoKey: lead.videoKey,
+    engagementStatus: lead.engagementStatus || 'pending',
+    sent: lead.sent === true,
+    failureReason: reasonLabel(lead.failureCode || lead.failureMessage || ''),
+  }))
 })
 
 watch(() => form.value.engage, (engage) => {
@@ -413,6 +438,7 @@ watch(() => form.value.engage, (engage) => {
 
 onMounted(() => {
   loadRecentRuns()
+  loadLeadPool()
 })
 
 function defaultForm(): LeadForm {
@@ -472,6 +498,7 @@ async function submitDouyinRun() {
     if (!run) throw new Error('获客任务没有返回结果')
     currentRun.value = normalizeRun(run)
     await loadRecentRuns()
+    await loadLeadPool()
     mcToast.success('抖音获客任务已启动')
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -489,6 +516,7 @@ function handleLiveRunUpdate(run: DouyinLeadAcquisitionRunResponse) {
 function handleRunTerminal(run: DouyinLeadAcquisitionRunResponse) {
   currentRun.value = normalizeRun(run)
   loadRecentRuns()
+  loadLeadPool()
 }
 
 function normalizeRun(run: DouyinLeadAcquisitionRunResponse): DouyinLeadAcquisitionRunResponse {
@@ -558,8 +586,13 @@ async function loadRecentRuns() {
 
 async function openRunFromHistory(item: DouyinLeadRunListItem) {
   if (!item.runId) return
+  await openRunById(item.runId)
+}
+
+async function openRunById(runId: string | number | null) {
+  if (!runId) return
   try {
-    const response = await leadAcquisitionApi.getDouyinRun(item.runId)
+    const response = await leadAcquisitionApi.getDouyinRun(runId)
     const run = unwrapApiData<DouyinLeadAcquisitionRunResponse | null>(response, null)
     if (!run) throw new Error('未找到任务详情')
     currentRun.value = normalizeRun(run)
@@ -568,6 +601,23 @@ async function openRunFromHistory(item: DouyinLeadRunListItem) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     mcToast.error(message)
+  }
+}
+
+async function loadLeadPool() {
+  if (leadPoolLoading.value) return
+  leadPoolLoading.value = true
+  try {
+    const response = await leadAcquisitionApi.listDouyinLeads({
+      limit: 50,
+      status: leadPoolStatus.value,
+      keyword: leadPoolKeyword.value.trim() || undefined,
+    })
+    leadPool.value = unwrapApiData<DouyinLeadPoolItem[]>(response, [])
+  } catch (error) {
+    leadPool.value = leadPool.value ?? []
+  } finally {
+    leadPoolLoading.value = false
   }
 }
 
@@ -584,7 +634,7 @@ function statusLabel(status?: string | null): string {
   if (normalized === 'succeeded' || normalized === 'success' || normalized === 'completed') return '成功'
   if (normalized === 'failed') return '失败'
   if (normalized === 'aborted' || normalized === 'cancelled' || normalized === 'canceled') return '已停止'
-  if (normalized === 'pending') return '待处理'
+  if (normalized === 'pending') return '待触达'
   if (normalized === '待触达') return '待触达'
   return status || '-'
 }
@@ -1163,6 +1213,39 @@ tr:last-child td {
   padding-right: 4px;
 }
 
+.lead-pool-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.lead-pool-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--mc-text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.lead-pool-filters input,
+.lead-pool-filters select {
+  min-height: 34px;
+  border: 1px solid var(--mc-border);
+  border-radius: 6px;
+  background: var(--mc-bg);
+  color: var(--mc-text-primary);
+  padding: 7px 9px;
+  outline: none;
+}
+
+.lead-pool-filters input:focus,
+.lead-pool-filters select:focus {
+  border-color: var(--mc-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mc-primary) 14%, transparent);
+}
+
 .history-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1254,11 +1337,28 @@ tr:last-child td {
 
 .lead-card__meta {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 9px;
   color: var(--mc-text-secondary);
   font-size: 12px;
+}
+
+.inline-link {
+  min-height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mc-primary);
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.inline-link:hover {
+  background: color-mix(in srgb, var(--mc-primary) 9%, transparent);
 }
 
 .status-pill {
@@ -1356,7 +1456,8 @@ tr:last-child td {
 
   .field-grid,
   .assist-panel,
-  .metric-grid {
+  .metric-grid,
+  .lead-pool-filters {
     grid-template-columns: 1fr;
   }
 

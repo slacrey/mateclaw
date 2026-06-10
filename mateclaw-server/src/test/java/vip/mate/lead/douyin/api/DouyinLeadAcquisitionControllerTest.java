@@ -112,4 +112,50 @@ class DouyinLeadAcquisitionControllerTest {
         assertThat(response.getData()).containsExactly(item);
         verify(queryService).recentRuns(eq(7L), eq(12));
     }
+
+    @Test
+    void leadPoolEndpointReturnsCrossTaskMatchedLeads() {
+        DouyinLeadAcquisitionRunService runService = mock(DouyinLeadAcquisitionRunService.class);
+        DouyinLeadAcquisitionQueryService queryService = mock(DouyinLeadAcquisitionQueryService.class);
+        DouyinLeadAcquisitionEventStreamService eventStreamService = mock(DouyinLeadAcquisitionEventStreamService.class);
+        AuthService authService = mock(AuthService.class);
+        DouyinLeadAcquisitionController controller = new DouyinLeadAcquisitionController(
+                runService,
+                queryService,
+                eventStreamService,
+                authService);
+        DouyinLeadPoolItem lead = new DouyinLeadPoolItem(
+                "10",
+                "20",
+                "易企秀",
+                "most_liked",
+                "succeeded",
+                "30",
+                "douyin-comment-1",
+                "video-1",
+                "霞姐一百岁",
+                "https://www.douyin.com/user/abc",
+                "慢出心脏病",
+                1.0d,
+                "exact_text_contains",
+                "40",
+                "50",
+                "https://www.douyin.com/user/abc",
+                "霞姐一百岁",
+                "send_dm",
+                "succeeded",
+                true,
+                "你好",
+                null,
+                null,
+                "https://www.douyin.com/user/abc",
+                "2026-06-10T16:00:00",
+                "2026-06-10T16:02:00");
+        when(queryService.leadPool(eq(7L), eq(25), eq("sent"), eq("易企秀"))).thenReturn(List.of(lead));
+
+        var response = controller.leadPool(7L, 25, "sent", "易企秀");
+
+        assertThat(response.getData()).containsExactly(lead);
+        verify(queryService).leadPool(eq(7L), eq(25), eq("sent"), eq("易企秀"));
+    }
 }

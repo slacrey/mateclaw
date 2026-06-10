@@ -256,7 +256,7 @@ public class DouyinLeadAcquisitionExecutor {
             LeadProfileEntity profile = persistence.saveProfile(taskId, runId, engagement);
             Long commentId = persistence.findCommentId(taskId, match.comment().commentKey());
             persistence.saveEngagement(taskId, runId, profile == null ? null : profile.getId(), commentId,
-                    "dm_draft", engagement, input.dmDraft());
+                    engagement.sent() ? "send_dm" : "dm_draft", engagement, input.dmDraft());
             events.publish(new RunEvent(runId, null, "lead.engagement.completed", "info", payload(
                     "videoIndex", video.index,
                     "author", engagement.author(),

@@ -17,6 +17,7 @@ class DouyinLeadAcquisitionV3ContractTest {
         String combined = controller + "\n" + streamService;
 
         assertThat(controller).contains("@GetMapping(\"/douyin/runs\")");
+        assertThat(controller).contains("@GetMapping(\"/douyin/leads\")");
         assertThat(controller).contains("/runs/{runId}/events/stream");
         assertThat(streamService).contains("Utf8SseEmitter");
         assertThat(controller).containsAnyOf("MediaType.TEXT_EVENT_STREAM_VALUE", "text/event-stream");

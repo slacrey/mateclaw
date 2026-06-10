@@ -550,6 +550,35 @@ export interface DouyinLeadRunListItem {
   updateTime: string | null
 }
 
+export interface DouyinLeadPoolItem {
+  runId: string | null
+  taskId: string | null
+  keyword: string | null
+  sort: string | null
+  runStatus: string | null
+  commentId: string | null
+  commentKey: string | null
+  videoKey: string | null
+  authorName: string | null
+  authorProfileUrl: string | null
+  text: string | null
+  matchScore: number | null
+  matchReason: string | null
+  engagementId: string | null
+  profileId: string | null
+  profileUrl: string | null
+  displayName: string | null
+  actionType: string | null
+  engagementStatus: string | null
+  sent: boolean
+  draftText: string | null
+  failureCode: string | null
+  failureMessage: string | null
+  evidenceRef: string | null
+  createTime: string | null
+  updateTime: string | null
+}
+
 export type DouyinLeadTimelineEventType =
   | 'run_created'
   | 'run_started'
@@ -615,6 +644,8 @@ export const leadAcquisitionApi = {
     http.post<DouyinLeadAcquisitionRunResponse>('/lead-acquisition/douyin/runs', data ?? {}),
   listDouyinRuns: (limit = 20) =>
     http.get<DouyinLeadRunListItem[]>('/lead-acquisition/douyin/runs', { params: { limit } }),
+  listDouyinLeads: (params?: { limit?: number; status?: string; keyword?: string }) =>
+    http.get<DouyinLeadPoolItem[]>('/lead-acquisition/douyin/leads', { params: params ?? {} }),
   getDouyinRun: (runId: string | number) =>
     http.get<DouyinLeadAcquisitionRunResponse>(`/lead-acquisition/runs/${runId}`),
   streamDouyinRunEventsUrl: (runId: string | number, afterEventId?: string | number | null) => {
