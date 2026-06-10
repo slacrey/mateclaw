@@ -17,6 +17,8 @@ describe('lead acquisition realtime execution contract', () => {
     expect(combined).toContain('/lead-acquisition/runs/')
     expect(combined).toContain('/events/stream')
     expect(combined).toContain('afterEventId')
+    expect(api).toContain('listDouyinRuns')
+    expect(api).toContain('/lead-acquisition/douyin/runs')
   })
 
   it('falls back to polling and tells the user when realtime reconnects', () => {
@@ -36,5 +38,7 @@ describe('lead acquisition realtime execution contract', () => {
     expect(runResult).toContain('panel-scroll-body')
     expect(combined).toContain('评论匹配')
     expect(combined).toContain('触达记录')
+    expect(combined).toContain('最近任务')
+    expect(combined).toContain('线索池')
   })
 })

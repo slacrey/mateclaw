@@ -52,6 +52,14 @@ public class DouyinLeadAcquisitionController {
         return R.ok(runService.start(workspaceId == null ? 1L : workspaceId, user.getId(), input));
     }
 
+    @GetMapping("/douyin/runs")
+    @RequireWorkspaceRole("viewer")
+    public R<List<DouyinLeadRunListItem>> recentRuns(
+            @RequestHeader(value = "X-Workspace-Id", required = false) Long workspaceId,
+            @RequestParam(value = "limit", required = false, defaultValue = "20") int limit) {
+        return R.ok(queryService.recentRuns(workspaceId == null ? 1L : workspaceId, limit));
+    }
+
     @GetMapping("/runs/{runId}")
     @RequireWorkspaceRole("viewer")
     public R<DouyinLeadAcquisitionRunResponse> run(@PathVariable Long runId) {

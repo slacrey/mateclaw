@@ -18,6 +18,7 @@ import vip.mate.os.run.repository.LeadEngagementMapper;
 import vip.mate.os.run.repository.LeadProfileMapper;
 import vip.mate.os.run.repository.LeadTaskMapper;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -87,6 +88,45 @@ public class DouyinLeadAcquisitionQueryService {
     public DouyinLeadAcquisitionRunResponse byTask(Long taskId) {
         LeadTaskEntity task = requireTask(taskId);
         return byRun(task.getRunId());
+    }
+
+    public List<DouyinLeadRunListItem> recentRuns(Long workspaceId, int limit) {
+        int boundedLimit = Math.max(1, Math.min(50, limit));
+        LambdaQueryWrapper<LeadTaskEntity> query = new LambdaQueryWrapper<LeadTaskEntity>()
+                .eq(LeadTaskEntity::getPlatform, "douyin")
+                .orderByDesc(LeadTaskEntity::getUpdateTime)
+                .orderByDesc(LeadTaskEntity::getCreateTime);
+        if (workspaceId != null) {
+            query.eq(LeadTaskEntity::getWorkspaceId, workspaceId);
+        }
+        query.last("LIMIT " + boundedLimit);
+
+        List<DouyinLeadRunListItem> rows = new ArrayList<>();
+        for (LeadTaskEntity task : taskMapper.selectList(query)) {
+            AgentRunEntity run = task.getRunId() == null ? null : runMapper.selectById(task.getRunId());
+            JsonNode summary = parseSummary(task);
+            JsonNode input = parseJson(task.getInputJson());
+            int commentsCollected = summary.path("commentsCollected").asInt(countComments(task.getId(), false));
+            int matchedComments = summary.path("matchedComments").asInt(countComments(task.getId(), true));
+            int engagementsCreated = summary.path("engagementsCreated").asInt(countEngagements(task.getId()));
+            rows.add(new DouyinLeadRunListItem(
+                    DouyinLeadAcquisitionRunResponse.id(task.getRunId()),
+                    DouyinLeadAcquisitionRunResponse.id(task.getId()),
+                    task.getKeyword(),
+                    task.getSortMode(),
+                    run == null || run.getStatus() == null ? task.getStatus() : run.getStatus(),
+                    summary.path("requestedVideoLimit").asInt(input.path("videoLimit").asInt(0)),
+                    summary.path("processedVideos").asInt(0),
+                    summary.path("failedVideos").asInt(0),
+                    commentsCollected,
+                    matchedComments,
+                    engagementsCreated,
+                    run == null ? null : run.getFailureCode(),
+                    run == null ? null : run.getFailureMessage(),
+                    task.getCreateTime() == null ? null : task.getCreateTime().toString(),
+                    task.getUpdateTime() == null ? null : task.getUpdateTime().toString()));
+        }
+        return rows;
     }
 
     public List<RunTimelineEventDTO> eventsSince(Long runId, Long afterEventId) {
@@ -168,8 +208,15 @@ public class DouyinLeadAcquisitionQueryService {
         if (task == null || task.getSummaryJson() == null || task.getSummaryJson().isBlank()) {
             return objectMapper.createObjectNode();
         }
+        return parseJson(task.getSummaryJson());
+    }
+
+    private JsonNode parseJson(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return objectMapper.createObjectNode();
+        }
         try {
-            return objectMapper.readTree(task.getSummaryJson());
+            return objectMapper.readTree(raw);
         } catch (Exception ignored) {
             return objectMapper.createObjectNode();
         }
@@ -185,5 +232,27 @@ public class DouyinLeadAcquisitionQueryService {
             total += Math.max(0, video.path(fieldName).asInt(0));
         }
         return total;
+    }
+
+    private int countComments(Long taskId, boolean matchedOnly) {
+        if (taskId == null) {
+            return 0;
+        }
+        LambdaQueryWrapper<LeadCommentEntity> query = new LambdaQueryWrapper<LeadCommentEntity>()
+                .eq(LeadCommentEntity::getTaskId, taskId);
+        if (matchedOnly) {
+            query.eq(LeadCommentEntity::getMatched, true);
+        }
+        Long count = commentMapper.selectCount(query);
+        return count == null ? 0 : count.intValue();
+    }
+
+    private int countEngagements(Long taskId) {
+        if (taskId == null) {
+            return 0;
+        }
+        Long count = engagementMapper.selectCount(new LambdaQueryWrapper<LeadEngagementEntity>()
+                .eq(LeadEngagementEntity::getTaskId, taskId));
+        return count == null ? 0 : count.intValue();
     }
 }

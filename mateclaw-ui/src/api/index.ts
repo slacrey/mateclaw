@@ -532,6 +532,24 @@ export interface DouyinLeadRunSummary {
   videoResults?: DouyinLeadRunVideoResult[]
 }
 
+export interface DouyinLeadRunListItem {
+  runId: string | null
+  taskId: string | null
+  keyword: string | null
+  sort: string | null
+  status: string | null
+  requestedVideoLimit: number
+  processedVideos: number
+  failedVideos: number
+  commentsCollected: number
+  matchedComments: number
+  engagementsCreated: number
+  failureCode: string | null
+  failureMessage: string | null
+  createTime: string | null
+  updateTime: string | null
+}
+
 export type DouyinLeadTimelineEventType =
   | 'run_created'
   | 'run_started'
@@ -595,6 +613,8 @@ export interface DouyinLeadAcquisitionRunResponse {
 export const leadAcquisitionApi = {
   startDouyinRun: (data?: DouyinLeadAcquisitionStartRequest) =>
     http.post<DouyinLeadAcquisitionRunResponse>('/lead-acquisition/douyin/runs', data ?? {}),
+  listDouyinRuns: (limit = 20) =>
+    http.get<DouyinLeadRunListItem[]>('/lead-acquisition/douyin/runs', { params: { limit } }),
   getDouyinRun: (runId: string | number) =>
     http.get<DouyinLeadAcquisitionRunResponse>(`/lead-acquisition/runs/${runId}`),
   streamDouyinRunEventsUrl: (runId: string | number, afterEventId?: string | number | null) => {

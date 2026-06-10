@@ -209,19 +209,92 @@
             @terminal="handleRunTerminal"
           />
         </section>
+
+        <section class="growth-workspace">
+          <section class="history-panel">
+            <div class="panel-head compact">
+              <div>
+                <h2>最近任务</h2>
+                <p>查看历史获客任务，继续打开实时执行台和结果明细。</p>
+              </div>
+              <button class="text-button" type="button" :disabled="recentLoading" @click="loadRecentRuns">
+                {{ recentLoading ? '刷新中' : '刷新' }}
+              </button>
+            </div>
+
+            <div v-if="recentRuns.length" class="history-list">
+              <button
+                v-for="run in recentRuns"
+                :key="run.runId || run.taskId || run.createTime || 'run'"
+                class="history-item"
+                type="button"
+                :class="{ 'is-active': run.runId && run.runId === currentRun?.runId }"
+                @click="openRunFromHistory(run)"
+              >
+                <span class="history-item__main">
+                  <strong>{{ run.keyword || '抖音获客任务' }}</strong>
+                  <small>{{ sortLabel(run.sort) }} · {{ formatDateTime(run.updateTime || run.createTime) }}</small>
+                </span>
+                <span class="history-item__stats">
+                  <span>{{ statusLabel(run.status) }}</span>
+                  <small>{{ run.processedVideos || 0 }}/{{ run.requestedVideoLimit || '-' }} 视频 · {{ run.commentsCollected || 0 }} 评论 · {{ run.matchedComments || 0 }} 命中</small>
+                </span>
+              </button>
+            </div>
+            <div v-else class="empty-card">
+              {{ recentLoading ? '正在读取最近任务...' : '暂无历史任务。启动一次获客后会显示在这里。' }}
+            </div>
+          </section>
+
+          <section class="lead-pool-panel">
+            <div class="panel-head compact">
+              <div>
+                <h2>线索池</h2>
+                <p>{{ currentRun ? `当前任务发现 ${leadPoolRows.length} 条命中线索` : '选择任务后查看命中评论和触达状态。' }}</p>
+              </div>
+            </div>
+
+            <div v-if="leadPoolRows.length" class="lead-pool-list">
+              <article v-for="lead in leadPoolRows" :key="lead.key" class="lead-card">
+                <div class="lead-card__top">
+                  <a
+                    v-if="lead.authorProfileUrl"
+                    :href="lead.authorProfileUrl"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {{ lead.authorName }}
+                  </a>
+                  <strong v-else>{{ lead.authorName }}</strong>
+                  <span class="status-pill" :class="lead.sent ? 'status-succeeded' : engagementTone(lead.engagementStatus)">
+                    {{ lead.sent ? '已发送' : statusLabel(lead.engagementStatus) }}
+                  </span>
+                </div>
+                <p>{{ lead.text }}</p>
+                <div class="lead-card__meta">
+                  <span>{{ lead.videoKey || '来源视频未记录' }}</span>
+                  <span v-if="lead.failureReason">{{ lead.failureReason }}</span>
+                </div>
+              </article>
+            </div>
+            <div v-else class="empty-card">暂无命中线索。</div>
+          </section>
+        </section>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowDown, ChatDotRound, Connection, Promotion, Search } from '@element-plus/icons-vue'
 import { leadAcquisitionApi } from '@/api'
 import type {
   DouyinLeadAcquisitionRunResponse,
   DouyinLeadAcquisitionStartPayload,
+  DouyinLeadEngagement,
+  DouyinLeadRunListItem,
 } from '@/api'
 import { mcToast } from '@/composables/useMcToast'
 import LeadRunLivePanel from '@/components/lead/LeadRunLivePanel.vue'
@@ -254,6 +327,8 @@ const currentRun = ref<DouyinLeadAcquisitionRunResponse | null>(null)
 const launchError = ref('')
 const browserPanelRef = ref<HTMLElement | null>(null)
 const browserPanelOpen = ref(false)
+const recentRuns = ref<DouyinLeadRunListItem[]>([])
+const recentLoading = ref(false)
 
 const channels = [
   {
@@ -306,8 +381,38 @@ const launchButtonText = computed(() => {
   return '开始获客'
 })
 
+const engagementByCommentId = computed(() => {
+  const map = new Map<string, DouyinLeadEngagement>()
+  for (const engagement of currentRun.value?.engagements ?? []) {
+    if (engagement.commentId) map.set(engagement.commentId, engagement)
+  }
+  return map
+})
+
+const leadPoolRows = computed(() => {
+  return (currentRun.value?.matches ?? [])
+    .filter(comment => comment.matched)
+    .map((comment, index) => {
+      const engagement = comment.id ? engagementByCommentId.value.get(comment.id) : null
+      return {
+        key: comment.id || comment.commentKey || `${comment.text}-${index}`,
+        authorName: comment.authorName || '未识别作者',
+        authorProfileUrl: comment.authorProfileUrl,
+        text: comment.text || '-',
+        videoKey: comment.videoKey,
+        engagementStatus: engagement?.status || '待触达',
+        sent: engagement?.sent === true,
+        failureReason: reasonLabel(engagement?.failureCode || engagement?.failureMessage || ''),
+      }
+    })
+})
+
 watch(() => form.value.engage, (engage) => {
   if (!engage) form.value.sendDm = false
+})
+
+onMounted(() => {
+  loadRecentRuns()
 })
 
 function defaultForm(): LeadForm {
@@ -366,6 +471,7 @@ async function submitDouyinRun() {
     const run = unwrapApiData<DouyinLeadAcquisitionRunResponse | null>(response, null)
     if (!run) throw new Error('获客任务没有返回结果')
     currentRun.value = normalizeRun(run)
+    await loadRecentRuns()
     mcToast.success('抖音获客任务已启动')
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -382,6 +488,7 @@ function handleLiveRunUpdate(run: DouyinLeadAcquisitionRunResponse) {
 
 function handleRunTerminal(run: DouyinLeadAcquisitionRunResponse) {
   currentRun.value = normalizeRun(run)
+  loadRecentRuns()
 }
 
 function normalizeRun(run: DouyinLeadAcquisitionRunResponse): DouyinLeadAcquisitionRunResponse {
@@ -434,6 +541,81 @@ function openRunDetail() {
     params: { runId: currentRun.value.runId },
     query: currentRun.value.taskId ? { taskId: currentRun.value.taskId } : undefined,
   })
+}
+
+async function loadRecentRuns() {
+  if (recentLoading.value) return
+  recentLoading.value = true
+  try {
+    const response = await leadAcquisitionApi.listDouyinRuns(20)
+    recentRuns.value = unwrapApiData<DouyinLeadRunListItem[]>(response, [])
+  } catch (error) {
+    recentRuns.value = recentRuns.value ?? []
+  } finally {
+    recentLoading.value = false
+  }
+}
+
+async function openRunFromHistory(item: DouyinLeadRunListItem) {
+  if (!item.runId) return
+  try {
+    const response = await leadAcquisitionApi.getDouyinRun(item.runId)
+    const run = unwrapApiData<DouyinLeadAcquisitionRunResponse | null>(response, null)
+    if (!run) throw new Error('未找到任务详情')
+    currentRun.value = normalizeRun(run)
+    await nextTick()
+    document.querySelector('.result-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    mcToast.error(message)
+  }
+}
+
+function sortLabel(sort?: string | null): string {
+  if (sort === 'most_liked') return '最多点赞'
+  if (sort === 'latest') return '最新发布'
+  return sort || '默认排序'
+}
+
+function statusLabel(status?: string | null): string {
+  const normalized = String(status || '').toLowerCase()
+  if (normalized === 'running') return '执行中'
+  if (normalized === 'created') return '已创建'
+  if (normalized === 'succeeded' || normalized === 'success' || normalized === 'completed') return '成功'
+  if (normalized === 'failed') return '失败'
+  if (normalized === 'aborted' || normalized === 'cancelled' || normalized === 'canceled') return '已停止'
+  if (normalized === 'pending') return '待处理'
+  if (normalized === '待触达') return '待触达'
+  return status || '-'
+}
+
+function reasonLabel(value?: string | null): string {
+  const normalized = String(value || '').trim()
+  if (!normalized) return ''
+  const labels: Record<string, string> = {
+    DM_BUTTON_NOT_FOUND: '未找到私信入口',
+    DM_PAGE_NOT_CONFIRMED: '未确认进入私信页',
+    COMMENT_COLLECTION_INCOMPLETE: '评论采集未完整',
+    RUN_CANCELLED: '任务已取消',
+    VIDEO_FAILED: '视频处理失败',
+  }
+  return labels[normalized] ?? normalized
+}
+
+function engagementTone(status?: string | null): string {
+  const normalized = String(status || '').toLowerCase()
+  if (normalized === 'succeeded' || normalized === 'success' || normalized === 'completed' || normalized === 'sent') {
+    return 'status-succeeded'
+  }
+  if (normalized === 'failed') return 'status-danger'
+  return 'status-muted'
+}
+
+function formatDateTime(value?: string | null): string {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value.replace('T', ' ').slice(0, 16)
+  return date.toLocaleString()
 }
 
 function openChatStarter() {
@@ -672,7 +854,9 @@ function buildChatPrompt(): string {
 
 .launch-panel,
 .assist-panel,
-.result-panel {
+.result-panel,
+.history-panel,
+.lead-pool-panel {
   border: 1px solid var(--mc-border);
   border-radius: 8px;
   background: var(--mc-bg-container);
@@ -709,6 +893,11 @@ function buildChatPrompt(): string {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 16px;
+}
+
+.panel-head.compact {
+  align-items: center;
+  margin-bottom: 12px;
 }
 
 .panel-head h2,
@@ -952,6 +1141,164 @@ tr:last-child td {
   margin-top: 14px;
 }
 
+.growth-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
+  gap: 16px;
+}
+
+.history-panel,
+.lead-pool-panel {
+  min-width: 0;
+  padding: 16px;
+}
+
+.history-list,
+.lead-pool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 360px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.history-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  width: 100%;
+  border: 1px solid var(--mc-border);
+  border-radius: 8px;
+  background: var(--mc-bg);
+  color: var(--mc-text-primary);
+  cursor: pointer;
+  padding: 12px;
+  text-align: left;
+}
+
+.history-item:hover,
+.history-item.is-active {
+  border-color: var(--mc-primary);
+  background: color-mix(in srgb, var(--mc-primary) 7%, var(--mc-bg));
+}
+
+.history-item__main,
+.history-item__stats {
+  min-width: 0;
+}
+
+.history-item__main strong,
+.history-item__main small,
+.history-item__stats span,
+.history-item__stats small {
+  display: block;
+}
+
+.history-item__main strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.history-item__main small,
+.history-item__stats small {
+  margin-top: 5px;
+  color: var(--mc-text-secondary);
+  font-size: 12px;
+}
+
+.history-item__stats {
+  text-align: right;
+}
+
+.history-item__stats span {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.lead-card {
+  border: 1px solid var(--mc-border);
+  border-radius: 8px;
+  background: var(--mc-bg);
+  padding: 12px;
+}
+
+.lead-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.lead-card__top a,
+.lead-card__top strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mc-primary);
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.lead-card p {
+  margin: 8px 0 0;
+  color: var(--mc-text-primary);
+  font-size: 13px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.lead-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 9px;
+  color: var(--mc-text-secondary);
+  font-size: 12px;
+}
+
+.status-pill {
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--mc-bg-muted);
+  color: var(--mc-text-secondary);
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.status-succeeded {
+  background: rgba(22, 163, 74, .12);
+  color: #15803d;
+}
+
+.status-danger {
+  background: rgba(220, 38, 38, .1);
+  color: #dc2626;
+}
+
+.status-muted {
+  background: var(--mc-bg-muted);
+  color: var(--mc-text-secondary);
+}
+
+.empty-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  border: 1px dashed var(--mc-border);
+  border-radius: 8px;
+  color: var(--mc-text-secondary);
+  font-size: 13px;
+  text-align: center;
+  padding: 16px;
+}
+
 .mini-spinner {
   width: 14px;
   height: 14px;
@@ -967,7 +1314,8 @@ tr:last-child td {
 
 @media (max-width: 1080px) {
   .lead-workbench,
-  .result-tables {
+  .result-tables,
+  .growth-workspace {
     grid-template-columns: 1fr;
   }
 

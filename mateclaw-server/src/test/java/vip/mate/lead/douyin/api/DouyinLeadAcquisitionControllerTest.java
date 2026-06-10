@@ -8,6 +8,8 @@ import vip.mate.auth.service.AuthService;
 import vip.mate.lead.douyin.DouyinLeadAcquisitionRunService;
 import vip.mate.lead.douyin.model.DouyinLeadAcquisitionInput;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -74,5 +76,40 @@ class DouyinLeadAcquisitionControllerTest {
 
         assertThat(response).isSameAs(emitter);
         verify(eventStreamService).stream(eq(10L), eq("123"), eq(456L));
+    }
+
+    @Test
+    void recentRunsEndpointReturnsDouyinTaskHistoryForWorkspace() {
+        DouyinLeadAcquisitionRunService runService = mock(DouyinLeadAcquisitionRunService.class);
+        DouyinLeadAcquisitionQueryService queryService = mock(DouyinLeadAcquisitionQueryService.class);
+        DouyinLeadAcquisitionEventStreamService eventStreamService = mock(DouyinLeadAcquisitionEventStreamService.class);
+        AuthService authService = mock(AuthService.class);
+        DouyinLeadAcquisitionController controller = new DouyinLeadAcquisitionController(
+                runService,
+                queryService,
+                eventStreamService,
+                authService);
+        DouyinLeadRunListItem item = new DouyinLeadRunListItem(
+                "10",
+                "20",
+                "易企秀",
+                "most_liked",
+                "succeeded",
+                2,
+                2,
+                0,
+                65,
+                1,
+                1,
+                null,
+                null,
+                "2026-06-10T16:00:00",
+                "2026-06-10T16:02:00");
+        when(queryService.recentRuns(eq(7L), eq(12))).thenReturn(List.of(item));
+
+        var response = controller.recentRuns(7L, 12);
+
+        assertThat(response.getData()).containsExactly(item);
+        verify(queryService).recentRuns(eq(7L), eq(12));
     }
 }
