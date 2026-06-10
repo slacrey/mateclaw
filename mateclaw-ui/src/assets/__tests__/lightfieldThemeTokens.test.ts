@@ -1,18 +1,21 @@
 // @vitest-environment node
-import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import chatConsoleSource from '../../views/ChatConsole.vue?raw'
-import conversationSidebarSource from '../../components/chat/ConversationSidebar.vue?raw'
-import chatInputSource from '../../components/chat/ChatInput.vue?raw'
-import messageBubbleSource from '../../components/chat/MessageBubble.vue?raw'
 import dashboardSource from '../../views/Dashboard.vue?raw'
 
+const fsModuleName = 'node:fs'
+const { readFileSync } = await import(fsModuleName) as {
+  readFileSync: (path: string | URL, encoding: string) => string
+}
 const css = readFileSync(new URL('../main.css', import.meta.url), 'utf8')
+const chatComponentSources = import.meta.glob('../../components/chat/**/*.vue', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+})
 const chatSurfaceSource = [
   chatConsoleSource,
-  conversationSidebarSource,
-  chatInputSource,
-  messageBubbleSource,
+  ...Object.values(chatComponentSources).map(String),
 ].join('\n')
 
 describe('lightfield theme tokens', () => {

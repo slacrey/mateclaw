@@ -138,7 +138,7 @@ function truncateResult(text: string, max: number): string {
 .plan-panel__icon {
   display: flex;
   align-items: center;
-  color: var(--mc-primary, #d96d46);
+  color: var(--mc-primary, #476CFF);
 }
 .plan-panel.is-done .plan-panel__icon {
   color: var(--mc-success, #67c23a);
@@ -193,7 +193,7 @@ function truncateResult(text: string, max: number): string {
   justify-content: center;
 }
 .is-completed .plan-step__status { color: var(--mc-success, #67c23a); }
-.is-running .plan-step__status { color: var(--mc-primary, #d96d46); }
+.is-running .plan-step__status { color: var(--mc-primary, #476CFF); }
 
 .plan-step__dot {
   width: 8px;

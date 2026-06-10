@@ -113,9 +113,9 @@ function onAction() {
   border: 1px solid transparent;
 }
 .routing-hint--info {
-  background: var(--mc-primary-bg, rgba(217, 109, 70, 0.08));
+  background: var(--mc-primary-bg, rgba(71, 108, 255, 0.10));
   color: var(--mc-text-primary);
-  border-color: color-mix(in srgb, var(--mc-primary, #d96d46) 25%, transparent);
+  border-color: color-mix(in srgb, var(--mc-primary, #476CFF) 25%, transparent);
 }
 .routing-hint--warn {
   background: var(--mc-warning-bg, rgba(245, 158, 11, 0.10));
@@ -125,7 +125,7 @@ function onAction() {
 .routing-hint__icon {
   flex-shrink: 0;
   margin-top: 2px;
-  color: var(--mc-primary, #d96d46);
+  color: var(--mc-primary, #476CFF);
 }
 .routing-hint--warn .routing-hint__icon {
   color: #f59e0b;
@@ -140,7 +140,7 @@ function onAction() {
   border-radius: 4px;
   border: 1px solid currentColor;
   background: transparent;
-  color: var(--mc-primary, #d96d46);
+  color: var(--mc-primary, #476CFF);
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
@@ -150,7 +150,7 @@ function onAction() {
   color: #b45309;
 }
 .routing-hint__action:hover {
-  background: var(--mc-primary, #d96d46);
+  background: var(--mc-primary, #476CFF);
   color: #fff;
 }
 .routing-hint--warn .routing-hint__action:hover {

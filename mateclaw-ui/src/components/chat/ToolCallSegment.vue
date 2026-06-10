@@ -177,7 +177,7 @@ const childProgress = computed(() => {
 .seg-tool:hover {
   background: var(--mc-bg-muted);
   transform: translateX(2px);
-  box-shadow: 0 2px 8px rgba(217, 109, 70, 0.08);
+  box-shadow: 0 2px 8px rgba(38, 70, 165, 0.10);
 }
 .seg-tool.is-running {
   border-left-color: var(--mc-primary);
@@ -240,7 +240,7 @@ const childProgress = computed(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  background: rgba(217, 109, 70, 0.06);
+  background: rgba(71, 108, 255, 0.08);
   padding: 1px 5px;
   border-radius: 3px;
 }
