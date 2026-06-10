@@ -264,6 +264,52 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
     }
 
     @Test
+    void followAndDraftClosesActiveEngagementTabWhenMainTabStillShowsVideo() {
+        ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
+        ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
+                browser,
+                new ObjectMapper(),
+                mock(DouyinCommentCollector.class));
+        DouyinCommentItem comment = new DouyinCommentItem(
+                "video",
+                "comment",
+                null,
+                "霞姐一百岁",
+                "https://www.douyin.com/user/MS4w",
+                null,
+                "不建议大家用易企秀，慢出心脏病了。",
+                null,
+                null,
+                null,
+                null);
+        String video = """
+                {"ok":true,"url":"https://www.douyin.com/jingxuan/search/易企秀?modal_id=6689257066038676740","title":"易企秀 - 抖音","viewport":{"w":1280,"h":800},"tree":"Button[ref=ref_1, frame=0]: 评论 @{1180,320 80x44}"}
+                """;
+        String profile = """
+                {"ok":true,"url":"https://www.douyin.com/user/MS4w","title":"霞姐一百岁 - 抖音","viewport":{"w":1280,"h":800},"tree":"Heading[ref=ref_1, frame=0]: 霞姐一百岁 @{520,90 180x36}\\nStaticText[ref=ref_2, frame=0]: 已关注 @{912,224 86x36}\\nButton[ref=ref_3, frame=0]: 私信 @{1010,224 86x36}"}
+                """;
+        String dmPage = """
+                {"ok":true,"url":"https://www.douyin.com/im/霞姐一百岁","title":"私信 - 抖音","viewport":{"w":1280,"h":800},"tree":"StaticText[ref=ref_1, frame=0]: 私信 @{420,80 80x28}\\nStaticText[ref=ref_2, frame=0]: 发送消息 @{520,140 120x28}\\nTextbox[ref=ref_3, frame=0]: 你好 @{520,700 360x44}"}
+                """;
+
+        when(browser.service_observe_main("all")).thenReturn(video, video, video);
+        when(browser.extension_browser_navigate(any(), any(), any())).thenReturn("{\"ok\":true}");
+        when(browser.service_observe_active("all")).thenReturn(profile, dmPage, dmPage);
+        when(browser.service_click_active(anyDouble(), anyDouble())).thenReturn("{\"ok\":true}");
+        when(browser.service_type_dm_draft_active("你好", false)).thenReturn("{\"ok\":true}");
+        when(browser.service_press_key_active("Control+W")).thenReturn("{\"ok\":true}");
+
+        EngagementResult result = adapter.followAndDraft(comment, "你好", false);
+
+        assertThat(result.status()).isEqualTo("succeeded");
+        verify(browser).service_press_key_active("Control+W");
+        verify(browser, never()).extension_browser_navigate(
+                eq("https://www.douyin.com/jingxuan/search/易企秀?modal_id=6689257066038676740"),
+                eq("domcontentloaded"),
+                any());
+    }
+
+    @Test
     void topSearchSubmitButtonRejectsAiSearchAndUsesHeaderSearchButton() {
         ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
                 mock(ExtensionBrowserTool.class),
@@ -936,6 +982,36 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
         assertThat(opened.message()).contains("source=a11y_fallback");
         verify(browser).service_click_main(310.5d, 225.0d);
         verify(browser, never()).service_click_main(310.5d, 475.5d);
+    }
+
+    @Test
+    void openVideoUsesArrowDownWhenCurrentVideoIsAlreadyOpen() {
+        ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
+        ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
+                browser,
+                new ObjectMapper(),
+                mock(DouyinCommentCollector.class));
+        String currentWithComments = """
+                {"ok":true,"url":"https://www.douyin.com/jingxuan/search/易企秀?modal_id=1111111111111","title":"第一个视频 - 抖音","viewport":{"w":1280,"h":800},"tree":"Text[ref=ref_1, frame=0]: 全部评论(90) @{730,80 180x32}\\nText[ref=ref_2, frame=0]: 暂时没有更多评论 @{820,720 180x28}"}
+                """;
+        String currentClosed = """
+                {"ok":true,"url":"https://www.douyin.com/jingxuan/search/易企秀?modal_id=1111111111111","title":"第一个视频 - 抖音","viewport":{"w":1280,"h":800},"tree":"Button[ref=ref_1, frame=0]: 评论 @{1180,320 80x44}"}
+                """;
+        String secondVideo = """
+                {"ok":true,"url":"https://www.douyin.com/jingxuan/search/易企秀?modal_id=2222222222222","title":"第二个视频 - 抖音","viewport":{"w":1280,"h":800},"tree":"Button[ref=ref_1, frame=0]: 评论 @{1180,320 80x44}"}
+                """;
+        when(browser.service_observe_main("all")).thenReturn(currentWithComments, currentClosed, secondVideo);
+        when(browser.service_press_key_main("x")).thenReturn("{\"ok\":true}");
+        when(browser.service_press_key_main("ArrowDown")).thenReturn("{\"ok\":true}");
+
+        DouyinBrowserAdapter.BrowserObservation opened = adapter.openVideo(1);
+
+        assertThat(opened.code()).isEqualTo("VIDEO_TARGET");
+        assertThat(opened.url()).contains("2222222222222");
+        assertThat(opened.message()).contains("keyboard_arrow_down:index=1");
+        verify(browser).service_press_key_main("x");
+        verify(browser).service_press_key_main("ArrowDown");
+        verify(browser, never()).service_click_main(anyDouble(), anyDouble());
     }
 
     @Test

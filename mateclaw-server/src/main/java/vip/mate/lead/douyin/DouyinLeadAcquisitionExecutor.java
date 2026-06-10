@@ -94,7 +94,6 @@ public class DouyinLeadAcquisitionExecutor {
                             video.toPayload(), null));
                 }
             }
-
             summary = summarize(input.videoLimit(), videos);
             boolean anySucceeded = summary.succeededVideos() > 0;
             persistence.completeTask(taskId, anySucceeded ? "succeeded" : "failed", summary);
@@ -216,8 +215,12 @@ public class DouyinLeadAcquisitionExecutor {
                     "matchedComments", 0), null));
             return;
         }
+        executeEngagementsForVideo(runId, taskId, input, video);
+    }
 
-        for (CommentMatchResult match : matches) {
+    private void executeEngagementsForVideo(Long runId, Long taskId, DouyinLeadAcquisitionInput input,
+                                            VideoRunState video) throws Exception {
+        for (CommentMatchResult match : video.matches) {
             assertNotCancelled(runId);
             EngagementResult engagement = step(runId,
                     video.stepKey("engage_matched_comment_author_" + safeKey(match.comment().commentKey())),

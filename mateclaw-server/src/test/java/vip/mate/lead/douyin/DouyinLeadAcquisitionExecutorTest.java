@@ -177,6 +177,82 @@ class DouyinLeadAcquisitionExecutorTest {
     }
 
     @Test
+    void multiVideoRunFinishesCurrentVideoEngagementBeforeOpeningNextVideo() {
+        FakeDouyinBrowserAdapter browser = new FakeDouyinBrowserAdapter();
+        browser.collectionsByVideo.put(0, new CommentCollectionResult(
+                List.of(browser.exact),
+                1,
+                true,
+                "END_OF_LIST",
+                1));
+        browser.collectionsByVideo.put(1, new CommentCollectionResult(
+                List.of(browser.near),
+                1,
+                true,
+                "END_OF_LIST",
+                1));
+        LeadPersistenceService persistence = mock(LeadPersistenceService.class);
+        AgentRunKernel runKernel = mock(AgentRunKernel.class);
+        StepLedgerService steps = mock(StepLedgerService.class);
+        RunEventPublisher events = mock(RunEventPublisher.class);
+        RunCancellationService cancellation = mock(RunCancellationService.class);
+        AtomicLong stepIds = new AtomicLong(1);
+        when(cancellation.isCancellationRequested(10L)).thenReturn(false);
+        when(steps.openStep(any(AgentStepRequest.class))).thenAnswer(invocation -> {
+            AgentStepEntity step = new AgentStepEntity();
+            step.setId(stepIds.getAndIncrement());
+            step.setRunId(10L);
+            step.setStepKey(invocation.getArgument(0, AgentStepRequest.class).stepKey());
+            return step;
+        });
+        LeadProfileEntity profile = new LeadProfileEntity();
+        profile.setId(33L);
+        when(persistence.saveProfile(eq(20L), eq(10L), any())).thenReturn(profile);
+        when(persistence.findCommentId(eq(20L), eq("exact"))).thenReturn(44L);
+
+        DouyinLeadAcquisitionExecutor executor = new DouyinLeadAcquisitionExecutor(
+                browser,
+                new CommentMatcher(),
+                persistence,
+                runKernel,
+                steps,
+                events,
+                cancellation);
+
+        executor.execute(10L, 20L, new DouyinLeadAcquisitionInput(
+                "易企秀",
+                "most_liked",
+                2,
+                "对于99%的人用豆包就行了",
+                "你好",
+                false,
+                true));
+
+        assertThat(browser.calls).containsExactly(
+                "search",
+                "sort",
+                "open_video:0",
+                "open_comments",
+                "detect_region",
+                "collect_comments",
+                "engage:Ly",
+                "open_video:1",
+                "open_comments",
+                "detect_region",
+                "collect_comments");
+        verify(persistence).completeTask(eq(20L), eq("succeeded"),
+                argThat((DouyinLeadRunSummary summary) -> summary != null
+                        && summary.requestedVideoLimit() == 2
+                        && summary.processedVideos() == 2
+                        && summary.succeededVideos() == 2
+                        && summary.failedVideos() == 0
+                        && summary.matchedComments() == 1
+                        && summary.engagementsCreated() == 1));
+        verify(runKernel).finishSucceeded(eq(10L), eq("lead-task:20"));
+        verify(runKernel, never()).finishFailed(eq(10L), any(), any());
+    }
+
+    @Test
     void engageFalseSkipsInteractionsEvenWhenCommentsMatch() {
         FakeDouyinBrowserAdapter browser = new FakeDouyinBrowserAdapter();
         LeadPersistenceService persistence = mock(LeadPersistenceService.class);

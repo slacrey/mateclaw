@@ -194,13 +194,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         BrowserObservation current = observeMain("all");
         if (looksLikeVideoOpenHard(current)) {
             if (zeroBasedIndex > 0) {
-                SortedVideoSnapshot snapshot = lastSortedVideoSnapshot;
-                if (snapshot.isEmpty()) {
-                    throw new DouyinBrowserException("VIDEO_SEARCH_CONTEXT_LOST",
-                            "当前仍在视频页，且没有可复用的搜索结果快照，无法打开第 "
-                                    + (zeroBasedIndex + 1) + " 个视频");
-                }
-                current = ensurePlainSearchResultPage(current, snapshot.keyword());
+                return switchToNextVideoByKeyboard(current, zeroBasedIndex);
             } else {
                 return new BrowserObservation(
                         current.ok(),
@@ -212,10 +206,6 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                         "VIDEO_TARGET",
                         "reused_existing_video_page");
             }
-        }
-        if (looksLikeVideoOpenHard(current)) {
-            throw new DouyinBrowserException("VIDEO_SEARCH_CONTEXT_LOST",
-                    "无法从当前视频页恢复到搜索结果页以打开第 " + (zeroBasedIndex + 1) + " 个视频");
         }
         VideoCandidates candidates = sortedVideoSnapshotCandidates(current);
         if (candidates.isEmpty()) {
@@ -262,6 +252,69 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                 opened.viewportHeight(),
                 "VIDEO_TARGET",
                 target.debugSummary() + ", domDebug=" + candidates.debug());
+    }
+
+    private BrowserObservation switchToNextVideoByKeyboard(BrowserObservation current, int zeroBasedIndex) {
+        BrowserObservation before = closeCommentPanelBeforeVideoSwitch(current);
+        for (int attempt = 0; attempt < 3; attempt++) {
+            if (!tryOk(browser.service_press_key_main("ArrowDown"))) {
+                waitMs(350L);
+                continue;
+            }
+            waitMs(attempt == 0 ? 1_500L : 900L);
+            BrowserObservation after = observeMain("all");
+            if (!looksLikeVideoOpenHard(after)) {
+                continue;
+            }
+            if (videoObservationChanged(before, after) || attempt == 2) {
+                return new BrowserObservation(
+                        after.ok(),
+                        after.url(),
+                        after.title(),
+                        after.tree(),
+                        after.viewportWidth(),
+                        after.viewportHeight(),
+                        "VIDEO_TARGET",
+                        "keyboard_arrow_down:index=" + zeroBasedIndex);
+            }
+        }
+        throw new DouyinBrowserException("VIDEO_KEYBOARD_SWITCH_NOT_CONFIRMED",
+                "已尝试用下方向键打开第 " + (zeroBasedIndex + 1)
+                        + " 个视频，但没有确认视频切换。url=" + before.url()
+                        + ", title=" + before.title()
+                        + ", tree=" + treeExcerpt(before.tree()));
+    }
+
+    private BrowserObservation closeCommentPanelBeforeVideoSwitch(BrowserObservation current) {
+        BrowserObservation observed = current;
+        if (observed != null && looksLikeCommentsOpen(observed.tree())) {
+            tryOk(browser.service_press_key_main("x"));
+            waitMs(450L);
+            BrowserObservation afterClose = observeMain("all");
+            if (looksLikeVideoOpenHard(afterClose)) {
+                observed = afterClose;
+            }
+        }
+        return observed;
+    }
+
+    private boolean videoObservationChanged(BrowserObservation before, BrowserObservation after) {
+        if (before == null || after == null) {
+            return false;
+        }
+        String beforeId = videoIdentity(before.url());
+        String afterId = videoIdentity(after.url());
+        if (!beforeId.isBlank() && !afterId.isBlank()) {
+            return !beforeId.equals(afterId);
+        }
+        String beforeUrl = before.url() == null ? "" : before.url();
+        String afterUrl = after.url() == null ? "" : after.url();
+        if (!beforeUrl.isBlank() && !afterUrl.isBlank() && !beforeUrl.equals(afterUrl)) {
+            return true;
+        }
+        String beforeTitle = before.title() == null ? "" : before.title();
+        String afterTitle = after.title() == null ? "" : after.title();
+        return !beforeTitle.isBlank() && !afterTitle.isBlank() && !beforeTitle.equals(afterTitle);
     }
 
     @Override
@@ -914,7 +967,11 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
 
     @Override
     public EngagementResult followAndDraft(DouyinCommentItem comment, String dmDraft, boolean sendDm) {
+        BrowserObservation videoBeforeEngagement = observeMain("all");
+        boolean profileOpened = false;
+        try {
         BrowserObservation profile = openAuthorProfile(comment);
+        profileOpened = true;
         if (!isDouyinPage(profile.url())) {
             return EngagementResult.failed(comment, "NOT_DOUYIN_PROFILE", "当前活动页不是抖音作者主页");
         }
@@ -1017,6 +1074,40 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                 true, draftTyped, sent, succeeded ? "succeeded" : "failed",
                 failureCode,
                 failureMessage);
+        } finally {
+            if (profileOpened) {
+                restoreVideoContextAfterEngagement(videoBeforeEngagement, comment);
+            }
+        }
+    }
+
+    private void restoreVideoContextAfterEngagement(BrowserObservation videoBeforeEngagement,
+                                                    DouyinCommentItem comment) {
+        try {
+            BrowserObservation main = observeMain("all");
+            if (looksLikeVideoOpenHard(main)) {
+                if (tryOk(browser.service_press_key_active("Control+W"))) {
+                    waitMs(500L);
+                    log.info("[douyin.lead] closed engagement active tab and returned to video: author={}",
+                            comment.authorName());
+                }
+                BrowserObservation restored = observeMain("all");
+                if (looksLikeVideoOpenHard(restored)) {
+                    return;
+                }
+            }
+            if (videoBeforeEngagement != null
+                    && looksLikeVideoOpenHard(videoBeforeEngagement)
+                    && isDouyinPage(videoBeforeEngagement.url())) {
+                log.info("[douyin.lead] restoring main tab to video after engagement: author={}, url={}",
+                        comment.authorName(), videoBeforeEngagement.url());
+                tryOk(browser.extension_browser_navigate(videoBeforeEngagement.url(), "domcontentloaded", null));
+                waitMs(900L);
+            }
+        } catch (RuntimeException e) {
+            log.warn("[douyin.lead] failed to restore video context after engagement: author={}, error={}",
+                    comment.authorName(), e.getMessage());
+        }
     }
 
     private BrowserObservation retryDmDomActionAfterUnconfirmedPage(
