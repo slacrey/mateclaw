@@ -337,6 +337,14 @@ const suggestions = computed(() => {
       t('chat.suggestionWeather'),
     ]
   }
+  if (isLeadExpertAgent(agent)) {
+    return [
+      douyinLeadStarterPrompt(),
+      '帮我把“抱怨竞品卡顿”的评论整理成获客匹配规则',
+      '帮我优化一版不冒犯用户的私信模板',
+      '汇总最近一次抖音获客任务的线索和触达状态',
+    ]
+  }
   return [
     t('chat.suggestionIntro'),
     t('chat.suggestionPoem'),
@@ -344,6 +352,26 @@ const suggestions = computed(() => {
     t('chat.suggestionWeather'),
   ]
 })
+
+function isLeadExpertAgent(agent: Agent | null | undefined): boolean {
+  if (!agent) return false
+  const text = [
+    agent.name,
+    agent.description,
+    agent.systemPrompt,
+    agent.tags,
+    (agent as any).agentType,
+  ].filter(Boolean).join(' ').toLowerCase()
+  return /获客|销售|增长|线索|商机|lead|growth|sales|douyin|抖音/.test(text)
+}
+
+function douyinLeadStarterPrompt(): string {
+  return [
+    '我要执行抖音获客。',
+    '请先向我确认这些参数：关键词、排序方式、视频数量、评论匹配规则、私信模板、是否关注、是否发送私信。',
+    '确认后执行抖音获客 V2，并在结束时汇总每个视频的评论声明数、实际采集数、匹配数，以及每个 engagement 的状态。',
+  ].join('\n')
+}
 
 // ============ 状态 ============
 const router = useRouter()
@@ -947,11 +975,16 @@ function handleChatShortcut(e: Event) {
 // (before loadAgents triggers syncRouteState, which would wipe the action key)
 // and apply after agents are loaded so the dropdown actually has something to show.
 let pendingRouteAction: 'newChat' | '' = ''
+let pendingRoutePrompt = ''
 
 function captureRouteAction() {
   const action = route.query.action
   if (action === 'newChat') {
     pendingRouteAction = action
+  }
+  const prompt = route.query.prompt
+  if (typeof prompt === 'string' && prompt.trim()) {
+    pendingRoutePrompt = prompt
   }
 }
 
@@ -960,6 +993,14 @@ function applyPendingRouteAction() {
   pendingRouteAction = ''
   if (action === 'newChat') {
     newConversation()
+    if (pendingRoutePrompt) {
+      inputText.value = pendingRoutePrompt
+      pendingRoutePrompt = ''
+    }
+    nextTick(() => chatInputRef.value?.focus?.())
+  } else if (pendingRoutePrompt && !inputText.value) {
+    inputText.value = pendingRoutePrompt
+    pendingRoutePrompt = ''
     nextTick(() => chatInputRef.value?.focus?.())
   }
 }

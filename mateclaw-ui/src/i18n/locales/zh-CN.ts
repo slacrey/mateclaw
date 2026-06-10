@@ -405,6 +405,7 @@ export default {
     home: '首页',
     dashboard: '仪表盘',
     chat: '对话',
+    leadAcquisition: '获客',
     control: '控制台',
     channels: '渠道',
     sessions: '会话',

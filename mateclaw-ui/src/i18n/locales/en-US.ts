@@ -405,6 +405,7 @@ export default {
     home: 'Home',
     dashboard: 'Dashboard',
     chat: 'Chat',
+    leadAcquisition: 'Leads',
     control: 'Control',
     channels: 'Channels',
     sessions: 'Sessions',

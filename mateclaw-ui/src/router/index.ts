@@ -34,6 +34,12 @@ const router = createRouter({
           meta: { title: 'Chat', requiredCapability: 'chat' },
         },
         {
+          path: 'lead-acquisition',
+          name: 'LeadAcquisition',
+          component: () => import('@/views/LeadAcquisition/index.vue'),
+          meta: { title: 'Lead Acquisition', requiredCapability: 'chat' },
+        },
+        {
           path: 'dashboard',
           name: 'Dashboard',
           component: () => import('@/views/Dashboard.vue'),
@@ -94,7 +100,7 @@ const router = createRouter({
             runId: route.params.runId,
             taskId: route.query.taskId,
           }),
-          meta: { title: 'Douyin Lead Run', requiredCapability: 'manage:skills' },
+          meta: { title: 'Douyin Lead Run', requiredCapability: 'chat' },
         },
         // Tools 顶层入口已降级到 Settings ▸ Tools (Catalog) (RFC-090 Phase 1)
         // 旧路径 /tools 由下方 redirect 兼容
