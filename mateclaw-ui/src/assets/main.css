@@ -82,7 +82,7 @@
   --mc-assistant-bubble-bg: rgba(255, 255, 255, 0.86);
   --mc-assistant-bubble-border: rgba(155, 181, 255, 0.32);
   --mc-assistant-bubble-color: #122047;
-  --mc-user-bubble-bg: linear-gradient(135deg, #476CFF, #6E8BFF);
+  --mc-user-bubble-bg: linear-gradient(135deg, #2447CC, #3455F4);
   --mc-user-bubble-color: #ffffff;
   --mc-input-bg: rgba(255, 255, 255, 0.92);
   --mc-input-border: rgba(120, 151, 226, 0.42);
@@ -177,11 +177,11 @@
 }
 
 html.dark {
-  /* brand (brighter in dark bg context) */
-  --mc-primary: #8EA6FF;
-  --mc-primary-solid: #476CFF;
+  /* brand */
+  --mc-primary: #3455F4;
+  --mc-primary-solid: #3455F4;
   --mc-primary-light: #C2D0FF;
-  --mc-primary-hover: #6E8BFF;
+  --mc-primary-hover: #2447CC;
   --mc-primary-bg: rgba(71, 108, 255, 0.22);
   --mc-accent: #37D5E5;
   --mc-accent-soft: rgba(25, 191, 209, 0.18);
@@ -233,7 +233,7 @@ html.dark {
   --mc-assistant-bubble-bg: rgba(18, 42, 104, 0.86);
   --mc-assistant-bubble-border: rgba(153, 180, 255, 0.24);
   --mc-assistant-bubble-color: #F4F8FF;
-  --mc-user-bubble-bg: linear-gradient(135deg, #476CFF, #19BFD1);
+  --mc-user-bubble-bg: linear-gradient(135deg, #2447CC, #0B7285);
   --mc-user-bubble-color: #ffffff;
   --mc-input-bg: rgba(8, 22, 66, 0.92);
   --mc-input-border: rgba(153, 180, 255, 0.28);
@@ -906,7 +906,7 @@ html.dark {
   --el-fill-color: rgba(20, 44, 110, 0.82);
   --el-fill-color-light: rgba(18, 42, 104, 0.72);
   --el-fill-color-lighter: rgba(14, 33, 84, 0.62);
-  --el-color-primary: #8EA6FF;
+  --el-color-primary: #3455F4;
   --el-color-success: #4ADE80;
   --el-color-warning: #FBBF24;
   --el-color-danger: #FF6B8F;
