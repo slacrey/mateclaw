@@ -1,8 +1,12 @@
+// @vitest-environment node
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import css from '../main.css?raw'
+
+const css = readFileSync(new URL('../main.css', import.meta.url), 'utf8')
 
 describe('lightfield theme tokens', () => {
   it('uses the approved cold-blue brand palette instead of the old warm palette', () => {
+    expect(css).toContain(':root')
     expect(css).toContain('--mc-primary: #476CFF')
     expect(css).toContain('--mc-primary-hover: #3455F4')
     expect(css).toContain('--mc-accent: #19BFD1')
