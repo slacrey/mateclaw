@@ -533,10 +533,31 @@ export interface DouyinLeadRunSummary {
 }
 
 export type DouyinLeadTimelineEventType =
+  | 'run_created'
+  | 'run_started'
+  | 'run_status_changed'
+  | 'lead.search.started'
+  | 'lead.search.completed'
+  | 'lead.sort.started'
+  | 'lead.sort.completed'
   | 'lead.video.started'
+  | 'lead.video.opened'
+  | 'lead.comments.opened'
+  | 'lead.comments.region_detected'
+  | 'lead.comments.collecting'
+  | 'lead.comments.collected'
+  | 'lead.comment.matched'
+  | 'lead.comment.match_skipped'
+  | 'lead.engagement.started'
+  | 'lead.engagement.completed'
+  | 'lead.engagement.skipped'
   | 'lead.video.completed'
   | 'lead.video.failed'
   | 'lead.run.summary'
+  | 'lead.run.failed'
+  | 'run_snapshot'
+  | 'heartbeat'
+  | 'done'
   | (string & {})
 
 export interface DouyinLeadTimelineEvent {
@@ -573,11 +594,17 @@ export interface DouyinLeadAcquisitionRunResponse {
 
 export const leadAcquisitionApi = {
   startDouyinRun: (data?: DouyinLeadAcquisitionStartRequest) =>
-    http.post<DouyinLeadAcquisitionRunResponse>('/lead-acquisition/douyin/runs', data ?? {}, {
-      timeout: 0,
-    }),
+    http.post<DouyinLeadAcquisitionRunResponse>('/lead-acquisition/douyin/runs', data ?? {}),
   getDouyinRun: (runId: string | number) =>
     http.get<DouyinLeadAcquisitionRunResponse>(`/lead-acquisition/runs/${runId}`),
+  streamDouyinRunEventsUrl: (runId: string | number, afterEventId?: string | number | null) => {
+    const params = new URLSearchParams()
+    const token = localStorage.getItem('token')
+    if (token) params.set('token', token)
+    if (afterEventId != null && afterEventId !== '') params.set('afterEventId', String(afterEventId))
+    const query = params.toString()
+    return `/api/v1/lead-acquisition/runs/${runId}/events/stream${query ? `?${query}` : ''}`
+  },
   cancelRun: (runId: string | number) =>
     http.post<{ cancelled: boolean; runId: string }>(`/lead-acquisition/runs/${runId}/cancel`),
   getDouyinTask: (taskId: string | number) =>

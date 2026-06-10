@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
+import vip.mate.os.run.model.AgentRunStatus;
 import vip.mate.os.run.model.AgentEventEntity;
 import vip.mate.os.run.model.AgentRunEntity;
 import vip.mate.os.run.model.LeadCommentEntity;
@@ -88,6 +89,28 @@ public class DouyinLeadAcquisitionQueryService {
         return byRun(task.getRunId());
     }
 
+    public List<RunTimelineEventDTO> eventsSince(Long runId, Long afterEventId) {
+        LambdaQueryWrapper<AgentEventEntity> query = new LambdaQueryWrapper<AgentEventEntity>()
+                .eq(AgentEventEntity::getRunId, runId)
+                .orderByAsc(AgentEventEntity::getId);
+        if (afterEventId != null && afterEventId > 0) {
+            query.gt(AgentEventEntity::getId, afterEventId);
+        }
+        return eventMapper.selectList(query)
+                .stream()
+                .map(RunTimelineEventDTO::from)
+                .toList();
+    }
+
+    public boolean isRunTerminal(Long runId) {
+        AgentRunEntity run = requireRun(runId);
+        return AgentRunStatus.parse(run.getStatus()).isTerminal();
+    }
+
+    public String runStatus(Long runId) {
+        return requireRun(runId).getStatus();
+    }
+
     public List<LeadCommentDTO> comments(Long taskId) {
         return commentMapper.selectList(new LambdaQueryWrapper<LeadCommentEntity>()
                         .eq(LeadCommentEntity::getTaskId, taskId)
@@ -115,10 +138,11 @@ public class DouyinLeadAcquisitionQueryService {
                 .toList();
     }
 
-    private List<RunTimelineEventDTO> events(Long runId) {
+    public List<RunTimelineEventDTO> events(Long runId) {
         return eventMapper.selectList(new LambdaQueryWrapper<AgentEventEntity>()
                         .eq(AgentEventEntity::getRunId, runId)
-                        .orderByAsc(AgentEventEntity::getCreateTime))
+                        .orderByAsc(AgentEventEntity::getCreateTime)
+                        .orderByAsc(AgentEventEntity::getId))
                 .stream()
                 .map(RunTimelineEventDTO::from)
                 .toList();

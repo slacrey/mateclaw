@@ -2,12 +2,11 @@ package vip.mate.lead.douyin.api;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.security.authentication.TestingAuthenticationToken;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import vip.mate.auth.model.UserEntity;
 import vip.mate.auth.service.AuthService;
 import vip.mate.lead.douyin.DouyinLeadAcquisitionRunService;
 import vip.mate.lead.douyin.model.DouyinLeadAcquisitionInput;
-
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -20,29 +19,22 @@ import static org.mockito.Mockito.when;
 class DouyinLeadAcquisitionControllerTest {
 
     @Test
-    void startEndpointRunsFullV1WorkflowSynchronously() {
+    void startEndpointReturnsAsyncRunHandleWithoutWaitingForCompletion() {
         DouyinLeadAcquisitionRunService runService = mock(DouyinLeadAcquisitionRunService.class);
         DouyinLeadAcquisitionQueryService queryService = mock(DouyinLeadAcquisitionQueryService.class);
+        DouyinLeadAcquisitionEventStreamService eventStreamService = mock(DouyinLeadAcquisitionEventStreamService.class);
         AuthService authService = mock(AuthService.class);
         DouyinLeadAcquisitionController controller = new DouyinLeadAcquisitionController(
                 runService,
                 queryService,
+                eventStreamService,
                 authService);
         UserEntity user = new UserEntity();
         user.setId(9L);
         when(authService.findByUsername("alice")).thenReturn(user);
-        DouyinLeadAcquisitionRunResponse terminal = new DouyinLeadAcquisitionRunResponse(
-                "10",
-                "20",
-                "succeeded",
-                151,
-                1,
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of());
-        when(runService.runSync(eq(7L), eq(9L), any(DouyinLeadAcquisitionInput.class), eq(queryService)))
-                .thenReturn(terminal);
+        DouyinLeadAcquisitionRunResponse started = DouyinLeadAcquisitionRunResponse.started(10L, 20L, "running");
+        when(runService.start(eq(7L), eq(9L), any(DouyinLeadAcquisitionInput.class)))
+                .thenReturn(started);
 
         var response = controller.start(
                 new DouyinLeadAcquisitionStartRequest(
@@ -55,9 +47,32 @@ class DouyinLeadAcquisitionControllerTest {
                 7L,
                 new TestingAuthenticationToken("alice", "pw"));
 
-        assertThat(response.getData().status()).isEqualTo("succeeded");
+        assertThat(response.getData().status()).isEqualTo("running");
         assertThat(response.getData().runId()).isEqualTo("10");
-        verify(runService).runSync(eq(7L), eq(9L), any(DouyinLeadAcquisitionInput.class), eq(queryService));
-        verify(runService, never()).start(any(), any(), any());
+        assertThat(response.getData().taskId()).isEqualTo("20");
+        assertThat(response.getData().commentsCollected()).isZero();
+        assertThat(response.getData().events()).isEmpty();
+        verify(runService).start(eq(7L), eq(9L), any(DouyinLeadAcquisitionInput.class));
+        verify(runService, never()).runSync(any(), any(), any(), any());
+    }
+
+    @Test
+    void streamEndpointDelegatesCursorInputsToEventStreamService() {
+        DouyinLeadAcquisitionRunService runService = mock(DouyinLeadAcquisitionRunService.class);
+        DouyinLeadAcquisitionQueryService queryService = mock(DouyinLeadAcquisitionQueryService.class);
+        DouyinLeadAcquisitionEventStreamService eventStreamService = mock(DouyinLeadAcquisitionEventStreamService.class);
+        AuthService authService = mock(AuthService.class);
+        DouyinLeadAcquisitionController controller = new DouyinLeadAcquisitionController(
+                runService,
+                queryService,
+                eventStreamService,
+                authService);
+        SseEmitter emitter = new SseEmitter();
+        when(eventStreamService.stream(eq(10L), eq("123"), eq(456L))).thenReturn(emitter);
+
+        SseEmitter response = controller.streamEvents(10L, 456L, "123");
+
+        assertThat(response).isSameAs(emitter);
+        verify(eventStreamService).stream(eq(10L), eq("123"), eq(456L));
     }
 }

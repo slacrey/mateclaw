@@ -60,10 +60,25 @@ public class DouyinLeadAcquisitionExecutor {
         DouyinLeadRunSummary summary = DouyinLeadRunSummary.empty(input.videoLimit());
         try {
             runKernel.startRun(runId);
-            step(runId, "open_douyin_search", "browser.act",
+            events.publish(new RunEvent(runId, null, "lead.search.started", "info", payload(
+                    "keyword", input.keyword(),
+                    "requestedVideoLimit", input.videoLimit()), null));
+            DouyinBrowserAdapter.BrowserObservation searchObservation = step(runId, "open_douyin_search", "browser.act",
                     () -> browser.openDouyinAndSearch(input));
-            step(runId, "apply_sort", "browser.act",
+            events.publish(new RunEvent(runId, null, "lead.search.completed", "info", payload(
+                    "keyword", input.keyword(),
+                    "url", searchObservation.url(),
+                    "title", searchObservation.title()), null));
+
+            events.publish(new RunEvent(runId, null, "lead.sort.started", "info", payload(
+                    "sort", input.sort(),
+                    "keyword", input.keyword()), null));
+            DouyinBrowserAdapter.BrowserObservation sortObservation = step(runId, "apply_sort", "browser.act",
                     () -> browser.applySort(input));
+            events.publish(new RunEvent(runId, null, "lead.sort.completed", "info", payload(
+                    "sort", input.sort(),
+                    "url", sortObservation.url(),
+                    "title", sortObservation.title()), null));
 
             for (int videoIndex = 0; videoIndex < input.videoLimit(); videoIndex++) {
                 assertNotCancelled(runId);
@@ -166,7 +181,13 @@ public class DouyinLeadAcquisitionExecutor {
         CommentCollectionResult collection = step(runId,
                 video.stepKey("collect_all_comments"),
                 "browser.extract",
-                () -> browser.collectAllComments(region));
+                () -> {
+                    events.publish(new RunEvent(runId, null, "lead.comments.collecting", "info", payload(
+                            "videoIndex", video.index,
+                            "regionKey", region.regionKey(),
+                            "source", region.source()), null));
+                    return browser.collectAllComments(region);
+                });
         video.collection = collection;
         persistence.saveComments(taskId, runId, collection.comments());
         events.publish(new RunEvent(runId, null, "lead.comments.collected", "info",
@@ -222,6 +243,11 @@ public class DouyinLeadAcquisitionExecutor {
                                             VideoRunState video) throws Exception {
         for (CommentMatchResult match : video.matches) {
             assertNotCancelled(runId);
+            events.publish(new RunEvent(runId, null, "lead.engagement.started", "info", payload(
+                    "videoIndex", video.index,
+                    "author", match.comment().authorName(),
+                    "commentKey", match.comment().commentKey(),
+                    "sendDm", input.sendDm()), null));
             EngagementResult engagement = step(runId,
                     video.stepKey("engage_matched_comment_author_" + safeKey(match.comment().commentKey())),
                     "browser.act",

@@ -1,5 +1,6 @@
 package vip.mate.lead.douyin.api;
 
+import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -7,7 +8,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import vip.mate.auth.model.UserEntity;
 import vip.mate.auth.service.AuthService;
 import vip.mate.common.result.R;
@@ -25,13 +28,16 @@ public class DouyinLeadAcquisitionController {
 
     private final DouyinLeadAcquisitionRunService runService;
     private final DouyinLeadAcquisitionQueryService queryService;
+    private final DouyinLeadAcquisitionEventStreamService eventStreamService;
     private final AuthService authService;
 
     public DouyinLeadAcquisitionController(DouyinLeadAcquisitionRunService runService,
                                            DouyinLeadAcquisitionQueryService queryService,
+                                           DouyinLeadAcquisitionEventStreamService eventStreamService,
                                            AuthService authService) {
         this.runService = runService;
         this.queryService = queryService;
+        this.eventStreamService = eventStreamService;
         this.authService = authService;
     }
 
@@ -43,7 +49,7 @@ public class DouyinLeadAcquisitionController {
             Authentication auth) {
         UserEntity user = requireUser(auth);
         DouyinLeadAcquisitionInput input = normalizeStartRequest(request);
-        return R.ok(runService.runSync(workspaceId == null ? 1L : workspaceId, user.getId(), input, queryService));
+        return R.ok(runService.start(workspaceId == null ? 1L : workspaceId, user.getId(), input));
     }
 
     @GetMapping("/runs/{runId}")
@@ -57,6 +63,14 @@ public class DouyinLeadAcquisitionController {
     public R<Map<String, Object>> cancel(@PathVariable Long runId) {
         runService.cancel(runId);
         return R.ok(Map.of("cancelled", true, "runId", String.valueOf(runId)));
+    }
+
+    @GetMapping(value = "/runs/{runId}/events/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @RequireWorkspaceRole("viewer")
+    public SseEmitter streamEvents(@PathVariable Long runId,
+                                   @RequestParam(value = "afterEventId", required = false) Long afterEventId,
+                                   @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId) {
+        return eventStreamService.stream(runId, lastEventId, afterEventId);
     }
 
     @GetMapping("/tasks/{taskId}")
@@ -100,4 +114,5 @@ public class DouyinLeadAcquisitionController {
         }
         return request.normalized();
     }
+
 }

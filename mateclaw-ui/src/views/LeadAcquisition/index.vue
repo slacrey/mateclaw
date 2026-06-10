@@ -91,14 +91,14 @@
                   type="text"
                   maxlength="120"
                   placeholder="例如：易企秀"
-                  :disabled="launching"
+                  :disabled="taskLocked"
                   required
                 />
               </label>
 
               <label class="field">
                 <span>排序</span>
-                <select v-model="form.sort" :disabled="launching">
+                <select v-model="form.sort" :disabled="taskLocked">
                   <option value="most_liked">最多点赞</option>
                   <option value="latest">最新发布</option>
                 </select>
@@ -111,7 +111,7 @@
                   type="number"
                   min="1"
                   max="50"
-                  :disabled="launching"
+                  :disabled="taskLocked"
                   @change="normalizeVideoLimit"
                 />
               </label>
@@ -123,7 +123,7 @@
                   rows="3"
                   maxlength="500"
                   placeholder="例如：慢出心脏病"
-                  :disabled="launching"
+                  :disabled="taskLocked"
                 ></textarea>
               </label>
 
@@ -134,18 +134,18 @@
                   rows="3"
                   maxlength="500"
                   placeholder="你好"
-                  :disabled="launching || !form.engage"
+                  :disabled="taskLocked || !form.engage"
                 ></textarea>
               </label>
             </div>
 
             <div class="switch-row">
               <label class="switch-item">
-                <input v-model="form.engage" type="checkbox" :disabled="launching" />
+                <input v-model="form.engage" type="checkbox" :disabled="taskLocked" />
                 <span>匹配后关注并打开私信</span>
               </label>
               <label class="switch-item">
-                <input v-model="form.sendDm" type="checkbox" :disabled="launching || !form.engage" />
+                <input v-model="form.sendDm" type="checkbox" :disabled="taskLocked || !form.engage" />
                 <span>自动发送私信</span>
               </label>
             </div>
@@ -154,9 +154,9 @@
               <button class="primary-button" type="submit" :disabled="!canLaunch">
                 <span v-if="launching" class="mini-spinner" aria-hidden="true"></span>
                 <el-icon v-else><Promotion /></el-icon>
-                <span>{{ launching ? '执行中' : '开始获客' }}</span>
+                <span>{{ launchButtonText }}</span>
               </button>
-              <button class="text-button" type="button" :disabled="launching" @click="resetForm">重置</button>
+              <button class="text-button" type="button" :disabled="taskLocked" @click="resetForm">重置</button>
             </div>
           </form>
 
@@ -169,7 +169,7 @@
                   :key="template.name"
                   type="button"
                   class="template-item"
-                  :disabled="launching"
+                  :disabled="taskLocked"
                   @click="applyTemplate(template)"
                 >
                   <strong>{{ template.name }}</strong>
@@ -199,95 +199,15 @@
         </section>
 
         <section v-if="currentRun || launchError" class="result-panel">
-          <div class="panel-head">
-            <div>
-              <h2>执行汇总</h2>
-              <p v-if="currentRun">Run {{ currentRun.runId || '-' }} · {{ statusLabel(currentRun.status) }}</p>
-              <p v-else>任务未完成</p>
-            </div>
-            <button v-if="currentRun?.runId" class="ghost-button" type="button" @click="openRunDetail">
-              <el-icon><DataAnalysis /></el-icon>
-              <span>打开详情</span>
-            </button>
-          </div>
-
           <div v-if="launchError" class="error-block">{{ launchError }}</div>
-
-          <template v-if="currentRun">
-            <div class="metric-grid">
-              <div v-for="metric in summaryMetrics" :key="metric.label" class="metric-item">
-                <span>{{ metric.label }}</span>
-                <strong>{{ metric.value }}</strong>
-              </div>
-            </div>
-
-            <div class="result-tables">
-              <section>
-                <h3>视频进度</h3>
-                <div class="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>视频</th>
-                        <th>状态</th>
-                        <th>评论</th>
-                        <th>匹配</th>
-                        <th>原因</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="video in videoRows" :key="String(video.videoIndex ?? video.videoNumber ?? video.title)">
-                        <td>{{ video.videoNumber ?? Number(video.videoIndex ?? 0) + 1 }}</td>
-                        <td>{{ statusLabel(String(video.status || '-')) }}</td>
-                        <td>{{ formatCount(video.commentsCollected) }} / {{ formatCount(video.declaredCommentCount) }}</td>
-                        <td>{{ formatCount(video.matchedComments) }}</td>
-                        <td>{{ video.stopReason || video.failureCode || '-' }}</td>
-                      </tr>
-                      <tr v-if="!videoRows.length">
-                        <td colspan="5">暂无视频明细</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-
-              <section>
-                <h3>触达状态</h3>
-                <div class="table-wrap">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>线索</th>
-                        <th>状态</th>
-                        <th>私信</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="engagement in currentRun.engagements" :key="engagement.id">
-                        <td>{{ profileName(engagement.profileId) }}</td>
-                        <td>{{ engagement.sent ? '已发送' : statusLabel(engagement.status) }}</td>
-                        <td>{{ engagement.draftText || engagement.failureMessage || '-' }}</td>
-                      </tr>
-                      <tr v-if="!currentRun.engagements?.length">
-                        <td colspan="3">暂无触达记录</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            </div>
-
-            <details class="technical-detail">
-              <summary>技术明细</summary>
-              <DouyinLeadRunResult
-                :run="currentRun"
-                :comments="currentRun.comments"
-                :engagements="currentRun.engagements"
-                :profiles="[]"
-                :loading="launching"
-              />
-            </details>
-          </template>
+          <LeadRunLivePanel
+            v-if="currentRun"
+            :run-id="currentRun.runId"
+            :task-id="currentRun.taskId"
+            :initial-run="currentRun"
+            @update:run="handleLiveRunUpdate"
+            @terminal="handleRunTerminal"
+          />
         </section>
       </div>
     </div>
@@ -297,15 +217,14 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowDown, ChatDotRound, Connection, DataAnalysis, Promotion, Search } from '@element-plus/icons-vue'
+import { ArrowDown, ChatDotRound, Connection, Promotion, Search } from '@element-plus/icons-vue'
 import { leadAcquisitionApi } from '@/api'
 import type {
   DouyinLeadAcquisitionRunResponse,
   DouyinLeadAcquisitionStartPayload,
-  DouyinLeadRunVideoResult,
 } from '@/api'
 import { mcToast } from '@/composables/useMcToast'
-import DouyinLeadRunResult from '@/components/lead/DouyinLeadRunResult.vue'
+import LeadRunLivePanel from '@/components/lead/LeadRunLivePanel.vue'
 import BrowserPairingPanel from '@/views/Settings/Browser/index.vue'
 
 type SortMode = 'most_liked' | 'latest'
@@ -372,36 +291,19 @@ const templates: LeadTemplate[] = [
 const form = ref<LeadForm>(defaultForm())
 
 const canLaunch = computed(() => {
-  return !launching.value && form.value.keyword.trim().length > 0
+  return !taskLocked.value && form.value.keyword.trim().length > 0
 })
 
-const runSummaryPayload = computed<Record<string, unknown>>(() => {
-  const event = [...(currentRun.value?.events ?? [])]
-    .reverse()
-    .find(item => item.type === 'lead.run.summary')
-  if (!event?.payloadJson) return {}
-  try {
-    return JSON.parse(event.payloadJson) as Record<string, unknown>
-  } catch {
-    return {}
-  }
+const activeRunRunning = computed(() => {
+  return !!currentRun.value && !isTerminalStatus(currentRun.value.status)
 })
 
-const videoRows = computed<DouyinLeadRunVideoResult[]>(() => {
-  const fromSummary = runSummaryPayload.value.videoResults
-  if (Array.isArray(fromSummary)) return fromSummary as DouyinLeadRunVideoResult[]
-  return []
-})
+const taskLocked = computed(() => launching.value || activeRunRunning.value)
 
-const summaryMetrics = computed(() => {
-  const run = currentRun.value
-  const payload = runSummaryPayload.value
-  return [
-    { label: '视频', value: `${firstNumber(run?.processedVideos, payload.processedVideos, 0)} / ${firstNumber(run?.requestedVideoLimit, payload.requestedVideoLimit, form.value.videoLimit)}` },
-    { label: '评论', value: `${formatCount(firstNumber(run?.commentsCollected, payload.commentsCollected, 0))} / ${formatCount(firstNumber(run?.declaredCommentCount, payload.declaredCommentCount, 0))}` },
-    { label: '匹配', value: formatCount(firstNumber(run?.matchedComments, payload.matchedComments, 0)) },
-    { label: '触达', value: formatCount(firstNumber(run?.engagementsCreated, payload.engagementsCreated, run?.engagements?.length, 0)) },
-  ]
+const launchButtonText = computed(() => {
+  if (launching.value) return '启动中'
+  if (activeRunRunning.value) return '执行中'
+  return '开始获客'
 })
 
 watch(() => form.value.engage, (engage) => {
@@ -464,7 +366,7 @@ async function submitDouyinRun() {
     const run = unwrapApiData<DouyinLeadAcquisitionRunResponse | null>(response, null)
     if (!run) throw new Error('获客任务没有返回结果')
     currentRun.value = normalizeRun(run)
-    mcToast.success('抖音获客任务已完成')
+    mcToast.success('抖音获客任务已启动')
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     launchError.value = message
@@ -472,6 +374,14 @@ async function submitDouyinRun() {
   } finally {
     launching.value = false
   }
+}
+
+function handleLiveRunUpdate(run: DouyinLeadAcquisitionRunResponse) {
+  currentRun.value = normalizeRun(run)
+}
+
+function handleRunTerminal(run: DouyinLeadAcquisitionRunResponse) {
+  currentRun.value = normalizeRun(run)
 }
 
 function normalizeRun(run: DouyinLeadAcquisitionRunResponse): DouyinLeadAcquisitionRunResponse {
@@ -497,32 +407,8 @@ function unwrapApiData<T>(response: unknown, fallback: T): T {
   return response as T
 }
 
-function firstNumber(...values: unknown[]): number {
-  for (const value of values) {
-    const num = Number(value)
-    if (Number.isFinite(num)) return num
-  }
-  return 0
-}
-
-function formatCount(value: unknown): string {
-  const num = firstNumber(value, 0)
-  return num.toLocaleString()
-}
-
-function statusLabel(value?: string | null): string {
-  const status = String(value || '').toLowerCase()
-  if (status === 'succeeded') return '成功'
-  if (status === 'failed') return '失败'
-  if (status === 'running') return '执行中'
-  if (status === 'completed') return '完成'
-  if (status === 'sent') return '已发送'
-  return value || '-'
-}
-
-function profileName(profileId?: string | null): string {
-  if (!profileId) return '线索'
-  return `线索 ${profileId}`
+function isTerminalStatus(status?: string | null): boolean {
+  return ['succeeded', 'success', 'completed', 'failed', 'aborted', 'cancelled', 'canceled'].includes(String(status || '').toLowerCase())
 }
 
 function toggleBrowserPanel() {
@@ -795,6 +681,12 @@ function buildChatPrompt(): string {
 .launch-panel,
 .result-panel {
   padding: 18px;
+}
+
+.result-panel {
+  border: 0;
+  background: transparent;
+  padding: 0;
 }
 
 .assist-panel {
