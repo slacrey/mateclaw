@@ -14,6 +14,7 @@ const chatSurfaceFiles = [
 const chatSurfaceSource = chatSurfaceFiles
   .map((file) => readFileSync(new URL(file, import.meta.url), 'utf8'))
   .join('\n')
+const dashboardSource = readFileSync(new URL('../../views/Dashboard.vue', import.meta.url), 'utf8')
 
 describe('lightfield theme tokens', () => {
   it('uses the approved cold-blue brand palette instead of the old warm palette', () => {
@@ -44,5 +45,11 @@ describe('lightfield theme tokens', () => {
     expect(chatSurfaceSource).not.toMatch(/#(?:D97757|d97757|d96d46|bb4f27)\b/)
     expect(chatSurfaceSource).not.toMatch(/border(?:-[^:]+)?:\s*var\(--mc-user-bubble-bg/)
     expect(chatSurfaceSource).not.toMatch(/color:\s*var\(--mc-user-bubble-bg/)
+  })
+
+  it('keeps dashboard surfaces and chart fallbacks off the old warm palette', () => {
+    expect(dashboardSource).not.toMatch(/217,\s*(?:109|119),\s*(?:70|87)/)
+    expect(dashboardSource).not.toMatch(/24,\s*74,\s*69/)
+    expect(dashboardSource).not.toMatch(/#(?:D97757|d97757|d96d46|bb4f27)\b/)
   })
 })
