@@ -1327,6 +1327,86 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
     }
 
     @Test
+    void collectAllCommentsDoesNotAbortWhenPreWheelPanelVerificationFailsButPanelStillExists() {
+        ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
+        ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
+                browser,
+                new ObjectMapper(),
+                new DouyinCommentCollector());
+        DouyinBrowserAdapter.RegionInfo region = DouyinBrowserAdapter.RegionInfo.comments(
+                960d, 80d, 520d, 760d, "dom-comment-items");
+        String firstPage = """
+                {"ok":true,"url":"https://www.douyin.com/search/yqx?modal_id=6689257066038676740","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 2 @{980,88 140x28}\\nLink[ref=ref_2, frame=0]: A1 @{980,180 80x24}\\nStaticText[ref=ref_3, frame=0]: 第一条评论内容。 @{1030,212 260x32}\\nTextbox[ref=ref_4, frame=0]: 说点什么 @{980,800 280x44}"}
+                """;
+        String secondPage = """
+                {"ok":true,"url":"https://www.douyin.com/search/yqx?modal_id=6689257066038676740","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 2 @{980,88 140x28}\\nLink[ref=ref_5, frame=0]: A2 @{980,180 80x24}\\nStaticText[ref=ref_6, frame=0]: 第二条评论内容。 @{1030,212 260x32}\\nTextbox[ref=ref_7, frame=0]: 说点什么 @{980,800 280x44}"}
+                """;
+        String endPage = """
+                {"ok":true,"url":"https://www.douyin.com/search/yqx?modal_id=6689257066038676740","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 2 @{980,88 140x28}\\nStaticText[ref=ref_8, frame=0]: 暂时没有更多评论 @{1030,720 200x28}"}
+                """;
+        when(browser.service_observe_main("all")).thenReturn(firstPage, firstPage, secondPage, endPage, endPage);
+        when(browser.service_extract_region_main("douyin.comments", 160)).thenReturn(
+                """
+                {"ok":true,"results":[{"payload":{"items":[
+                  {"itemType":"comment_count","text":"2"},
+                  {"itemType":"douyin_comment","author":"A1","text":"第一条评论内容。","href":"https://www.douyin.com/user/a1","bbox":{"x":1030,"y":212,"width":260,"height":32}}
+                ]}}]}
+                """,
+                """
+                {"ok":true,"results":[{"payload":{"items":[
+                  {"itemType":"comment_count","text":"2"},
+                  {"itemType":"douyin_comment","author":"A2","text":"第二条评论内容。","href":"https://www.douyin.com/user/a2","bbox":{"x":1030,"y":212,"width":260,"height":32}}
+                ]}}]}
+                """,
+                """
+                {"ok":true,"results":[{"payload":{"items":[
+                  {"itemType":"comment_count","text":"2"},
+                  {"itemType":"comment_end","text":"暂时没有更多评论","bbox":{"x":1030,"y":720,"width":200,"height":28}}
+                ]}}]}
+                """,
+                """
+                {"ok":true,"results":[{"payload":{"items":[
+                  {"itemType":"comment_count","text":"2"},
+                  {"itemType":"comment_end","text":"暂时没有更多评论","bbox":{"x":1030,"y":720,"width":200,"height":28}}
+                ]}}]}
+                """);
+        when(browser.service_hover_main(anyDouble(), anyDouble())).thenReturn("{\"ok\":true}");
+        when(browser.service_scroll_region_main(eq("douyin.comments"), eq("down"), anyDouble(), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(
+                        """
+                        {"ok":true,"results":[{"payload":{
+                          "moved":false,
+                          "mode":"comment_region_wheel",
+                          "reason":"comment_panel_not_verified_before_wheel"
+                        }}]}
+                        """,
+                        """
+                        {"ok":true,"results":[{"payload":{
+                          "moved":true,
+                          "mode":"comment_region_wheel",
+                          "reason":"comment_window_advanced",
+                          "forwardProgress":true
+                        }}]}
+                        """,
+                        """
+                        {"ok":true,"results":[{"payload":{
+                          "moved":false,
+                          "mode":"comment_region_wheel",
+                          "reason":"comment_region_wheel_not_moved"
+                        }}]}
+                        """);
+
+        var result = adapter.collectAllComments(region);
+
+        assertThat(result.comments()).hasSize(2);
+        assertThat(result.complete()).isTrue();
+        assertThat(result.stopReason()).isEqualTo("END_OF_LIST");
+        assertThat(result.stopReason()).isNotEqualTo("COMMENT_PANEL_LOST_DURING_SCROLL");
+        assertThat(result.metadata()).containsEntry("staleScrolls", 2);
+        assertThat(result.metadata()).containsEntry("lastScrollReason", "comment_region_wheel_not_moved");
+    }
+
+    @Test
     void collectAllCommentsTreatsEndMarkerOutsideRegionAsEndInsteadOfPanelLost() {
         ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
         ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(

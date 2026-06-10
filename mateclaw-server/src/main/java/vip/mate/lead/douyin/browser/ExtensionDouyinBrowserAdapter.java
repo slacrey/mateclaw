@@ -576,7 +576,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                         effectiveScrolls, advancedWindows, forwardScrolls, repeatedWindows, totalNewItems, staleScrolls,
                         lastWindowSignature, lastLoopMs, lastScrollEvidence);
             }
-            if (!commentsPanelStillVisible(current, region)) {
+            if (!commentsPanelAvailable(current, region)) {
                 return collectionResult(seen, declared, false, "COMMENT_PANEL_LOST_DURING_COLLECTION", scrolls, stableNoNew,
                         stableEndMarker, lastExtractedCount, lastVisibleCount, lastNewItems,
                         lastCollectionAdvanced, lastWindowBeforeCount, lastWindowAfterCount,
@@ -664,14 +664,15 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                         lastWindowSignature, lastLoopMs, lastScrollEvidence);
             }
             boolean postScrollEndReached = commentsEndReached(current, region, ExtractedComments.empty());
-            if (scrollEvidence.panelLostSignal() && !postScrollEndReached) {
+            boolean panelAvailableAfterScroll = postScrollEndReached || commentsPanelAvailable(current, region);
+            if (scrollEvidence.panelLostSignal() && !postScrollEndReached && !panelAvailableAfterScroll) {
                 return collectionResult(seen, declared, false, "COMMENT_PANEL_LOST_DURING_SCROLL", scrolls + 1, stableNoNew,
                         stableEndMarker, lastExtractedCount, lastVisibleCount, lastNewItems,
                         lastCollectionAdvanced, lastWindowBeforeCount, lastWindowAfterCount,
                         effectiveScrolls, advancedWindows, forwardScrolls, repeatedWindows, totalNewItems, staleScrolls,
                         lastWindowSignature, lastLoopMs, lastScrollEvidence);
             }
-            if (!commentsPanelStillVisible(current, region)) {
+            if (!panelAvailableAfterScroll) {
                 return collectionResult(seen, declared, false, "COMMENT_PANEL_LOST_AFTER_SCROLL", scrolls + 1, stableNoNew,
                         stableEndMarker, lastExtractedCount, lastVisibleCount, lastNewItems,
                         lastCollectionAdvanced, lastWindowBeforeCount, lastWindowAfterCount,
@@ -696,6 +697,13 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
             return true;
         }
         return stableNoNew > 0 && scrolls % 40 == 0;
+    }
+
+    private boolean commentsPanelAvailable(BrowserObservation observed, RegionInfo region) {
+        if (commentsPanelStillVisible(observed, region)) {
+            return true;
+        }
+        return extractedCommentPanelReady(region, observed == null ? "" : observed.url());
     }
 
     private boolean commentsPanelStillVisible(BrowserObservation observed, RegionInfo region) {
