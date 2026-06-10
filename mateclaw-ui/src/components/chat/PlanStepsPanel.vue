@@ -125,14 +125,14 @@ function truncateResult(text: string, max: number): string {
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  background: var(--mc-bg-muted, #f9f7f5);
+  background: var(--mc-bg-muted, #f4f8ff);
   cursor: pointer;
   user-select: none;
   font-size: 13px;
   transition: background 0.15s;
 }
 .plan-panel__header:hover {
-  background: var(--mc-bg-hover, #f0ece8);
+  background: var(--mc-primary-bg, rgba(71, 108, 255, 0.08));
 }
 
 .plan-panel__icon {
@@ -172,7 +172,7 @@ function truncateResult(text: string, max: number): string {
   transition: background 0.15s;
 }
 .plan-step:hover {
-  background: var(--mc-bg-muted, #f9f7f5);
+  background: var(--mc-bg-muted, #f4f8ff);
 }
 
 .plan-step__header {
@@ -199,7 +199,7 @@ function truncateResult(text: string, max: number): string {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  border: 1.5px solid var(--mc-text-quaternary, #c0bfbc);
+  border: 1.5px solid var(--mc-text-quaternary, #b7c3d8);
   background: transparent;
 }
 
@@ -242,7 +242,7 @@ function truncateResult(text: string, max: number): string {
 .plan-step__result pre {
   margin: 0;
   padding: 6px 8px;
-  background: var(--mc-bg-sunken, #f3f0ed);
+  background: var(--mc-bg-sunken, #e8f0ff);
   border-radius: 4px;
   border: 1px solid var(--mc-border-light);
   font-family: var(--mc-font-mono, 'SF Mono', 'Menlo', 'Consolas', monospace);

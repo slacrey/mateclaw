@@ -1652,7 +1652,7 @@ watch(isGenerating, (generating) => {
   margin-bottom: 8px;
   font-size: 13px;
   color: var(--mc-text-secondary, #64748b);
-  background: var(--mc-bg-muted, #f9f7f5);
+  background: var(--mc-bg-muted, #f4f8ff);
   border-radius: 8px;
 }
 

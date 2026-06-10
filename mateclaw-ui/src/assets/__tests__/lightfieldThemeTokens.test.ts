@@ -45,6 +45,7 @@ describe('lightfield theme tokens', () => {
   it('keeps chat console surfaces on cold lightfield fallbacks', () => {
     expect(chatSurfaceSource).not.toMatch(/217,\s*(?:109|119),\s*(?:70|87)/)
     expect(chatSurfaceSource).not.toMatch(/#(?:D97757|d97757|d96d46|bb4f27)\b/)
+    expect(chatSurfaceSource).not.toMatch(/#(?:f9f7f5|f0ece8|f3f0ed|c0bfbc)\b/i)
     expect(chatSurfaceSource).not.toMatch(/border(?:-[^:]+)?:\s*var\(--mc-user-bubble-bg/)
     expect(chatSurfaceSource).not.toMatch(/color:\s*var\(--mc-user-bubble-bg/)
   })
