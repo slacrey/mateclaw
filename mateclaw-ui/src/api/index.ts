@@ -466,6 +466,31 @@ export interface DouyinLeadAcquisitionStartPayload {
   sendDm: boolean
 }
 
+export interface DouyinLeadTemplatePayload {
+  name: string
+  keyword: string
+  sort: 'most_liked' | 'latest' | string
+  videoLimit: number
+  commentMatchRule: string
+  dmDraft: string
+  engage: boolean
+  sendDm: boolean
+}
+
+export interface DouyinLeadTemplate {
+  id: string
+  name: string
+  keyword: string | null
+  sort: string | null
+  videoLimit: number
+  commentMatchRule: string | null
+  dmDraft: string | null
+  engage: boolean
+  sendDm: boolean
+  createTime: string | null
+  updateTime: string | null
+}
+
 export interface DouyinLeadComment {
   id: string
   commentKey: string | null
@@ -646,6 +671,14 @@ export const leadAcquisitionApi = {
     http.get<DouyinLeadRunListItem[]>('/lead-acquisition/douyin/runs', { params: { limit } }),
   listDouyinLeads: (params?: { limit?: number; status?: string; keyword?: string }) =>
     http.get<DouyinLeadPoolItem[]>('/lead-acquisition/douyin/leads', { params: params ?? {} }),
+  listDouyinTemplates: () =>
+    http.get<DouyinLeadTemplate[]>('/lead-acquisition/douyin/templates'),
+  createDouyinTemplate: (data: DouyinLeadTemplatePayload) =>
+    http.post<DouyinLeadTemplate>('/lead-acquisition/douyin/templates', data),
+  updateDouyinTemplate: (id: string | number, data: DouyinLeadTemplatePayload) =>
+    http.put<DouyinLeadTemplate>(`/lead-acquisition/douyin/templates/${id}`, data),
+  deleteDouyinTemplate: (id: string | number) =>
+    http.delete<{ deleted: boolean; id: string }>(`/lead-acquisition/douyin/templates/${id}`),
   getDouyinRun: (runId: string | number) =>
     http.get<DouyinLeadAcquisitionRunResponse>(`/lead-acquisition/runs/${runId}`),
   streamDouyinRunEventsUrl: (runId: string | number, afterEventId?: string | number | null) => {

@@ -18,6 +18,10 @@ class DouyinLeadAcquisitionV3ContractTest {
 
         assertThat(controller).contains("@GetMapping(\"/douyin/runs\")");
         assertThat(controller).contains("@GetMapping(\"/douyin/leads\")");
+        assertThat(controller).contains("@GetMapping(\"/douyin/templates\")");
+        assertThat(controller).contains("@PostMapping(\"/douyin/templates\")");
+        assertThat(controller).contains("@PutMapping(\"/douyin/templates/{id}\")");
+        assertThat(controller).contains("@DeleteMapping(\"/douyin/templates/{id}\")");
         assertThat(controller).contains("/runs/{runId}/events/stream");
         assertThat(streamService).contains("Utf8SseEmitter");
         assertThat(controller).containsAnyOf("MediaType.TEXT_EVENT_STREAM_VALUE", "text/event-stream");

@@ -162,10 +162,32 @@
 
           <aside class="assist-panel">
             <section class="assist-section">
-              <h2>常用模板</h2>
+              <div class="assist-section__head">
+                <h2>常用模板</h2>
+                <button type="button" :disabled="templateSaving" @click="saveCurrentTemplate">
+                  {{ templateSaving ? '保存中' : '保存当前' }}
+                </button>
+              </div>
+              <label class="template-name-field">
+                <span>模板名称</span>
+                <input v-model.trim="templateName" type="text" maxlength="60" placeholder="例如：产品吐槽线索" />
+              </label>
               <div class="template-list">
+                <template v-if="savedTemplates.length">
+                  <div
+                    v-for="template in savedTemplates"
+                    :key="template.id"
+                    class="template-item template-item--saved"
+                  >
+                    <button type="button" :disabled="taskLocked" @click="applyTemplate(template)">
+                      <strong>{{ template.name }}</strong>
+                      <span>{{ template.keyword || '未设置关键词' }} · {{ template.commentMatchRule || '只采集评论' }}</span>
+                    </button>
+                    <button type="button" class="template-delete" @click="deleteTemplate(template.id)">删除</button>
+                  </div>
+                </template>
                 <button
-                  v-for="template in templates"
+                  v-for="template in builtInTemplates"
                   :key="template.name"
                   type="button"
                   class="template-item"
@@ -173,7 +195,7 @@
                   @click="applyTemplate(template)"
                 >
                   <strong>{{ template.name }}</strong>
-                  <span>{{ template.keyword }} · {{ template.match }}</span>
+                  <span>{{ template.keyword }} · {{ template.commentMatchRule }}</span>
                 </button>
               </div>
             </section>
@@ -326,6 +348,8 @@ import type {
   DouyinLeadAcquisitionStartPayload,
   DouyinLeadPoolItem,
   DouyinLeadRunListItem,
+  DouyinLeadTemplate,
+  DouyinLeadTemplatePayload,
 } from '@/api'
 import { mcToast } from '@/composables/useMcToast'
 import LeadRunLivePanel from '@/components/lead/LeadRunLivePanel.vue'
@@ -347,9 +371,12 @@ interface LeadForm {
 interface LeadTemplate {
   name: string
   keyword: string
-  match: string
+  commentMatchRule: string
   dmDraft: string
   videoLimit: number
+  sort?: SortMode
+  engage?: boolean
+  sendDm?: boolean
 }
 
 const router = useRouter()
@@ -365,6 +392,9 @@ const leadPool = ref<DouyinLeadPoolItem[]>([])
 const leadPoolLoading = ref(false)
 const leadPoolKeyword = ref('')
 const leadPoolStatus = ref<LeadPoolStatus>('all')
+const savedTemplates = ref<DouyinLeadTemplate[]>([])
+const templateName = ref('')
+const templateSaving = ref(false)
 
 const channels = [
   {
@@ -375,25 +405,25 @@ const channels = [
   },
 ]
 
-const templates: LeadTemplate[] = [
+const builtInTemplates: LeadTemplate[] = [
   {
     name: '产品吐槽线索',
     keyword: '易企秀',
-    match: '慢出心脏病',
+    commentMatchRule: '慢出心脏病',
     dmDraft: '你好',
     videoLimit: 2,
   },
   {
     name: '数字化转型需求',
     keyword: 'ai数字化转型',
-    match: '转型',
+    commentMatchRule: '转型',
     dmDraft: '你好，看到你对数字化转型有关注，方便交流一下吗？',
     videoLimit: 5,
   },
   {
     name: 'AI 工具咨询',
     keyword: 'AI工具',
-    match: '怎么用',
+    commentMatchRule: '怎么用',
     dmDraft: '你好，看到你在评论里提到 AI 工具，我这边可以分享一个方案。',
     videoLimit: 5,
   },
@@ -439,6 +469,7 @@ watch(() => form.value.engage, (engage) => {
 onMounted(() => {
   loadRecentRuns()
   loadLeadPool()
+  loadTemplates()
 })
 
 function defaultForm(): LeadForm {
@@ -464,16 +495,79 @@ function resetForm() {
   launchError.value = ''
 }
 
-function applyTemplate(template: LeadTemplate) {
+function applyTemplate(template: LeadTemplate | DouyinLeadTemplate) {
   form.value = {
-    keyword: template.keyword,
-    sort: 'most_liked',
-    videoLimit: template.videoLimit,
-    commentMatchRule: template.match,
-    dmDraft: template.dmDraft,
-    engage: true,
-    sendDm: false,
+    keyword: template.keyword || '',
+    sort: normalizeSortMode(template.sort),
+    videoLimit: template.videoLimit || 2,
+    commentMatchRule: 'commentMatchRule' in template ? (template.commentMatchRule || '') : '',
+    dmDraft: template.dmDraft || '你好',
+    engage: template.engage ?? true,
+    sendDm: template.sendDm ?? false,
   }
+  templateName.value = template.name || ''
+}
+
+async function loadTemplates() {
+  try {
+    const response = await leadAcquisitionApi.listDouyinTemplates()
+    savedTemplates.value = unwrapApiData<DouyinLeadTemplate[]>(response, [])
+  } catch (error) {
+    savedTemplates.value = savedTemplates.value ?? []
+  }
+}
+
+async function saveCurrentTemplate() {
+  if (templateSaving.value) return
+  const name = templateName.value.trim() || form.value.keyword.trim() || '抖音获客模板'
+  templateSaving.value = true
+  try {
+    const payload = templatePayload(name)
+    const existing = savedTemplates.value.find(item => item.name === name)
+    if (existing?.id) {
+      await leadAcquisitionApi.updateDouyinTemplate(existing.id, payload)
+    } else {
+      await leadAcquisitionApi.createDouyinTemplate(payload)
+    }
+    await loadTemplates()
+    templateName.value = name
+    mcToast.success('模板已保存')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    mcToast.error(message)
+  } finally {
+    templateSaving.value = false
+  }
+}
+
+async function deleteTemplate(id: string | number) {
+  try {
+    await leadAcquisitionApi.deleteDouyinTemplate(id)
+    savedTemplates.value = savedTemplates.value.filter(item => item.id !== String(id))
+    mcToast.success('模板已删除')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    mcToast.error(message)
+  }
+}
+
+function templatePayload(name: string): DouyinLeadTemplatePayload {
+  normalizeVideoLimit()
+  if (!form.value.engage) form.value.sendDm = false
+  return {
+    name,
+    keyword: form.value.keyword.trim(),
+    sort: form.value.sort,
+    videoLimit: form.value.videoLimit,
+    commentMatchRule: form.value.commentMatchRule.trim(),
+    dmDraft: form.value.dmDraft.trim() || '你好',
+    engage: form.value.engage,
+    sendDm: form.value.sendDm,
+  }
+}
+
+function normalizeSortMode(value?: string | null): SortMode {
+  return value === 'latest' ? 'latest' : 'most_liked'
 }
 
 async function submitDouyinRun() {
@@ -937,6 +1031,25 @@ function buildChatPrompt(): string {
   border-bottom: 0;
 }
 
+.assist-section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.assist-section__head button {
+  min-height: 30px;
+  border: 1px solid var(--mc-border);
+  border-radius: 6px;
+  background: var(--mc-bg);
+  color: var(--mc-text-primary);
+  cursor: pointer;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .panel-head {
   display: flex;
   align-items: flex-start;
@@ -1010,6 +1123,31 @@ function buildChatPrompt(): string {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--mc-primary) 14%, transparent);
 }
 
+.template-name-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  color: var(--mc-text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.template-name-field input {
+  min-height: 34px;
+  border: 1px solid var(--mc-border);
+  border-radius: 6px;
+  background: var(--mc-bg);
+  color: var(--mc-text-primary);
+  padding: 7px 9px;
+  outline: none;
+}
+
+.template-name-field input:focus {
+  border-color: var(--mc-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mc-primary) 14%, transparent);
+}
+
 .switch-row {
   display: flex;
   flex-wrap: wrap;
@@ -1078,6 +1216,39 @@ button:disabled {
   padding: 12px;
   border-radius: 8px;
   text-align: left;
+}
+
+.template-item--saved {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.template-item--saved > button:first-child {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+
+.template-delete {
+  min-height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mc-danger, #dc2626);
+  cursor: pointer;
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.template-delete:hover {
+  background: color-mix(in srgb, var(--mc-danger, #dc2626) 10%, transparent);
 }
 
 .readiness-row {

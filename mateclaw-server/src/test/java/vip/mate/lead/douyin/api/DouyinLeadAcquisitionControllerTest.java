@@ -25,11 +25,13 @@ class DouyinLeadAcquisitionControllerTest {
         DouyinLeadAcquisitionRunService runService = mock(DouyinLeadAcquisitionRunService.class);
         DouyinLeadAcquisitionQueryService queryService = mock(DouyinLeadAcquisitionQueryService.class);
         DouyinLeadAcquisitionEventStreamService eventStreamService = mock(DouyinLeadAcquisitionEventStreamService.class);
+        DouyinLeadTemplateService templateService = mock(DouyinLeadTemplateService.class);
         AuthService authService = mock(AuthService.class);
         DouyinLeadAcquisitionController controller = new DouyinLeadAcquisitionController(
                 runService,
                 queryService,
                 eventStreamService,
+                templateService,
                 authService);
         UserEntity user = new UserEntity();
         user.setId(9L);
@@ -63,11 +65,13 @@ class DouyinLeadAcquisitionControllerTest {
         DouyinLeadAcquisitionRunService runService = mock(DouyinLeadAcquisitionRunService.class);
         DouyinLeadAcquisitionQueryService queryService = mock(DouyinLeadAcquisitionQueryService.class);
         DouyinLeadAcquisitionEventStreamService eventStreamService = mock(DouyinLeadAcquisitionEventStreamService.class);
+        DouyinLeadTemplateService templateService = mock(DouyinLeadTemplateService.class);
         AuthService authService = mock(AuthService.class);
         DouyinLeadAcquisitionController controller = new DouyinLeadAcquisitionController(
                 runService,
                 queryService,
                 eventStreamService,
+                templateService,
                 authService);
         SseEmitter emitter = new SseEmitter();
         when(eventStreamService.stream(eq(10L), eq("123"), eq(456L))).thenReturn(emitter);
@@ -83,11 +87,13 @@ class DouyinLeadAcquisitionControllerTest {
         DouyinLeadAcquisitionRunService runService = mock(DouyinLeadAcquisitionRunService.class);
         DouyinLeadAcquisitionQueryService queryService = mock(DouyinLeadAcquisitionQueryService.class);
         DouyinLeadAcquisitionEventStreamService eventStreamService = mock(DouyinLeadAcquisitionEventStreamService.class);
+        DouyinLeadTemplateService templateService = mock(DouyinLeadTemplateService.class);
         AuthService authService = mock(AuthService.class);
         DouyinLeadAcquisitionController controller = new DouyinLeadAcquisitionController(
                 runService,
                 queryService,
                 eventStreamService,
+                templateService,
                 authService);
         DouyinLeadRunListItem item = new DouyinLeadRunListItem(
                 "10",
@@ -118,11 +124,13 @@ class DouyinLeadAcquisitionControllerTest {
         DouyinLeadAcquisitionRunService runService = mock(DouyinLeadAcquisitionRunService.class);
         DouyinLeadAcquisitionQueryService queryService = mock(DouyinLeadAcquisitionQueryService.class);
         DouyinLeadAcquisitionEventStreamService eventStreamService = mock(DouyinLeadAcquisitionEventStreamService.class);
+        DouyinLeadTemplateService templateService = mock(DouyinLeadTemplateService.class);
         AuthService authService = mock(AuthService.class);
         DouyinLeadAcquisitionController controller = new DouyinLeadAcquisitionController(
                 runService,
                 queryService,
                 eventStreamService,
+                templateService,
                 authService);
         DouyinLeadPoolItem lead = new DouyinLeadPoolItem(
                 "10",
@@ -157,5 +165,58 @@ class DouyinLeadAcquisitionControllerTest {
 
         assertThat(response.getData()).containsExactly(lead);
         verify(queryService).leadPool(eq(7L), eq(25), eq("sent"), eq("易企秀"));
+    }
+
+    @Test
+    void templateEndpointsDelegateToTemplateService() {
+        DouyinLeadAcquisitionRunService runService = mock(DouyinLeadAcquisitionRunService.class);
+        DouyinLeadAcquisitionQueryService queryService = mock(DouyinLeadAcquisitionQueryService.class);
+        DouyinLeadAcquisitionEventStreamService eventStreamService = mock(DouyinLeadAcquisitionEventStreamService.class);
+        DouyinLeadTemplateService templateService = mock(DouyinLeadTemplateService.class);
+        AuthService authService = mock(AuthService.class);
+        DouyinLeadAcquisitionController controller = new DouyinLeadAcquisitionController(
+                runService,
+                queryService,
+                eventStreamService,
+                templateService,
+                authService);
+        UserEntity user = new UserEntity();
+        user.setId(9L);
+        when(authService.findByUsername("alice")).thenReturn(user);
+        DouyinLeadTemplateRequest request = new DouyinLeadTemplateRequest(
+                "产品吐槽线索",
+                "易企秀",
+                "most_liked",
+                2,
+                "慢出心脏病",
+                "你好",
+                true,
+                false);
+        DouyinLeadTemplateDTO dto = new DouyinLeadTemplateDTO(
+                "1",
+                "产品吐槽线索",
+                "易企秀",
+                "most_liked",
+                2,
+                "慢出心脏病",
+                "你好",
+                true,
+                false,
+                "2026-06-10T16:00:00",
+                "2026-06-10T16:00:00");
+        when(templateService.list(eq(7L))).thenReturn(List.of(dto));
+        when(templateService.create(eq(7L), eq(9L), eq(request))).thenReturn(dto);
+        when(templateService.update(eq(7L), eq(1L), eq(request))).thenReturn(dto);
+
+        assertThat(controller.templates(7L).getData()).containsExactly(dto);
+        assertThat(controller.createTemplate(request, 7L, new TestingAuthenticationToken("alice", "pw")).getData())
+                .isEqualTo(dto);
+        assertThat(controller.updateTemplate(1L, request, 7L).getData()).isEqualTo(dto);
+        assertThat(controller.deleteTemplate(1L, 7L).getData()).containsEntry("deleted", true);
+
+        verify(templateService).list(eq(7L));
+        verify(templateService).create(eq(7L), eq(9L), eq(request));
+        verify(templateService).update(eq(7L), eq(1L), eq(request));
+        verify(templateService).delete(eq(7L), eq(1L));
     }
 }
