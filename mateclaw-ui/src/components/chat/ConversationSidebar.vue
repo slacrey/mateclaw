@@ -798,6 +798,19 @@ function onMenuSelect(item: DropdownMenuItem) {
   animation: pulse-dot 1.2s infinite;
 }
 
+.conv-item.is-running.active .conv-running-badge {
+  color: #713f12;
+  background: rgba(255, 251, 235, 0.94);
+  border-color: rgba(253, 230, 138, 0.92);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.30),
+    0 6px 16px rgba(12, 32, 96, 0.18);
+}
+
+.conv-item.is-running.active .conv-running-badge-pulse {
+  background: #f59e0b;
+}
+
 .conv-info {
   flex: 1;
   overflow: hidden;
