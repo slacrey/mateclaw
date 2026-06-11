@@ -16,6 +16,12 @@ interface ExtractedRegionItem {
   itemType?: string
   author?: string
   hrefs?: string[]
+  visibleInRegion?: boolean
+}
+
+interface ExtractRegionPageResult {
+  items: ExtractedRegionItem[]
+  diagnostics?: Record<string, unknown>
 }
 
 export const extractRegionHandler = (deps: ExtractRegionHandlerDeps): ActionHandler<ExtractRegionParams> => {
@@ -47,12 +53,30 @@ export const extractRegionHandler = (deps: ExtractRegionHandlerDeps): ActionHand
       )
     }
 
+    const pageFunc = parsed.regionKey === 'douyin.comments'
+      ? extractDouyinCommentsInPage
+      : extractRegionInPage
     const results = await chromeApi.scripting.executeScript({
       target: { tabId, allFrames: false },
-      func: extractRegionInPage,
-      args: [region, parsed.maxItems],
+      func: pageFunc,
+      args: [region, parsed.regionKey, parsed.maxItems],
     })
-    const items = Array.isArray(results?.[0]?.result) ? results[0].result : []
+    const pageResult = results?.[0]?.result as ExtractedRegionItem[] | ExtractRegionPageResult | undefined
+    const items = Array.isArray(pageResult)
+      ? pageResult
+      : Array.isArray(pageResult?.items) ? pageResult.items : []
+    const diagnostics = !Array.isArray(pageResult) ? pageResult?.diagnostics : undefined
+    if (parsed.regionKey === 'douyin.comments') {
+      console.info('[mateclaw][extract_region][douyin.comments]', {
+        items: items.length,
+        diagnostics,
+        parsedRegionKey: parsed.regionKey,
+        runtimeRegionKey: region.key,
+        pageResultType: Array.isArray(pageResult) ? 'array' : typeof pageResult,
+        pageResultKeys: pageResult && typeof pageResult === 'object' ? Object.keys(pageResult) : [],
+        pageResultSummary: summarizePageResult(pageResult),
+      })
+    }
 
     return {
       ok: true,
@@ -60,8 +84,25 @@ export const extractRegionHandler = (deps: ExtractRegionHandlerDeps): ActionHand
       payload: {
         regionKey: parsed.regionKey,
         items,
+        diagnostics,
       },
     }
+  }
+}
+
+function summarizePageResult(pageResult: unknown): Record<string, unknown> {
+  if (!pageResult || typeof pageResult !== 'object') {
+    return { value: pageResult === undefined ? 'undefined' : String(pageResult) }
+  }
+  const record = pageResult as Record<string, unknown>
+  return {
+    keys: Object.keys(record),
+    ok: record.ok,
+    code: record.code,
+    message: typeof record.message === 'string' ? record.message.slice(0, 240) : undefined,
+    itemsType: Array.isArray(record.items) ? 'array' : typeof record.items,
+    itemsLength: Array.isArray(record.items) ? record.items.length : undefined,
+    diagnosticsType: typeof record.diagnostics,
   }
 }
 
@@ -74,7 +115,493 @@ function parseExtractRegionParams(params: ExtractRegionParams): { regionKey: str
   }
 }
 
-function extractRegionInPage(region: RuntimeRegion, maxItems: number): ExtractedRegionItem[] {
+function extractDouyinCommentsInPage(region: RuntimeRegion, regionKey: string, maxItems: number): ExtractRegionPageResult {
+  const probe = 'douyin_comments_self_contained_v1'
+  try {
+    const effectiveRegionKey = typeof region.key === 'string' && region.key.trim().length > 0
+      ? region.key
+      : regionKey
+    const regionRect = {
+      left: region.x,
+      top: region.y,
+      right: region.x + region.width,
+      bottom: region.y + region.height,
+    }
+    const max = Math.min(Math.max(Math.floor(maxItems || 80), 1), 500)
+    const listEntries = commentLists(regionRect)
+    const selectedList = listEntries[0]?.el ?? null
+    const selectedListRect = selectedList?.getBoundingClientRect()
+    const listClip = selectedListRect
+      ? { left: selectedListRect.left, top: selectedListRect.top, right: selectedListRect.right, bottom: selectedListRect.bottom }
+      : regionRect
+    const panelRoot = selectedList?.closest<HTMLElement>('#merge-all-comment-container')
+      ?? selectedList?.parentElement
+      ?? document.body
+
+    const declared = declaredCommentCount(panelRoot, listClip)
+    const end = commentEndItem(selectedList, listClip)
+    const comments: ExtractedRegionItem[] = []
+    const seen = new Set<string>()
+    const slots = selectedList
+      ? directCommentSlots(selectedList)
+      : Array.from(document.querySelectorAll<HTMLElement>('[data-e2e="comment-item"]'))
+
+    for (let index = 0; index < slots.length && comments.length < max; index += 1) {
+      const slot = slots[index]
+      const item = commentItemFromSlot(slot)
+      if (!item) continue
+      const candidate = parseCommentItem(item, index, listClip)
+      if (!candidate) continue
+      const key = `${candidate.author || ''}:${candidate.text}`.replace(/\s+/g, '')
+      if (seen.has(key)) continue
+      seen.add(key)
+      comments.push(candidate)
+    }
+
+    const items = [
+      declared,
+      end,
+      ...comments,
+    ].filter((item): item is ExtractedRegionItem => item !== null)
+    const diagnostics = diagnosticsFor(items)
+    return { items, diagnostics }
+
+    function commentLists(clip: { left: number; top: number; right: number; bottom: number }): Array<{
+      el: HTMLElement
+      rect: DOMRect
+      index: number
+      commentItems: number
+      directDivs: number
+      signalSlots: number
+      insidePanel: boolean
+    }> {
+      const listSet = new Set<HTMLElement>()
+      for (const selector of [
+        '#merge-all-comment-container [data-e2e="comment-list"]',
+        '[data-e2e="comment-list"]',
+      ]) {
+        for (const el of Array.from(document.querySelectorAll<HTMLElement>(selector))) {
+          listSet.add(el)
+        }
+      }
+      return Array.from(listSet)
+        .map((el, index) => {
+          const directDivSlots = directCommentSlots(el)
+          return {
+            el,
+            rect: el.getBoundingClientRect(),
+            index,
+            commentItems: el.querySelectorAll('[data-e2e="comment-item"]').length,
+            directDivs: directDivSlots.length,
+            signalSlots: directDivSlots.filter(hasCommentSlotSignals).length,
+            insidePanel: Boolean(el.closest('#merge-all-comment-container')),
+          }
+        })
+        .filter(entry => entry.commentItems > 0 || entry.signalSlots > 0 || (entry.insidePanel && entry.directDivs > 0))
+        .filter(entry => entry.rect.width > 0 && entry.rect.height > 0)
+        .filter(entry => intersects(entry.rect, clip) || containsClip(entry.rect, clip) || entry.insidePanel)
+        .sort((a, b) => {
+          const panelDiff = Number(b.insidePanel) - Number(a.insidePanel)
+          if (panelDiff !== 0) return panelDiff
+          const overlapDiff = overlapAreaWithClip(b.rect, clip) - overlapAreaWithClip(a.rect, clip)
+          if (Math.abs(overlapDiff) > 1) return overlapDiff
+          const signalDiff = b.signalSlots - a.signalSlots
+          if (signalDiff !== 0) return signalDiff
+          const itemDiff = b.commentItems - a.commentItems
+          if (itemDiff !== 0) return itemDiff
+          const divDiff = b.directDivs - a.directDivs
+          if (divDiff !== 0) return divDiff
+          return a.index - b.index
+        })
+    }
+
+    function directCommentSlots(list: HTMLElement): HTMLElement[] {
+      return Array.from(list.children)
+        .filter((child): child is HTMLElement => child instanceof HTMLElement && child.tagName.toLowerCase() === 'div')
+    }
+
+    function commentItemFromSlot(slot: HTMLElement): HTMLElement | null {
+      if (isEndOrLoadingSlot(slot)) return null
+      if (slot.matches('[data-e2e="comment-item"]')) return slot
+      const direct = Array.from(slot.children)
+        .find((child): child is HTMLElement => child instanceof HTMLElement && child.matches('[data-e2e="comment-item"]'))
+      if (direct) return direct
+      const nested = slot.querySelector<HTMLElement>('[data-e2e="comment-item"]')
+      if (nested) return nested
+      return hasCommentSlotSignals(slot) ? slot : null
+    }
+
+    function hasCommentSlotSignals(slot: HTMLElement): boolean {
+      return Array.from(slot.querySelectorAll<HTMLAnchorElement>('a[href*="/user/"], a[href*="douyin.com/user"]'))
+        .filter(link => !link.closest('[data-e2e="video-comment-more"], .comment-reply-expand-btn, .comment-item-stats-container'))
+        .some(link => {
+          const text = normalizeAuthor(cleanText(link.innerText || link.textContent || ''))
+          return isLikelyAuthorText(text) || looksLikeProfileHref(link.href)
+        })
+    }
+
+    function parseCommentItem(item: HTMLElement, domIndex: number, clip: { left: number; top: number; right: number; bottom: number }): ExtractedRegionItem | null {
+      const rect = item.getBoundingClientRect()
+      if (rect.width <= 0 || rect.height <= 0) return null
+      if (item.closest('[data-e2e="video-comment-more"], .comment-reply-expand-btn')) return null
+      const authorEl = findAuthorElement(item)
+      const author = normalizeAuthor(cleanText(authorEl?.innerText || authorEl?.textContent || ''))
+      const hrefs = Array.from(item.querySelectorAll<HTMLAnchorElement>('a[href]'))
+        .map(link => absoluteHref(link.getAttribute('href') || link.href))
+        .filter((href): href is string => Boolean(href))
+      const profileHref = Array.from(new Set(hrefs)).find(looksLikeProfileHref)
+      const text = commentBodyText(item, authorEl, author)
+      if (!isCommentBody(text, author)) return null
+      return {
+        text,
+        role: item.getAttribute('role') || undefined,
+        tag: item.tagName.toLowerCase(),
+        href: profileHref,
+        bbox: bboxOf(rect),
+        itemType: 'douyin_comment',
+        author,
+        hrefs: Array.from(new Set(hrefs)).slice(0, 8),
+        visibleInRegion: mostlyInside(rect, clip),
+      }
+    }
+
+    function findAuthorElement(item: HTMLElement): HTMLElement | null {
+      const links = Array.from(item.querySelectorAll<HTMLAnchorElement>('a[href*="/user/"], a[href*="douyin.com/user"]'))
+      return links
+        .map(link => {
+          const title = link.querySelector<HTMLElement>('[data-click-from="title"]')
+          const text = normalizeAuthor(cleanText((title || link).innerText || (title || link).textContent || ''))
+          const rect = link.getBoundingClientRect()
+          let score = 0
+          if (title || link.getAttribute('data-click-from') === 'title') score += 100
+          if (looksLikeProfileHref(link.href)) score += 60
+          if (isLikelyAuthorText(text)) score += 60
+          if (!text || text.includes('头像')) score -= 80
+          return { link, text, rect, score }
+        })
+        .filter(entry => entry.score > 0)
+        .sort((a, b) => {
+          const score = b.score - a.score
+          if (score !== 0) return score
+          const top = a.rect.top - b.rect.top
+          if (Math.abs(top) > 6) return top
+          return a.rect.left - b.rect.left
+        })[0]?.link ?? null
+    }
+
+    function commentBodyText(item: HTMLElement, authorEl: HTMLElement | null, author: string): string {
+      const preferred = Array.from(item.querySelectorAll<HTMLElement>('[data-e2e*="comment-text" i], [data-e2e*="content" i], .Sbe6bqNb, .LqTo7UJT, .LvAtyU_f'))
+        .filter(el => !isIgnoredControl(el))
+        .map(el => cleanCommentBody(textWithoutControls(el), author))
+        .filter(text => isCommentBody(text, author))
+        .sort((a, b) => b.length - a.length)[0]
+      if (preferred) return preferred
+
+      const hierarchy = authorEl ? textAfterAuthor(item, authorEl, author) : ''
+      if (isCommentBody(hierarchy, author)) return hierarchy
+
+      return cleanCommentBody(textWithoutControls(item), author)
+    }
+
+    function textAfterAuthor(item: HTMLElement, authorEl: HTMLElement, author: string): string {
+      const pieces: string[] = []
+      let afterAuthor = false
+      const walker = document.createTreeWalker(item, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT)
+      let current = walker.nextNode()
+      while (current) {
+        if (current === authorEl || (current instanceof HTMLElement && current.contains(authorEl))) {
+          afterAuthor = true
+          current = walker.nextNode()
+          continue
+        }
+        if (afterAuthor) {
+          if (current.nodeType === Node.ELEMENT_NODE) {
+            const el = current as HTMLElement
+            if (isIgnoredControl(el)) {
+              current = skipSubtree(walker, el)
+              continue
+            }
+            if (el instanceof HTMLAnchorElement && looksLikeProfileHref(el.href)) {
+              current = skipSubtree(walker, el)
+              continue
+            }
+            if (el instanceof HTMLImageElement) {
+              const alt = cleanText(el.getAttribute('alt') || '')
+              if (alt && !alt.includes('头像')) pieces.push(alt)
+              current = skipSubtree(walker, el)
+              continue
+            }
+          } else if (current.nodeType === Node.TEXT_NODE) {
+            const parent = current.parentElement
+            const text = cleanText(current.textContent || '')
+            if (text && parent && !isIgnoredControl(parent) && !isMetaText(text, author)) {
+              pieces.push(text)
+            }
+          }
+        }
+        current = walker.nextNode()
+      }
+      return cleanCommentBody(pieces.join(' '), author)
+    }
+
+    function skipSubtree(walker: TreeWalker, el: HTMLElement): Node | null {
+      let next = walker.nextSibling()
+      if (next) return next
+      let parent = el.parentElement
+      while (parent && parent !== walker.root) {
+        next = walker.nextSibling()
+        if (next) return next
+        parent = parent.parentElement
+      }
+      return walker.nextNode()
+    }
+
+    function textWithoutControls(el: HTMLElement): string {
+      const clone = el.cloneNode(true) as HTMLElement
+      for (const node of Array.from(clone.querySelectorAll([
+        'svg',
+        '[data-e2e="video-comment-more"]',
+        '.comment-reply-expand-btn',
+        '.comment-item-stats-container',
+        '.comment-input-container',
+        '.comment-header-close-btn',
+        '.comment-item-tag',
+        '.semi-tag',
+        '[class*="stats" i]',
+        '[class*="share" i]',
+      ].join(',')))) {
+        node.remove()
+      }
+      for (const img of Array.from(clone.querySelectorAll<HTMLImageElement>('img[alt]'))) {
+        const alt = cleanText(img.getAttribute('alt') || '')
+        if (alt && !alt.includes('头像')) img.replaceWith(document.createTextNode(alt))
+      }
+      return cleanText(clone.textContent || '')
+    }
+
+    function cleanCommentBody(text: string, author: string): string {
+      let value = cleanText(text)
+      if (author) {
+        value = value.replace(new RegExp(`^${escapeRegExp(author)}\\s*`), '')
+      }
+      value = value
+        .replace(/\b(回复|分享|点赞|收藏)\b/gu, ' ')
+        .replace(/展开\s*\d*\s*条?回复/gu, ' ')
+        .replace(/暂时没有更多评论|加载中|留下你的精彩评论吧/gu, ' ')
+        .replace(/作者回复过|作者/gu, ' ')
+        .replace(/(?:\d+\s*(?:秒|分钟|小时|天|月|年)前|刚刚|昨天|前天)\s*(?:[·.]\s*[\u4e00-\u9fa5A-Za-z]+)?/gu, ' ')
+        .replace(/IP属地[:：]?\s*[\u4e00-\u9fa5A-Za-z]+/gu, ' ')
+        .replace(/^\s*转发\s*[·:：]\s*/u, '')
+      return cleanCommentSpacing(value)
+    }
+
+    function isCommentBody(text: string, author: string): boolean {
+      const value = cleanText(text)
+      if (!value || value === author) return false
+      if (/^(回复|分享|点赞|收藏|展开回复|加载中|暂时没有更多评论)$/u.test(value)) return false
+      if (/^\d+$/.test(value)) return false
+      return value.length >= 1
+    }
+
+    function declaredCommentCount(root: HTMLElement, clip: { left: number; top: number; right: number; bottom: number }): ExtractedRegionItem | null {
+      const candidates = Array.from(root.querySelectorAll<HTMLElement>('span, h1, h2, h3, div'))
+        .map(el => ({ el, rect: el.getBoundingClientRect(), text: cleanText(el.innerText || el.textContent || '') }))
+        .filter(entry => entry.text.includes('全部评论'))
+        .filter(entry => entry.rect.width > 0 && entry.rect.height > 0)
+        .filter(entry => intersects(entry.rect, clip) || root.id === 'merge-all-comment-container')
+      const hit = candidates
+        .map(entry => ({ ...entry, count: parseDeclaredCount(entry.text) }))
+        .find(entry => entry.count !== null)
+      if (!hit || hit.count === null) return null
+      return {
+        text: String(hit.count),
+        tag: hit.el.tagName.toLowerCase(),
+        bbox: bboxOf(hit.rect),
+        itemType: 'comment_count',
+      }
+    }
+
+    function commentEndItem(list: HTMLElement | null, _clip: { left: number; top: number; right: number; bottom: number }): ExtractedRegionItem | null {
+      if (!list) return null
+      const hit = Array.from(list.querySelectorAll<HTMLElement>('div, span, p'))
+        .map(el => ({ el, rect: el.getBoundingClientRect(), text: cleanText(el.innerText || el.textContent || '') }))
+        .filter(entry => entry.text.includes('暂时没有更多评论'))
+        .filter(entry => entry.rect.width > 0 && entry.rect.height > 0)
+        .sort((a, b) => b.rect.top - a.rect.top)[0]
+      if (!hit) return null
+      return {
+        text: '暂时没有更多评论',
+        tag: hit.el.tagName.toLowerCase(),
+        bbox: bboxOf(hit.rect),
+        itemType: 'comment_end',
+      }
+    }
+
+    function diagnosticsFor(items: ExtractedRegionItem[]): Record<string, unknown> {
+      const comments = items.filter(item => item.itemType === 'douyin_comment')
+      return {
+        injectedProbe: probe,
+        href: location.href,
+        requestedRegionKey: regionKey,
+        runtimeRegionKey: region.key,
+        effectiveRegionKey,
+        commentListCount: listEntries.length,
+        selectedListCommentItems: selectedList?.querySelectorAll('[data-e2e="comment-item"]').length ?? 0,
+        selectedListDirectDivs: selectedList ? directCommentSlots(selectedList).length : 0,
+        selectedListSignalSlots: selectedList ? directCommentSlots(selectedList).filter(hasCommentSlotSignals).length : 0,
+        documentCommentItems: document.querySelectorAll('[data-e2e="comment-item"]').length,
+        titleLinkCount: selectedList?.querySelectorAll('[data-click-from="title"]').length ?? 0,
+        userLinkCount: selectedList?.querySelectorAll('a[href*="/user/"], a[href*="douyin.com/user"]').length ?? 0,
+        bodyClassCount: selectedList?.querySelectorAll('.Sbe6bqNb, .LqTo7UJT, .LvAtyU_f').length ?? 0,
+        endMarkerCount: selectedList ? Array.from(selectedList.querySelectorAll<HTMLElement>('*'))
+          .filter(el => cleanText(el.innerText || el.textContent || '').includes('暂时没有更多评论')).length : 0,
+        extractedDomCommentCount: comments.length,
+        visibleInRegionCount: comments.filter(item => item.visibleInRegion).length,
+        declaredCountItems: items.filter(item => item.itemType === 'comment_count').map(item => item.text),
+        endMarkerItems: items.filter(item => item.itemType === 'comment_end').map(item => item.text),
+        firstAuthors: comments.slice(0, 5).map(item => item.author || ''),
+        firstTexts: comments.slice(0, 5).map(item => item.text),
+        selectedListTextSample: truncate(cleanText(selectedList?.innerText || selectedList?.textContent || ''), 1200),
+        selectedListOuterHtmlSample: truncate(selectedList?.outerHTML || '', 3200),
+        selectedListDirectChildHtmlSamples: selectedList
+          ? directCommentSlots(selectedList).slice(0, 5).map(slot => truncate(slot.outerHTML || '', 1200))
+          : [],
+      }
+    }
+
+    function isEndOrLoadingSlot(slot: HTMLElement): boolean {
+      const text = cleanText(slot.innerText || slot.textContent || '')
+      return text.includes('暂时没有更多评论') || text === '加载中'
+    }
+
+    function isIgnoredControl(el: HTMLElement): boolean {
+      return Boolean(el.closest('[data-e2e="video-comment-more"], .comment-reply-expand-btn, .comment-item-stats-container, .comment-input-container, .comment-header-close-btn')) ||
+        el.matches('[data-e2e="video-comment-more"], .comment-reply-expand-btn, .comment-item-stats-container, .comment-input-container, .comment-header-close-btn')
+    }
+
+    function isMetaText(text: string, author: string): boolean {
+      const value = cleanText(text)
+      return value === author ||
+        value.includes('头像') ||
+        /^(回复|分享|点赞|收藏)$/u.test(value) ||
+        /^(?:\d+\s*(?:秒|分钟|小时|天|月|年)前|刚刚|昨天|前天)(?:\s*[·.]\s*[\u4e00-\u9fa5A-Za-z]+)?$/u.test(value)
+    }
+
+    function parseDeclaredCount(text: string): number | null {
+      const match = text.replace(/,/g, '').match(/全部评论\s*[\(（]?\s*([0-9]+(?:\.[0-9]+)?\s*[万wW]?)/u)
+      if (!match) return null
+      const raw = match[1].replace(/\s+/g, '')
+      const numeric = Number.parseFloat(raw.replace(/[万wW]/g, ''))
+      if (!Number.isFinite(numeric)) return null
+      return Math.round(/[万wW]/.test(raw) ? numeric * 10000 : numeric)
+    }
+
+    function normalizeAuthor(text: string): string {
+      return cleanText(text).replace(/头像$/u, '').replace(/\s*作者$/u, '').slice(0, 80)
+    }
+
+    function isLikelyAuthorText(text: string): boolean {
+      const value = cleanText(text)
+      return value.length > 0 && value.length <= 40 && !/^(回复|分享|点赞|收藏|展开回复|全部评论)$/u.test(value)
+    }
+
+    function looksLikeProfileHref(href?: string): boolean {
+      if (!href) return false
+      const lower = href.toLowerCase()
+      return lower.includes('douyin.com') && lower.includes('/user')
+    }
+
+    function absoluteHref(href?: string): string | undefined {
+      if (!href) return undefined
+      try {
+        return new URL(href, location.href).href
+      } catch {
+        return href
+      }
+    }
+
+    function mostlyInside(rect: DOMRect, clip: { left: number; top: number; right: number; bottom: number }): boolean {
+      if (rect.width <= 0 || rect.height <= 0) return false
+      const overlap = overlapAreaWithClip(rect, clip)
+      const elementArea = Math.max(1, rect.width * rect.height)
+      const centerInside = rect.left + rect.width / 2 >= clip.left &&
+        rect.left + rect.width / 2 <= clip.right &&
+        rect.top + rect.height / 2 >= clip.top &&
+        rect.top + rect.height / 2 <= clip.bottom
+      return centerInside || overlap / elementArea >= 0.5
+    }
+
+    function containsClip(rect: DOMRect, clip: { left: number; top: number; right: number; bottom: number }): boolean {
+      return rect.left <= clip.left + 24 &&
+        rect.right >= clip.right - 24 &&
+        rect.top <= clip.top + 80 &&
+        rect.bottom >= clip.bottom - 80
+    }
+
+    function intersects(rect: DOMRect, clip: { left: number; top: number; right: number; bottom: number }): boolean {
+      return rect.width > 0 &&
+        rect.height > 0 &&
+        rect.right >= clip.left &&
+        rect.left <= clip.right &&
+        rect.bottom >= clip.top &&
+        rect.top <= clip.bottom
+    }
+
+    function overlapAreaWithClip(rect: DOMRect, clip: { left: number; top: number; right: number; bottom: number }): number {
+      const left = Math.max(rect.left, clip.left)
+      const right = Math.min(rect.right, clip.right)
+      const top = Math.max(rect.top, clip.top)
+      const bottom = Math.min(rect.bottom, clip.bottom)
+      return Math.max(0, right - left) * Math.max(0, bottom - top)
+    }
+
+    function bboxOf(rect: DOMRect): ExtractedRegionItem['bbox'] {
+      return {
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      }
+    }
+
+    function cleanText(text: string): string {
+      return String(text || '').replace(/\s+/g, ' ').trim()
+    }
+
+    function cleanCommentSpacing(text: string): string {
+      return cleanText(text)
+        .replace(/([\u3400-\u9fff])\s+([\u3400-\u9fff])/gu, '$1$2')
+        .replace(/\s+([，。！？、；：,.!?;:)）])/gu, '$1')
+        .replace(/([（(])\s+/gu, '$1')
+    }
+
+    function truncate(text: string, maxLength: number): string {
+      const value = cleanText(text)
+      return value.length <= maxLength ? value : `${value.slice(0, maxLength)}...[truncated:${value.length}]`
+    }
+
+    function escapeRegExp(text: string): string {
+      return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    }
+  } catch (error) {
+    return {
+      items: [],
+      diagnostics: {
+        injectedProbe: probe,
+        requestedRegionKey: regionKey,
+        runtimeRegionKey: region?.key,
+        injectedErrorName: error instanceof Error ? error.name : typeof error,
+        injectedErrorMessage: error instanceof Error ? error.message : String(error),
+        injectedErrorStack: error instanceof Error ? String(error.stack || '').slice(0, 600) : undefined,
+      },
+    }
+  }
+}
+
+function extractRegionInPage(region: RuntimeRegion, regionKey: string, maxItems: number): ExtractRegionPageResult {
+  const effectiveRegionKey = typeof region.key === 'string' && region.key.trim().length > 0
+    ? region.key
+    : regionKey
   const regionRect = {
     left: region.x,
     top: region.y,
@@ -83,14 +610,22 @@ function extractRegionInPage(region: RuntimeRegion, maxItems: number): Extracted
   }
   const max = Math.min(Math.max(Math.floor(maxItems || 80), 1), 500)
 
-  if (region.key === 'douyin.search_results') {
-    return extractDouyinSearchResults(regionRect, max)
+  if (effectiveRegionKey === 'douyin.search_results') {
+    return { items: extractDouyinSearchResults(regionRect, max) }
   }
-  if (region.key === 'douyin.comments') {
-    return extractDouyinComments(regionRect, max)
+  if (effectiveRegionKey === 'douyin.comments') {
+    const items = extractDouyinComments(regionRect, max)
+    return {
+      items,
+      diagnostics: douyinCommentDomDiagnostics(items, {
+        effectiveRegionKey,
+        runtimeRegionKey: region.key,
+        requestedRegionKey: regionKey,
+      }),
+    }
   }
-  if (region.key === 'douyin.dm') {
-    return extractDouyinDm(regionRect, max)
+  if (effectiveRegionKey === 'douyin.dm') {
+    return { items: extractDouyinDm(regionRect, max) }
   }
 
   const selectors = [
@@ -158,7 +693,7 @@ function extractRegionInPage(region: RuntimeRegion, maxItems: number): Extracted
     })
   }
 
-  return items
+  return { items }
 
   function cleanText(text: string): string {
     return text.replace(/\s+/g, ' ').trim()
@@ -317,6 +852,7 @@ function extractDouyinComments(
       itemType: 'douyin_comment',
       author: candidate.author,
       hrefs: candidate.hrefs,
+      visibleInRegion: candidate.visibleInRegion,
     }))
   return [count, end, ...comments].filter((item): item is ExtractedRegionItem => item !== null)
 
@@ -330,6 +866,7 @@ function extractDouyinComments(
     role?: string
     tag: string
     domIndex: number
+    visibleInRegion: boolean
   }
 
   function commentListItemCandidates(): CommentCandidate[] {
@@ -348,25 +885,63 @@ function extractDouyinComments(
         domIndex,
         rect: el.getBoundingClientRect(),
         itemCount: el.querySelectorAll('[data-e2e="comment-item"]').length,
+        directDivs: directCommentListDivSlots(el).length,
+        signalSlots: directCommentListDivSlots(el).filter(hasCommentSlotSignals).length,
         insidePanel: Boolean(el.closest('#merge-all-comment-container')),
       }))
-      .filter(entry => entry.itemCount > 0)
+      .filter(entry => entry.itemCount > 0 || entry.signalSlots > 0 || (entry.insidePanel && entry.directDivs > 0))
       .filter(entry => isUsefulTextRect(entry.rect) || entry.insidePanel)
       .sort((a, b) => {
         const panelDiff = Number(b.insidePanel) - Number(a.insidePanel)
         if (panelDiff !== 0) return panelDiff
         const overlapDiff = overlapAreaWithClip(b.rect, regionRect) - overlapAreaWithClip(a.rect, regionRect)
         if (Math.abs(overlapDiff) > 1) return overlapDiff
+        const signalDiff = b.signalSlots - a.signalSlots
+        if (signalDiff !== 0) return signalDiff
         const itemDiff = b.itemCount - a.itemCount
         if (itemDiff !== 0) return itemDiff
+        const slotDiff = b.directDivs - a.directDivs
+        if (slotDiff !== 0) return slotDiff
         return a.domIndex - b.domIndex
       })
     const list = lists[0]?.el
     if (!list) return []
 
+    const slotCandidates = directCommentListDivSlots(list)
+      .map((slot, domIndex) => {
+        const item = commentItemFromListSlot(slot)
+        return item ? toCommentListItemCandidate(item, domIndex) : null
+      })
+      .filter((candidate): candidate is CommentCandidate => candidate !== null)
+    if (slotCandidates.length > 0) return slotCandidates
+
     return Array.from(list.querySelectorAll<HTMLElement>('[data-e2e="comment-item"]'))
       .map((item, domIndex) => toCommentListItemCandidate(item, domIndex))
       .filter((candidate): candidate is CommentCandidate => candidate !== null)
+  }
+
+  function directCommentListDivSlots(list: HTMLElement): HTMLElement[] {
+    return Array.from(list.children)
+      .filter((slot): slot is HTMLElement => slot instanceof HTMLElement && slot.tagName.toLowerCase() === 'div')
+  }
+
+  function commentItemFromListSlot(slot: HTMLElement): HTMLElement | null {
+    if (slot.matches('[data-e2e="comment-item"]')) return slot
+    const direct = Array.from(slot.children)
+      .find((child): child is HTMLElement => child instanceof HTMLElement && child.matches('[data-e2e="comment-item"]'))
+    if (direct) return direct
+    const nested = slot.querySelector<HTMLElement>('[data-e2e="comment-item"]')
+    if (nested) return nested
+    return hasCommentSlotSignals(slot) ? slot : null
+  }
+
+  function hasCommentSlotSignals(slot: HTMLElement): boolean {
+    return Array.from(slot.querySelectorAll<HTMLAnchorElement>('a[href*="/user/"], a[href*="douyin.com/user"]'))
+      .filter(link => !link.closest('[data-e2e="video-comment-more"], .comment-reply-expand-btn, .comment-item-stats-container'))
+      .some(link => {
+        const text = normalizeAuthor(cleanText(link.innerText || link.textContent || ''))
+        return isLikelyAuthorText(text) || looksLikeDouyinProfileHref(link.href)
+      })
   }
 
   function toCommentListItemCandidate(item: HTMLElement, domIndex: number): CommentCandidate | null {
@@ -380,8 +955,9 @@ function extractDouyinComments(
       .map(a => absoluteHref(a.getAttribute('href') || a.href))
       .filter((href): href is string => Boolean(href))
     const profileHref = Array.from(new Set(hrefs)).find(looksLikeDouyinProfileHref)
-    const textEl = findCommentItemBodyElement(item)
-    const text = cleanCommentBody(textFromElementWithoutControls(textEl ?? item), author)
+    const hierarchyText = commentBodyTextFromHierarchy(item, authorEl, author)
+    const textEl = hierarchyText ? null : findCommentItemBodyElement(item)
+    const text = hierarchyText || cleanCommentBody(textFromElementWithoutControls(textEl ?? item), author)
     if (!isStructuredCommentBody(text, author)) return null
 
     return {
@@ -394,13 +970,14 @@ function extractDouyinComments(
       role: item.getAttribute('role') || undefined,
       tag: item.tagName.toLowerCase(),
       domIndex,
+      visibleInRegion: mostlyInside(rect, regionRect),
     }
   }
 
   function findCommentItemAuthorElement(item: HTMLElement): HTMLElement | null {
     const links = Array.from(item.querySelectorAll<HTMLAnchorElement>('a[href*="/user/"], a[href*="douyin.com/user"]'))
     return links
-      .filter(link => link.closest('[data-e2e="comment-item"]') === item)
+      .filter(link => belongsToCommentCandidate(link, item))
       .filter(link => !link.closest('[data-e2e="video-comment-more"]'))
       .map(link => ({ link, text: normalizeAuthor(cleanText(link.innerText || link.textContent || '')), rect: link.getBoundingClientRect() }))
       .filter(entry => isLikelyAuthorText(entry.text) || looksLikeDouyinProfileHref(entry.link.href))
@@ -419,13 +996,103 @@ function extractDouyinComments(
 
   function findCommentItemBodyElement(item: HTMLElement): HTMLElement | null {
     const preferred = Array.from(item.querySelectorAll<HTMLElement>('.Sbe6bqNb, .LqTo7UJT, .LvAtyU_f, [data-e2e*="comment-text" i], [data-e2e*="content" i]'))
-      .filter(el => el.closest('[data-e2e="comment-item"]') === item)
+      .filter(el => belongsToCommentCandidate(el, item))
       .filter(el => !el.closest('[data-e2e="video-comment-more"], .comment-reply-expand-btn, .comment-item-stats-container'))
       .map(el => ({ el, rect: el.getBoundingClientRect(), text: cleanCommentBody(textFromElementWithoutControls(el), '') }))
       .filter(entry => isUsefulTextRect(entry.rect) && isStructuredCommentBody(entry.text, ''))
       .sort((a, b) => scoreCommentTextElement(b.el, b.text, b.rect) - scoreCommentTextElement(a.el, a.text, a.rect))[0]?.el
     if (preferred) return preferred
     return findCommentTextElement(item, findCommentItemAuthorElement(item), normalizeAuthor(cleanText(findCommentItemAuthorElement(item)?.innerText || '')))
+  }
+
+  function commentBodyTextFromHierarchy(
+    item: HTMLElement,
+    authorEl: HTMLElement | null,
+    author: string,
+  ): string {
+    const pieces: string[] = []
+    let afterAuthor = authorEl === null
+    let stopped = false
+
+    const visit = (node: Node): void => {
+      if (stopped) return
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const el = node as HTMLElement
+        if (authorEl && el === authorEl) {
+          afterAuthor = true
+          return
+        }
+        if (el !== item && afterAuthor && isCommentHierarchyBoundary(el)) {
+          stopped = true
+          return
+        }
+        if (el !== item && afterAuthor && isIgnoredCommentControlElement(el)) {
+          return
+        }
+        if (afterAuthor && el instanceof HTMLImageElement) {
+          const alt = cleanText(el.getAttribute('alt') || '')
+          if (alt && !shouldSkipHierarchyText(alt, author)) {
+            pieces.push(alt)
+          }
+          return
+        }
+        for (const child of Array.from(el.childNodes)) {
+          visit(child)
+          if (stopped) return
+        }
+        return
+      }
+
+      if (node.nodeType !== Node.TEXT_NODE || !afterAuthor) return
+      const value = cleanText(node.textContent || '')
+      if (!value) return
+      if (isCommentMetadataText(value)) {
+        stopped = true
+        return
+      }
+      if (!shouldSkipHierarchyText(value, author)) {
+        pieces.push(value)
+      }
+    }
+
+    visit(item)
+    return cleanCommentBody(pieces.join(''), author)
+  }
+
+  function isCommentHierarchyBoundary(el: HTMLElement): boolean {
+    if (el.matches('.comment-item-stats-container, .comment-reply-expand-btn, .comment-input-container')) return true
+    if (el.matches('[data-e2e="video-comment-more"]')) return false
+    const ownText = cleanText(Array.from(el.childNodes)
+      .filter(node => node.nodeType === Node.TEXT_NODE)
+      .map(node => node.textContent || '')
+      .join(' '))
+    if (ownText && (isCommentMetadataText(ownText) || isTerminalCommentControlText(ownText))) return true
+    const compact = cleanText(el.innerText || el.textContent || '').replace(/\s+/g, '')
+    return isCommentMetadataText(compact) || isTerminalCommentControlText(compact)
+  }
+
+  function shouldSkipHierarchyText(text: string, author: string): boolean {
+    const value = cleanText(text)
+    if (!value || value === '...') return true
+    if (normalizeAuthor(value) === normalizeAuthor(author)) return true
+    if (value.endsWith('头像') || value.includes('头像')) return true
+    return isCommentControlText(value) || isCommentMetadataText(value) || isTerminalCommentControlText(value)
+  }
+
+  function isCommentMetadataText(text: string): boolean {
+    const value = cleanText(text).replace(/\s+/g, '')
+    return /^(?:刚刚|昨天|前天|\d{1,3}(?:秒|分钟|小时|天|周|个?月|年)前)(?:[·・•].{1,16})?$/.test(value)
+  }
+
+  function isTerminalCommentControlText(text: string): boolean {
+    const value = cleanText(text).replace(/\s+/g, '')
+    return /^(前往西瓜视频回复评论|展开\d*条?回复|展开回复|回复|分享|点赞|收藏|加载中|暂时没有更多评论|没有更多评论)$/.test(value)
+  }
+
+  function belongsToCommentCandidate(el: HTMLElement, item: HTMLElement): boolean {
+    const owner = el.closest<HTMLElement>('[data-e2e="comment-item"]')
+    if (owner) return owner === item
+    return !item.matches('[data-e2e="comment-item"]')
   }
 
   function declaredCommentCountCandidate(
@@ -602,10 +1269,11 @@ function extractDouyinComments(
       author,
       profileHref,
       hrefs: Array.from(new Set(hrefs)).slice(0, 8),
-      role: el.getAttribute('role') || undefined,
-      tag: el.tagName.toLowerCase(),
-      domIndex,
-    }
+        role: el.getAttribute('role') || undefined,
+        tag: el.tagName.toLowerCase(),
+        domIndex,
+        visibleInRegion: mostlyInside(rect, regionRect),
+      }
   }
 
   function looseVisibleTextCommentCandidates(domIndexOffset: number): CommentCandidate[] {
@@ -649,6 +1317,7 @@ function extractDouyinComments(
         role: container.getAttribute('role') || undefined,
         tag: container.tagName.toLowerCase(),
         domIndex: domIndexOffset + entry.index,
+        visibleInRegion: mostlyInside(entry.rect, regionRect),
       })
     }
     return out
@@ -768,6 +1437,7 @@ function extractDouyinComments(
       value = cleanText(value.slice(author.length))
     }
     return value
+      .replace(/^转发\s*[·・•]\s*/u, '')
       .replace(/^(作者)?回复\s*/u, '')
       .replace(/\s*(作者回复过|作者)$/u, '')
       .replace(/\s*(回复|展开\d*条?回复|展开回复|点赞|分享)$/u, '')
@@ -963,6 +1633,67 @@ function extractDouyinComments(
     const bottom = Math.min(rect.bottom, clip.bottom)
     return Math.max(0, right - left) * Math.max(0, bottom - top)
   }
+}
+
+function douyinCommentDomDiagnostics(
+  items: ExtractedRegionItem[],
+  context: {
+    effectiveRegionKey?: string
+    runtimeRegionKey?: string
+    requestedRegionKey?: string
+  } = {},
+): Record<string, unknown> {
+  const lists = Array.from(document.querySelectorAll<HTMLElement>('[data-e2e="comment-list"]'))
+  const selectedList = lists
+    .map((el, index) => ({
+      el,
+      index,
+      commentItems: el.querySelectorAll('[data-e2e="comment-item"]').length,
+      directDivs: Array.from(el.children).filter(child => child instanceof HTMLElement && child.tagName.toLowerCase() === 'div').length,
+    }))
+    .sort((a, b) => b.commentItems - a.commentItems || b.directDivs - a.directDivs || a.index - b.index)[0]
+  const comments = items.filter(item => item.itemType === 'douyin_comment')
+  const listSelector = '[data-e2e="comment-list"]'
+  return {
+    requestedRegionKey: context.requestedRegionKey,
+    runtimeRegionKey: context.runtimeRegionKey,
+    effectiveRegionKey: context.effectiveRegionKey,
+    commentListCount: lists.length,
+    selectedListCommentItems: selectedList?.commentItems ?? 0,
+    selectedListDirectDivs: selectedList?.directDivs ?? 0,
+    documentCommentItems: document.querySelectorAll('[data-e2e="comment-item"]').length,
+    titleLinkCount: document.querySelectorAll(`${listSelector} [data-click-from="title"]`).length,
+    userLinkCount: document.querySelectorAll(`${listSelector} a[href*="/user/"], ${listSelector} a[href*="douyin.com/user"]`).length,
+    bodyClassCount: document.querySelectorAll(`${listSelector} .Sbe6bqNb, ${listSelector} .LqTo7UJT, ${listSelector} .LvAtyU_f`).length,
+    replyExpandCount: document.querySelectorAll(`${listSelector} .comment-reply-expand-btn`).length,
+    statsCount: document.querySelectorAll(`${listSelector} .comment-item-stats-container`).length,
+    endMarkerCount: Array.from(document.querySelectorAll<HTMLElement>(`${listSelector} *`))
+      .filter(el => cleanDiagnosticText(el.innerText || el.textContent || '').includes('暂时没有更多评论')).length,
+    extractedDomCommentCount: comments.length,
+    visibleInRegionCount: comments.filter(item => item.visibleInRegion).length,
+    declaredCountItems: items.filter(item => item.itemType === 'comment_count').map(item => item.text),
+    endMarkerItems: items.filter(item => item.itemType === 'comment_end').map(item => item.text),
+    firstAuthors: comments.slice(0, 5).map(item => item.author || ''),
+    firstTexts: comments.slice(0, 5).map(item => item.text),
+    selectedListTextSample: truncateDiagnosticText(cleanDiagnosticText(selectedList?.el.innerText || selectedList?.el.textContent || ''), 1200),
+    selectedListOuterHtmlSample: truncateDiagnosticText(selectedList?.el.outerHTML || '', 3200),
+    selectedListDirectChildHtmlSamples: selectedList
+      ? Array.from(selectedList.el.children)
+        .filter(child => child instanceof HTMLElement && child.tagName.toLowerCase() === 'div')
+        .slice(0, 5)
+        .map(child => truncateDiagnosticText((child as HTMLElement).outerHTML || '', 1200))
+      : [],
+  }
+}
+
+function cleanDiagnosticText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+function truncateDiagnosticText(text: string, maxLength: number): string {
+  const value = cleanDiagnosticText(text)
+  if (value.length <= maxLength) return value
+  return `${value.slice(0, maxLength)}...[truncated:${value.length}]`
 }
 
 function extractDouyinSearchResults(

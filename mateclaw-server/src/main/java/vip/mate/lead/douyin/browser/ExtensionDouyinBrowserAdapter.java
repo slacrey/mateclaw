@@ -2,6 +2,8 @@ package vip.mate.lead.douyin.browser;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 import vip.mate.browser.edge.action.TypePayload;
@@ -29,6 +31,8 @@ import java.util.function.Supplier;
 @Component
 public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
 
+    private static final Logger log = LoggerFactory.getLogger(ExtensionDouyinBrowserAdapter.class);
+
     private static final int END_MARKER_STABLE_WINDOWS = 2;
     private static final int MAX_SCROLL_PROTECTION = 2_000;
     private static final long COMMENT_SCROLL_REGION_DEADLINE_MS = 15_000L;
@@ -37,6 +41,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
     private static final double COMMENT_COLLECTION_TARGET_COVERAGE = 1.0d;
     private static final long FILTER_PANEL_SETTLE_DELAY_MS = 600L;
     private static final long SORT_SELECT_SETTLE_DELAY_MS = 1_200L;
+    private static final long SORTED_VIDEO_SNAPSHOT_TTL_MS = 30 * 60 * 1000L;
     private static final List<String> DOUYIN_LIKE_SORT_LABELS =
             List.of("最多点赞", "点赞最多", "按点赞", "点赞量");
     private static final Pattern TREE_LINE_PATTERN = Pattern.compile(
@@ -188,15 +193,19 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
     public BrowserObservation openVideo(int zeroBasedIndex) {
         BrowserObservation current = observeMain("all");
         if (looksLikeVideoOpenHard(current)) {
-            return new BrowserObservation(
-                    current.ok(),
-                    current.url(),
-                    current.title(),
-                    current.tree(),
-                    current.viewportWidth(),
-                    current.viewportHeight(),
-                    "VIDEO_TARGET",
-                    "reused_existing_video_page");
+            if (zeroBasedIndex > 0) {
+                return switchToNextVideoByKeyboard(current, zeroBasedIndex);
+            } else {
+                return new BrowserObservation(
+                        current.ok(),
+                        current.url(),
+                        current.title(),
+                        current.tree(),
+                        current.viewportWidth(),
+                        current.viewportHeight(),
+                        "VIDEO_TARGET",
+                        "reused_existing_video_page");
+            }
         }
         VideoCandidates candidates = sortedVideoSnapshotCandidates(current);
         if (candidates.isEmpty()) {
@@ -243,6 +252,69 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                 opened.viewportHeight(),
                 "VIDEO_TARGET",
                 target.debugSummary() + ", domDebug=" + candidates.debug());
+    }
+
+    private BrowserObservation switchToNextVideoByKeyboard(BrowserObservation current, int zeroBasedIndex) {
+        BrowserObservation before = closeCommentPanelBeforeVideoSwitch(current);
+        for (int attempt = 0; attempt < 3; attempt++) {
+            if (!tryOk(browser.service_press_key_main("ArrowDown"))) {
+                waitMs(350L);
+                continue;
+            }
+            waitMs(attempt == 0 ? 1_500L : 900L);
+            BrowserObservation after = observeMain("all");
+            if (!looksLikeVideoOpenHard(after)) {
+                continue;
+            }
+            if (videoObservationChanged(before, after) || attempt == 2) {
+                return new BrowserObservation(
+                        after.ok(),
+                        after.url(),
+                        after.title(),
+                        after.tree(),
+                        after.viewportWidth(),
+                        after.viewportHeight(),
+                        "VIDEO_TARGET",
+                        "keyboard_arrow_down:index=" + zeroBasedIndex);
+            }
+        }
+        throw new DouyinBrowserException("VIDEO_KEYBOARD_SWITCH_NOT_CONFIRMED",
+                "已尝试用下方向键打开第 " + (zeroBasedIndex + 1)
+                        + " 个视频，但没有确认视频切换。url=" + before.url()
+                        + ", title=" + before.title()
+                        + ", tree=" + treeExcerpt(before.tree()));
+    }
+
+    private BrowserObservation closeCommentPanelBeforeVideoSwitch(BrowserObservation current) {
+        BrowserObservation observed = current;
+        if (observed != null && looksLikeCommentsOpen(observed.tree())) {
+            tryOk(browser.service_press_key_main("x"));
+            waitMs(450L);
+            BrowserObservation afterClose = observeMain("all");
+            if (looksLikeVideoOpenHard(afterClose)) {
+                observed = afterClose;
+            }
+        }
+        return observed;
+    }
+
+    private boolean videoObservationChanged(BrowserObservation before, BrowserObservation after) {
+        if (before == null || after == null) {
+            return false;
+        }
+        String beforeId = videoIdentity(before.url());
+        String afterId = videoIdentity(after.url());
+        if (!beforeId.isBlank() && !afterId.isBlank()) {
+            return !beforeId.equals(afterId);
+        }
+        String beforeUrl = before.url() == null ? "" : before.url();
+        String afterUrl = after.url() == null ? "" : after.url();
+        if (!beforeUrl.isBlank() && !afterUrl.isBlank() && !beforeUrl.equals(afterUrl)) {
+            return true;
+        }
+        String beforeTitle = before.title() == null ? "" : before.title();
+        String afterTitle = after.title() == null ? "" : after.title();
+        return !beforeTitle.isBlank() && !afterTitle.isBlank() && !beforeTitle.equals(afterTitle);
     }
 
     @Override
@@ -504,7 +576,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                         effectiveScrolls, advancedWindows, forwardScrolls, repeatedWindows, totalNewItems, staleScrolls,
                         lastWindowSignature, lastLoopMs, lastScrollEvidence);
             }
-            if (!commentsPanelStillVisible(current, region)) {
+            if (!commentsPanelAvailable(current, region)) {
                 return collectionResult(seen, declared, false, "COMMENT_PANEL_LOST_DURING_COLLECTION", scrolls, stableNoNew,
                         stableEndMarker, lastExtractedCount, lastVisibleCount, lastNewItems,
                         lastCollectionAdvanced, lastWindowBeforeCount, lastWindowAfterCount,
@@ -529,14 +601,19 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
             }
             List<DouyinCommentItem> visibleTreeComments = collector.visibleComments(current, region);
             lastVisibleCount = visibleTreeComments.size();
-            for (DouyinCommentItem item : visibleTreeComments) {
-                if (!item.text().isBlank()) {
-                    mergeComment(seen, item);
+            if (networkResult.comments().isEmpty() && extracted.isEmpty()) {
+                for (DouyinCommentItem item : visibleTreeComments) {
+                    if (!item.text().isBlank()) {
+                        mergeComment(seen, item);
+                    }
                 }
             }
-            declared = Math.max(declared, Math.max(
-                    Math.max(networkResult.declaredCommentCount(), extractedResult.declaredCommentCount()),
-                    collector.declaredCommentCount(current.tree())));
+            int uiDeclared = Math.max(
+                    extractedResult.declaredCommentCount(),
+                    collector.declaredCommentCount(current.tree(), region));
+            if (uiDeclared > 0) {
+                declared = uiDeclared;
+            }
             lastWindowAfterCount = seen.size();
             lastNewItems = Math.max(0, lastWindowAfterCount - lastWindowBeforeCount);
             lastCollectionAdvanced = lastNewItems > 0;
@@ -558,9 +635,9 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                 stableEndMarker = 0;
             }
             if (stableEndMarker >= END_MARKER_STABLE_WINDOWS) {
-                complete = true;
-                stopReason = "END_OF_LIST";
-                return collectionResult(seen, declared, true, stopReason, scrolls, stableNoNew,
+                complete = declared <= 0 || seen.size() >= declared;
+                stopReason = complete ? "END_OF_LIST" : "END_OF_LIST_DECLARED_MISMATCH";
+                return collectionResult(seen, declared, complete, stopReason, scrolls, stableNoNew,
                         stableEndMarker, lastExtractedCount, lastVisibleCount, lastNewItems,
                         lastCollectionAdvanced, lastWindowBeforeCount, lastWindowAfterCount,
                         effectiveScrolls, advancedWindows, forwardScrolls, repeatedWindows, totalNewItems, staleScrolls,
@@ -587,14 +664,15 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                         lastWindowSignature, lastLoopMs, lastScrollEvidence);
             }
             boolean postScrollEndReached = commentsEndReached(current, region, ExtractedComments.empty());
-            if (scrollEvidence.panelLostSignal() && !postScrollEndReached) {
+            boolean panelAvailableAfterScroll = postScrollEndReached || commentsPanelAvailable(current, region);
+            if (scrollEvidence.panelLostSignal() && !postScrollEndReached && !panelAvailableAfterScroll) {
                 return collectionResult(seen, declared, false, "COMMENT_PANEL_LOST_DURING_SCROLL", scrolls + 1, stableNoNew,
                         stableEndMarker, lastExtractedCount, lastVisibleCount, lastNewItems,
                         lastCollectionAdvanced, lastWindowBeforeCount, lastWindowAfterCount,
                         effectiveScrolls, advancedWindows, forwardScrolls, repeatedWindows, totalNewItems, staleScrolls,
                         lastWindowSignature, lastLoopMs, lastScrollEvidence);
             }
-            if (!commentsPanelStillVisible(current, region)) {
+            if (!panelAvailableAfterScroll) {
                 return collectionResult(seen, declared, false, "COMMENT_PANEL_LOST_AFTER_SCROLL", scrolls + 1, stableNoNew,
                         stableEndMarker, lastExtractedCount, lastVisibleCount, lastNewItems,
                         lastCollectionAdvanced, lastWindowBeforeCount, lastWindowAfterCount,
@@ -619,6 +697,13 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
             return true;
         }
         return stableNoNew > 0 && scrolls % 40 == 0;
+    }
+
+    private boolean commentsPanelAvailable(BrowserObservation observed, RegionInfo region) {
+        if (commentsPanelStillVisible(observed, region)) {
+            return true;
+        }
+        return extractedCommentPanelReady(region, observed == null ? "" : observed.url());
     }
 
     private boolean commentsPanelStillVisible(BrowserObservation observed, RegionInfo region) {
@@ -740,19 +825,43 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         metadata.put("networkObservedComments", networkObservedComments);
         metadata.put("extractedRegionComments", extractedRegionComments);
         metadata.put("a11yTreeComments", a11yTreeComments);
-        metadata.put("primaryCollectionSource", networkObservedComments > 0
-                ? "network_observed"
-                : extractedRegionComments > 0 ? "extract_region" : "a11y_tree");
-        metadata.put("fullCollectionExpected", declared > 0 && declared <= seen.size());
-        metadata.put("partialCollection", declared > 0 && seen.size() < declared);
+        boolean a11yOnlyCollection = a11yTreeComments > 0
+                && extractedRegionComments == 0
+                && networkObservedComments == 0;
+        boolean declaredCountMismatch = declared > 0 && seen.size() < declared;
+        boolean endOfListStop = stopReason != null && stopReason.startsWith("END_OF_LIST");
+        boolean domTopLevelEndReached = endOfListStop
+                && declaredCountMismatch
+                && extractedRegionComments > 0
+                && !a11yOnlyCollection;
+        boolean effectiveComplete = complete || domTopLevelEndReached;
+        String effectiveStopReason = domTopLevelEndReached && !complete
+                ? "END_OF_LIST_TOP_LEVEL"
+                : stopReason;
+        boolean reportedComplete = effectiveComplete && !a11yOnlyCollection;
+        String reportedStopReason = a11yOnlyCollection && "END_OF_LIST".equals(effectiveStopReason)
+                ? "END_OF_LIST_A11Y_ONLY"
+                : effectiveStopReason;
+        metadata.put("primaryCollectionSource", extractedRegionComments > 0
+                ? "extract_region"
+                : networkObservedComments > 0 ? "network_observed" : "a11y_tree");
+        metadata.put("domExtractionUnavailable", a11yOnlyCollection);
+        metadata.put("fullCollectionExpected", reportedComplete && declared > 0 && declared <= seen.size());
+        metadata.put("topLevelCollectionComplete", reportedComplete && endOfListStop);
+        metadata.put("declaredTotalMayIncludeReplies", domTopLevelEndReached);
+        metadata.put("partialCollection", a11yOnlyCollection || declaredCountMismatch && !domTopLevelEndReached);
+        metadata.put("declaredCountMismatch", declaredCountMismatch);
+        if (domTopLevelEndReached) {
+            metadata.put("declaredCountMismatchReason", "declared_count_may_include_collapsed_replies");
+        }
         metadata.put("replyExpansionEnabled", false);
-        metadata.put("replyExpansionMode", "disabled_v1_quality_first");
+        metadata.put("replyExpansionMode", "disabled_quality_first");
         stopCommentNetworkCapture();
         return new CommentCollectionResult(
                 new ArrayList<>(seen.values()),
                 declared,
-                complete,
-                stopReason,
+                reportedComplete,
+                reportedStopReason,
                 scrolls,
                 metadata);
     }
@@ -866,69 +975,210 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
 
     @Override
     public EngagementResult followAndDraft(DouyinCommentItem comment, String dmDraft, boolean sendDm) {
+        BrowserObservation videoBeforeEngagement = observeMain("all");
+        boolean profileOpened = false;
+        try {
         BrowserObservation profile = openAuthorProfile(comment);
+        profileOpened = true;
         if (!isDouyinPage(profile.url())) {
             return EngagementResult.failed(comment, "NOT_DOUYIN_PROFILE", "当前活动页不是抖音作者主页");
         }
 
-        boolean followConfirmed = false;
-        ClickPoint follow = findProfileActionPoint(profile, "关注");
         boolean alreadyFollowed = profile.tree().contains("已关注")
                 || profile.tree().contains("互相关注")
                 || profile.tree().toLowerCase(Locale.ROOT).contains("following");
-        if (follow != null && !alreadyFollowed) {
-            if (!tryOk(browser.service_click_profile_action_active(List.of("关注")))) {
-                requireOk(browser.service_click_active(follow.x(), follow.y()), "click_follow");
-            }
+        if (!alreadyFollowed && clickProfileAction(profile, "follow", List.of("关注"))) {
             waitMs(1000);
             profile = observeActive("all");
         }
-        followConfirmed = profile.tree().contains("已关注")
+        boolean followConfirmed = profile.tree().contains("已关注")
                 || profile.tree().contains("互相关注")
                 || profile.tree().toLowerCase(Locale.ROOT).contains("following");
 
-        ClickPoint dm = findProfileActionPoint(profile, "私信", "发私信", "Message");
-        if (dm == null) {
+        List<String> dmLabels = List.of("私信", "发私信", "Message", "发消息");
+        if (!clickProfileAction(profile, "dm", dmLabels)) {
             return new EngagementResult(comment, comment.authorName(), profile.url(), true,
-                    followConfirmed, false, false, false, "failed", "DM_BUTTON_NOT_FOUND", "未找到私信入口");
-        }
-        if (!tryOk(browser.service_click_profile_action_active(List.of("私信", "发私信", "Message")))) {
-            requireOk(browser.service_click_active(dm.x(), dm.y()), "click_dm");
+                    followConfirmed, false, false, false, "failed", "DM_BUTTON_NOT_FOUND",
+                    "未找到私信入口：A11y 与 DOM 均未命中");
         }
         BrowserObservation dmPage = waitForDmPage(8, 650L);
+        if (!looksLikeDouyinDmPage(dmPage)) {
+            dmPage = retryDmDomActionAfterUnconfirmedPage(comment, profile, dmPage, dmLabels);
+        }
         if (!isDouyinPage(dmPage.url())) {
             return EngagementResult.failed(comment, "DM_TAB_NOT_CONTROLLED", "私信页不是受控抖音标签页");
         }
         if (!looksLikeDouyinDmPage(dmPage)) {
+            log.warn("[douyin.lead] dm page not confirmed: url={}, title={}, signals={}, tree={}",
+                    dmPage.url(), dmPage.title(), dmPageSignals(dmPage), treeExcerpt(dmPage.tree()));
             return new EngagementResult(comment, comment.authorName(), dmPage.url(), true,
                     followConfirmed, false, false, false, "failed", "DM_PAGE_NOT_CONFIRMED",
-                    "未确认进入目标用户私信页，拒绝输入草稿");
+                    "未确认进入目标用户私信页，拒绝输入草稿。signals=" + dmPageSignals(dmPage));
         }
-        boolean typedByDmPrimitive = tryOk(browser.service_type_dm_draft_active(dmDraft));
+        JsonNode dmDraftAction = errorNode("NOT_RUN", "type_dm_draft not run");
+        boolean typedByDmPrimitive = false;
+        boolean sentByDmPrimitive = false;
+        try {
+            dmDraftAction = parse(browser.service_type_dm_draft_active(dmDraft, sendDm));
+            typedByDmPrimitive = ok(dmDraftAction);
+            sentByDmPrimitive = actionPayloadBoolean(dmDraftAction, "sent");
+        } catch (RuntimeException e) {
+            log.warn("[douyin.lead] type_dm_draft primitive failed; checking whether draft is already visible: {}",
+                    e.getMessage());
+            typedByDmPrimitive = false;
+        }
         if (!typedByDmPrimitive) {
-            ClickPoint input = findDmInputPoint(dmPage);
-            if (input == null) {
-                input = collector.inferDmInputPoint(dmPage)
-                        .map(point -> new ClickPoint(point.x(), point.y()))
-                        .orElse(null);
+            BrowserObservation afterDraftAttempt = observeActive("all");
+            if (looksLikeDouyinDmPage(afterDraftAttempt)
+                    && (dmDraftVisibleInDmInputArea(afterDraftAttempt, dmDraft) || dmDraftVisibleInDmDom(afterDraftAttempt, dmDraft))) {
+                typedByDmPrimitive = true;
+                dmPage = afterDraftAttempt;
+                log.info("[douyin.lead] dm draft already visible after primitive failure; will continue to send-only path");
+            } else {
+                ClickPoint input = findDmInputPoint(dmPage);
+                if (input == null) {
+                    input = collector.inferDmInputPoint(dmPage)
+                            .map(point -> new ClickPoint(point.x(), point.y()))
+                            .orElse(null);
+                }
+                if (input == null) {
+                    return new EngagementResult(comment, comment.authorName(), dmPage.url(), true,
+                            followConfirmed, true, false, false, "failed", "DM_INPUT_NOT_FOUND", "未找到私信输入框");
+                }
+                requireOk(browser.service_type_active(dmDraft, new TypePayload.FocusTarget(input.x(), input.y())), "type_dm_draft");
             }
-            if (input == null) {
-                return new EngagementResult(comment, comment.authorName(), dmPage.url(), true,
-                        followConfirmed, true, false, false, "failed", "DM_INPUT_NOT_FOUND", "未找到私信输入框");
+        }
+        if (sendDm && !sentByDmPrimitive) {
+            BrowserObservation beforeSend = observeActive("all");
+            if (looksLikeDouyinDmPage(beforeSend)
+                    && (dmDraftVisibleInDmInputArea(beforeSend, dmDraft) || dmDraftVisibleInDmDom(beforeSend, dmDraft))) {
+                try {
+                    JsonNode sendAction = parse(browser.service_send_dm_active(dmDraft));
+                    sentByDmPrimitive = ok(sendAction) && actionPayloadBoolean(sendAction, "sent");
+                    if (sentByDmPrimitive) {
+                        log.info("[douyin.lead] sent existing dm draft by send-only primitive");
+                    }
+                } catch (RuntimeException e) {
+                    log.warn("[douyin.lead] send-only dm primitive failed: {}", e.getMessage());
+                }
             }
-            requireOk(browser.service_type_active(dmDraft, new TypePayload.FocusTarget(input.x(), input.y())), "type_dm_draft");
         }
         waitMs(500);
         BrowserObservation verify = observeActive("all");
-        boolean draftTyped = looksLikeDouyinDmPage(verify)
-                && (dmDraftVisibleInDmInputArea(verify, dmDraft) || dmDraftVisibleInDmDom(verify, dmDraft));
-        boolean succeeded = draftTyped && (followConfirmed || dmPage.tree().contains("私信"));
-        String failureCode = succeeded ? null : (!draftTyped ? "DRAFT_NOT_OBSERVED" : "FOLLOW_NOT_CONFIRMED");
-        String failureMessage = succeeded ? null : (!draftTyped ? "未能确认私信草稿已输入" : "未能确认已关注目标作者");
+        boolean draftTyped = sentByDmPrimitive
+                || (looksLikeDouyinDmPage(verify)
+                && (dmDraftVisibleInDmInputArea(verify, dmDraft) || dmDraftVisibleInDmDom(verify, dmDraft)));
+        boolean sent = sendDm && sentByDmPrimitive;
+        boolean succeeded = draftTyped && (followConfirmed || dmPage.tree().contains("私信")) && (!sendDm || sent);
+        String failureCode = succeeded ? null
+                : (!draftTyped ? "DRAFT_NOT_OBSERVED"
+                : (!followConfirmed && !dmPage.tree().contains("私信") ? "FOLLOW_NOT_CONFIRMED"
+                : "DM_SEND_NOT_CONFIRMED"));
+        String failureMessage = succeeded ? null
+                : (!draftTyped ? "未能确认私信草稿已输入"
+                : (!followConfirmed && !dmPage.tree().contains("私信") ? "未能确认已关注目标作者"
+                : "未能确认私信已发送"));
         return new EngagementResult(comment, comment.authorName(), verify.url(), true, followConfirmed,
-                true, draftTyped, false, succeeded ? "succeeded" : "failed",
+                true, draftTyped, sent, succeeded ? "succeeded" : "failed",
                 failureCode,
                 failureMessage);
+        } finally {
+            if (profileOpened) {
+                restoreVideoContextAfterEngagement(videoBeforeEngagement, comment);
+            }
+        }
+    }
+
+    private void restoreVideoContextAfterEngagement(BrowserObservation videoBeforeEngagement,
+                                                    DouyinCommentItem comment) {
+        try {
+            BrowserObservation main = observeMain("all");
+            if (looksLikeVideoOpenHard(main)) {
+                if (tryOk(browser.service_close_tab_active())) {
+                    waitMs(500L);
+                    log.info("[douyin.lead] closed engagement active tab and returned to video: author={}",
+                            comment.authorName());
+                    return;
+                }
+                if (tryOk(browser.service_press_key_active("Control+W"))) {
+                    waitMs(500L);
+                    log.info("[douyin.lead] closed engagement active tab by keyboard fallback: author={}",
+                            comment.authorName());
+                    return;
+                }
+            }
+            if (videoBeforeEngagement != null
+                    && looksLikeVideoOpenHard(videoBeforeEngagement)
+                    && isDouyinPage(videoBeforeEngagement.url())) {
+                log.info("[douyin.lead] restoring main tab to video after engagement: author={}, url={}",
+                        comment.authorName(), videoBeforeEngagement.url());
+                tryOk(browser.extension_browser_navigate(videoBeforeEngagement.url(), "domcontentloaded", null));
+                waitMs(900L);
+            }
+        } catch (RuntimeException e) {
+            log.warn("[douyin.lead] failed to restore video context after engagement: author={}, error={}",
+                    comment.authorName(), e.getMessage());
+        }
+    }
+
+    private BrowserObservation retryDmDomActionAfterUnconfirmedPage(
+            DouyinCommentItem comment,
+            BrowserObservation profile,
+            BrowserObservation unconfirmed,
+            List<String> dmLabels) {
+        BrowserObservation active = observeActive("all");
+        BrowserObservation retryBase = looksLikeDouyinUserProfile(active, comment) ? active
+                : (looksLikeDouyinUserProfile(profile, comment) ? profile : unconfirmed);
+        if (!looksLikeDouyinUserProfile(retryBase, comment)) {
+            log.warn("[douyin.lead] skip dom dm retry because current page is not confirmed profile: url={}, title={}, signals={}",
+                    active.url(), active.title(), dmPageSignals(active));
+            return unconfirmed;
+        }
+        if (!tryOk(browser.service_click_profile_action_active(dmLabels))) {
+            log.warn("[douyin.lead] dom dm retry did not find profile action: url={}, title={}, tree={}",
+                    retryBase.url(), retryBase.title(), treeExcerpt(retryBase.tree()));
+            return unconfirmed;
+        }
+        log.info("[douyin.lead] retried profile action by dom after unconfirmed dm page: labels={}, previousUrl={}, currentUrl={}",
+                dmLabels, unconfirmed == null ? "" : unconfirmed.url(), retryBase.url());
+        return waitForDmPage(8, 650L);
+    }
+
+    private boolean actionPayloadBoolean(JsonNode root, String fieldName) {
+        if (root == null || fieldName == null || fieldName.isBlank()) {
+            return false;
+        }
+        if (root.path(fieldName).isBoolean()) {
+            return root.path(fieldName).asBoolean(false);
+        }
+        JsonNode results = root.path("results");
+        if (results.isArray()) {
+            for (JsonNode result : results) {
+                JsonNode payload = result.path("payload");
+                if (payload.path(fieldName).isBoolean()) {
+                    return payload.path(fieldName).asBoolean(false);
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean clickProfileAction(BrowserObservation profile, String actionName, List<String> labels) {
+        ClickPoint a11y = findProfileActionPoint(profile, labels.toArray(String[]::new));
+        if (a11y != null && tryOk(browser.service_click_active(a11y.x(), a11y.y()))) {
+            log.info("[douyin.lead] clicked profile action by a11y: action={}, labels={}, x={}, y={}",
+                    actionName, labels, a11y.x(), a11y.y());
+            return true;
+        }
+        if (tryOk(browser.service_click_profile_action_active(labels))) {
+            log.info("[douyin.lead] clicked profile action by dom: action={}, labels={}",
+                    actionName, labels);
+            return true;
+        }
+        log.warn("[douyin.lead] profile action not found: action={}, labels={}, url={}, tree={}",
+                actionName, labels, profile == null ? "" : profile.url(),
+                profile == null ? "" : treeExcerpt(profile.tree()));
+        return false;
     }
 
     private boolean looksLikeDouyinDmPage(BrowserObservation obs) {
@@ -941,6 +1191,20 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                 || (tree.contains("私信") && (tree.contains("发送消息") || tree.contains("输入消息")))
                 || (tree.contains("关闭会话") && (tree.contains("回关") || tree.contains("发送一条文字消息")
                 || tree.contains("对方回复或关注你之前")));
+    }
+
+    private String dmPageSignals(BrowserObservation obs) {
+        if (obs == null) {
+            return "obs=null";
+        }
+        String url = obs.url() == null ? "" : obs.url().toLowerCase(Locale.ROOT);
+        String tree = obs.tree() == null ? "" : obs.tree();
+        return "isDouyin=" + isDouyinPage(obs.url())
+                + ", urlDm=" + (url.contains("/im") || url.contains("/message") || url.contains("/conversation"))
+                + ", hasPrivateMessage=" + tree.contains("私信")
+                + ", hasSendMessage=" + (tree.contains("发送消息") || tree.contains("输入消息"))
+                + ", hasConversationClose=" + tree.contains("关闭会话")
+                + ", hasReplyOrFollowGate=" + tree.contains("对方回复或关注你之前");
     }
 
     private BrowserObservation waitForDmPage(int attempts, long waitMs) {
@@ -1044,14 +1308,69 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
         try {
             JsonNode root = parse(browser.service_extract_region_main(region.regionKey(), 160));
             if (!root.path("ok").asBoolean(false)) {
+                log.info("[douyin.comments.dom] extract_region not ok regionKey={} root={}",
+                        region.regionKey(), compactJson(root));
                 return ExtractedComments.empty();
             }
-            return new ExtractedComments(
+            ExtractedComments extracted = new ExtractedComments(
                     collector.commentsFromExtractedRegion(root, videoKey),
                     collector.declaredCommentCountFromExtractedRegion(root),
                     collector.commentsReachedEndFromExtractedRegion(root));
-        } catch (Exception ignored) {
+            logCommentDomDiagnostics(region, root, extracted);
+            return extracted;
+        } catch (Exception e) {
+            log.warn("[douyin.comments.dom] extract_region failed regionKey={} error={}",
+                    region.regionKey(), e.toString());
             return ExtractedComments.empty();
+        }
+    }
+
+    private void logCommentDomDiagnostics(RegionInfo region, JsonNode root, ExtractedComments extracted) {
+        JsonNode payload = firstPayload(root);
+        JsonNode diagnostics = payload.path("diagnostics");
+        JsonNode items = payload.path("items");
+        int rawItems = items.isArray() ? items.size() : 0;
+        int rawDomComments = 0;
+        int rawCommentCounts = 0;
+        int rawEndMarkers = 0;
+        if (items.isArray()) {
+            for (JsonNode item : items) {
+                String type = item.path("itemType").asText("");
+                if ("douyin_comment".equals(type)) {
+                    rawDomComments++;
+                } else if ("comment_count".equals(type)) {
+                    rawCommentCounts++;
+                } else if ("comment_end".equals(type)) {
+                    rawEndMarkers++;
+                }
+            }
+        }
+        log.info("[douyin.comments.dom] regionKey={} source={} rawItems={} rawDomComments={} rawCommentCounts={} rawEndMarkers={} parsedComments={} declared={} endReached={} diagnostics={}",
+                region.regionKey(),
+                region.source(),
+                rawItems,
+                rawDomComments,
+                rawCommentCounts,
+                rawEndMarkers,
+                extracted.comments().size(),
+                extracted.declaredCommentCount(),
+                extracted.endReached(),
+                diagnostics.isMissingNode() ? "{}" : compactJson(diagnostics));
+    }
+
+    private JsonNode firstPayload(JsonNode root) {
+        JsonNode results = root.path("results");
+        if (!results.isArray() || results.isEmpty()) {
+            return mapper.createObjectNode();
+        }
+        return results.get(0).path("payload");
+    }
+
+    private String compactJson(JsonNode node) {
+        try {
+            return mapper.writeValueAsString(node);
+        } catch (Exception ignored) {
+            return String.valueOf(node);
         }
     }
 
@@ -2005,7 +2324,7 @@ public class ExtensionDouyinBrowserAdapter implements DouyinBrowserAdapter {
                     "no sorted snapshot");
         }
         current = current == null ? observeMain("all") : current;
-        if (System.currentTimeMillis() - snapshot.capturedAtMs() > 45_000L) {
+        if (System.currentTimeMillis() - snapshot.capturedAtMs() > SORTED_VIDEO_SNAPSHOT_TTL_MS) {
             clearSortedVideoSnapshot();
             return new VideoCandidates(List.of(), current, "sorted snapshot expired");
         }

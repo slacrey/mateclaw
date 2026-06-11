@@ -34,6 +34,12 @@ const router = createRouter({
           meta: { title: 'Chat', requiredCapability: 'chat' },
         },
         {
+          path: 'lead-acquisition',
+          name: 'LeadAcquisition',
+          component: () => import('@/views/LeadAcquisition/index.vue'),
+          meta: { title: 'Lead Acquisition', requiredCapability: 'chat' },
+        },
+        {
           path: 'dashboard',
           name: 'Dashboard',
           component: () => import('@/views/Dashboard.vue'),
@@ -84,6 +90,17 @@ const router = createRouter({
           name: 'Skills',
           component: () => import('@/views/SkillMarket.vue'),
           meta: { title: 'Skills', requiredCapability: 'manage:skills' },
+        },
+        {
+          path: 'lead-acquisition/douyin/runs/:runId',
+          alias: 'lead-acquisition/runs/:runId',
+          name: 'DouyinLeadRunDetail',
+          component: () => import('@/components/lead/DouyinLeadRunDetail.vue'),
+          props: route => ({
+            runId: route.params.runId,
+            taskId: route.query.taskId,
+          }),
+          meta: { title: 'Douyin Lead Run', requiredCapability: 'chat' },
         },
         // Tools 顶层入口已降级到 Settings ▸ Tools (Catalog) (RFC-090 Phase 1)
         // 旧路径 /tools 由下方 redirect 兼容
@@ -239,13 +256,6 @@ const router = createRouter({
               component: () => import('@/views/Settings/FeatureFlags/index.vue'),
               meta: { title: 'Settings - Feature Flags', requiredCapability: 'manage:settings' },
             },
-            // Phase 3.1: one-click Chrome extension pairing (Direct WSS mode).
-            {
-              path: 'browser',
-              name: 'SettingsBrowser',
-              component: () => import('@/views/Settings/Browser/index.vue'),
-              meta: { title: 'Settings - Browser', requiredCapability: 'manage:settings' },
-            },
             {
               path: 'about',
               name: 'SettingsAbout',
@@ -317,6 +327,7 @@ const router = createRouter({
         { path: 'datasources', redirect: '/settings/datasources' },
         { path: 'mcp-servers', redirect: '/settings/mcp-servers' },
         { path: 'token-usage', redirect: '/settings/token-usage' },
+        { path: 'settings/browser', redirect: '/lead-acquisition' },
         // RFC-090 Phase 1: Tools 顶层降级到 Settings
         { path: 'tools', redirect: '/settings/tools' },
       ],

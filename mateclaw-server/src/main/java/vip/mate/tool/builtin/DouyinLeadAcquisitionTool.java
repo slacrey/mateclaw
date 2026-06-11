@@ -16,9 +16,12 @@ import vip.mate.lead.douyin.api.DouyinLeadAcquisitionRunResponse;
 import vip.mate.lead.douyin.api.RunTimelineEventDTO;
 import vip.mate.lead.douyin.model.DouyinLeadAcquisitionInput;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Component
 @RequiredArgsConstructor
@@ -29,11 +32,11 @@ public class DouyinLeadAcquisitionTool {
     private final ObjectMapper objectMapper;
 
     @Tool(name = "douyin_lead_acquisition_run", description = """
-            Start the dedicated Douyin lead-acquisition Skill V1 workflow.
-            Use this tool for Douyin lead-acquisition tasks such as: search openclaw,
-            sort by most liked, open the first video, collect loadable comments, match comment
-            text, then open the matched comment author's profile, follow, open DM, and
-            type a draft without sending. This tool executes synchronously and
+            Start the dedicated Douyin lead-acquisition Skill V2 workflow.
+            Use this tool for productized Douyin lead-acquisition tasks such as:
+            search a required keyword, sort by most liked, process up to 50 videos,
+            collect loadable comments, match comment text, then optionally open matched
+            comment authors, follow, open DM, and type a draft. This tool executes synchronously and
             returns the real terminal result (SUCCEEDED/FAILED/ABORTED) when it finishes.
             The Douyin adapter owns platform-specific browser tactics, including using
             the video home search input and pressing Enter to submit search when the
@@ -54,13 +57,13 @@ public class DouyinLeadAcquisitionTool {
             bound author target for follow and DM draft actions.
             """)
     public String douyinLeadAcquisitionRun(
-            @ToolParam(description = "Douyin search keyword. Default: openclaw", required = false)
+            @ToolParam(description = "Douyin search keyword. Required.", required = true)
             String keyword,
             @ToolParam(description = "Sort mode. Use most_liked for 最多点赞. Default: most_liked", required = false)
             String sort,
-            @ToolParam(description = "Number of videos to process. V1 default and recommended value is 1.", required = false)
+            @ToolParam(description = "Number of videos to process. Default 50, allowed range 1..50.", required = false)
             Integer videoLimit,
-            @ToolParam(description = "Comment text match rule. Multiple phrases are allowed; matching uses comment text only.", required = false)
+            @ToolParam(description = "Optional comment text match rule. Multiple phrases are allowed; matching uses comment text only. When omitted, collection-only runs skip matching.", required = false)
             String commentMatchRule,
             @ToolParam(description = "DM draft to type after opening the matched author's DM. Default: 你好", required = false)
             String dmDraft,
@@ -73,6 +76,14 @@ public class DouyinLeadAcquisitionTool {
         ChatOrigin origin = ChatOrigin.from(ctx);
         Long workspaceId = origin.workspaceId() == null ? 1L : origin.workspaceId();
         Long createdBy = parseLongOrDefault(origin.requesterId(), 1L);
+        if (keyword == null || keyword.isBlank()) {
+            return json(Map.of(
+                    "ok", false,
+                    "terminal", true,
+                    "status", "INPUT_INVALID",
+                    "message", "Douyin keyword is required.",
+                    "code", "err.lead.douyin.keyword_required"));
+        }
         DouyinLeadAcquisitionInput input = new DouyinLeadAcquisitionInput(
                 keyword,
                 sort,
@@ -97,34 +108,114 @@ public class DouyinLeadAcquisitionTool {
     }
 
     private Map<String, Object> reportingGuidance(DouyinLeadAcquisitionRunResponse result) {
-        JsonNode collected = latestEventPayload(result, "lead.comments.collected");
+        List<JsonNode> collectedEvents = eventPayloads(result, "lead.comments.collected");
         Map<String, Object> out = new LinkedHashMap<>();
-        if (collected == null || collected.isMissingNode()) {
+        if (collectedEvents.isEmpty()) {
             out.put("collectionStatus", "not_reported");
             out.put("allowedSummary", "No comment collection event was returned; do not report collection totals.");
             out.put("unsupportedConclusions", unsupportedConclusions());
             return out;
         }
-        boolean complete = collected.path("complete").asBoolean(false);
-        int declared = collected.path("declaredCommentCount").asInt(0);
-        int collectedCount = collected.path("commentsCollected").asInt(0);
+        JsonNode collected = collectedEvents.getLast();
+        JsonNode runSummary = latestEventPayload(result, "lead.run.summary");
+        boolean multiVideo = collectedEvents.size() > 1
+                || runSummary != null && runSummary.path("processedVideos").asInt(0) > 1;
+        boolean complete = collectedEvents.stream().allMatch(event -> event.path("complete").asBoolean(false));
+        int declared = aggregateCount(runSummary, collectedEvents, "declaredCommentCount");
+        int collectedCount = aggregateCount(runSummary, collectedEvents, "commentsCollected");
         String stopReason = collected.path("stopReason").asText("");
         out.put("collectionStatus", complete ? "complete" : "partial_unverified");
         out.put("complete", complete);
+        out.put("multiVideo", multiVideo);
+        out.put("collectionEventCount", collectedEvents.size());
         out.put("declaredCommentCount", declared);
         out.put("commentsCollected", collectedCount);
-        out.put("collectionCoverage", collected.path("collectionCoverage").asDouble(0.0d));
+        out.put("collectionCoverage", aggregateCoverage(runSummary, declared, collectedCount));
+        out.put("remainingDeclaredComments", declared > 0 ? Math.max(0, declared - collectedCount) : 0);
         out.put("stopReason", stopReason);
-        out.put("effectiveScrolls", collected.path("effectiveScrolls").asInt(0));
-        out.put("advancedWindows", collected.path("advancedWindows").asInt(0));
-        out.put("totalNewItems", collected.path("totalNewItems").asInt(0));
-        out.put("stableNoNewWindows", collected.path("stableNoNewWindows").asInt(0));
-        out.put("bottomConfirmed", "END_OF_LIST".equals(stopReason));
-        out.put("allowedSummary", complete
+        out.put("stopReasons", stopReasons(collectedEvents));
+        out.put("effectiveScrolls", sumEventInt(collectedEvents, "effectiveScrolls"));
+        out.put("advancedWindows", sumEventInt(collectedEvents, "advancedWindows"));
+        out.put("totalNewItems", sumEventInt(collectedEvents, "totalNewItems"));
+        out.put("stableNoNewWindows", sumEventInt(collectedEvents, "stableNoNewWindows"));
+        boolean bottomConfirmed = collectedEvents.stream()
+                .allMatch(event -> isEndOfListStop(event.path("stopReason").asText("")));
+        boolean topLevelComplete = collectedEvents.stream()
+                .allMatch(event -> event.path("topLevelCollectionComplete").asBoolean(false)
+                        || event.path("complete").asBoolean(false));
+        boolean declaredTotalMayIncludeReplies = collectedEvents.stream()
+                .anyMatch(event -> event.path("declaredTotalMayIncludeReplies").asBoolean(false));
+        out.put("topLevelCollectionComplete", topLevelComplete);
+        out.put("declaredCountMismatch", declared > 0 && collectedCount < declared);
+        out.put("declaredTotalMayIncludeReplies", declaredTotalMayIncludeReplies);
+        out.put("replyExpansionMode", collected.path("replyExpansionMode").asText(""));
+        out.put("bottomConfirmed", bottomConfirmed);
+        out.put("perVideoCollections", perVideoCollections(collectedEvents));
+        out.put("allowedSummary", multiVideo
+                ? "This is a multi-video V2 run. Report aggregate declaredCommentCount and commentsCollected from reportingGuidance, not the latest per-video lead.comments.collected event. Use perVideoCollections only for per-video rows. If declared and collected counts differ while topLevelCollectionComplete=true, state that V1 reply expansion is disabled and declared totals may include collapsed replies."
+                : complete && declaredTotalMayIncludeReplies
+                ? "The comment list bottom marker was observed and V1 completed top-level DOM comment collection. The declared total may include collapsed replies because reply expansion is disabled; report declaredCommentCount, commentsCollected, stopReason, and that replies were not expanded."
+                : complete
                 ? "Comment collection reached a defined completion condition. Report the exact stopReason."
+                : bottomConfirmed
+                ? "The bottom marker was observed, but declared and collected counts do not match. Report it as incomplete and include declaredCommentCount, commentsCollected, remainingDeclaredComments, and stopReason."
                 : "Automatic collection is incomplete. Report only the observed counts and stopReason; say the workflow did not confirm the bottom of the comment list.");
         out.put("unsupportedConclusions", unsupportedConclusions());
         return out;
+    }
+
+    private int aggregateCount(JsonNode runSummary, List<JsonNode> collectedEvents, String fieldName) {
+        if (runSummary != null && runSummary.has(fieldName)) {
+            return Math.max(0, runSummary.path(fieldName).asInt(0));
+        }
+        return sumEventInt(collectedEvents, fieldName);
+    }
+
+    private double aggregateCoverage(JsonNode runSummary, int declared, int collected) {
+        if (runSummary != null && runSummary.has("collectionCoverage")) {
+            return runSummary.path("collectionCoverage").asDouble(0.0d);
+        }
+        return declared > 0 ? Math.min(1.0d, collected / (double) declared) : 0.0d;
+    }
+
+    private int sumEventInt(List<JsonNode> events, String fieldName) {
+        int total = 0;
+        for (JsonNode event : events) {
+            total += Math.max(0, event.path(fieldName).asInt(0));
+        }
+        return total;
+    }
+
+    private List<String> stopReasons(List<JsonNode> events) {
+        Set<String> reasons = new LinkedHashSet<>();
+        for (JsonNode event : events) {
+            String reason = event.path("stopReason").asText("");
+            if (!reason.isBlank()) {
+                reasons.add(reason);
+            }
+        }
+        return List.copyOf(reasons);
+    }
+
+    private List<Map<String, Object>> perVideoCollections(List<JsonNode> events) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (JsonNode event : events) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("videoIndex", event.path("videoIndex").asInt(0));
+            row.put("commentsCollected", event.path("commentsCollected").asInt(0));
+            row.put("declaredCommentCount", event.path("declaredCommentCount").asInt(0));
+            row.put("collectionCoverage", event.path("collectionCoverage").asDouble(0.0d));
+            row.put("complete", event.path("complete").asBoolean(false));
+            row.put("stopReason", event.path("stopReason").asText(""));
+            row.put("topLevelCollectionComplete", event.path("topLevelCollectionComplete").asBoolean(false));
+            row.put("declaredTotalMayIncludeReplies", event.path("declaredTotalMayIncludeReplies").asBoolean(false));
+            out.add(row);
+        }
+        return out;
+    }
+
+    private boolean isEndOfListStop(String stopReason) {
+        return stopReason != null && stopReason.startsWith("END_OF_LIST");
     }
 
     private List<String> unsupportedConclusions() {
@@ -137,17 +228,22 @@ public class DouyinLeadAcquisitionTool {
     }
 
     private JsonNode latestEventPayload(DouyinLeadAcquisitionRunResponse result, String type) {
+        List<JsonNode> payloads = eventPayloads(result, type);
+        return payloads.isEmpty() ? null : payloads.getLast();
+    }
+
+    private List<JsonNode> eventPayloads(DouyinLeadAcquisitionRunResponse result, String type) {
         if (result == null || result.events() == null) {
-            return null;
+            return List.of();
         }
-        JsonNode latest = null;
+        List<JsonNode> payloads = new ArrayList<>();
         for (RunTimelineEventDTO event : result.events()) {
             if (event == null || !type.equals(event.type())) {
                 continue;
             }
-            latest = parsePayload(event.payloadJson());
+            payloads.add(parsePayload(event.payloadJson()));
         }
-        return latest;
+        return payloads;
     }
 
     private JsonNode parsePayload(String payloadJson) {

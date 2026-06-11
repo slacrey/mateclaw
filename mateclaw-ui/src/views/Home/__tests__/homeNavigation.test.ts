@@ -16,7 +16,18 @@ describe('home navigation', () => {
   it('shows Home in the sidebar and hides Dashboard from the visible menu', () => {
     expect(layout).toContain("path: '/home'")
     expect(layout).toContain("t('nav.home'")
+    expect(layout).toContain("path: '/lead-acquisition'")
+    expect(layout).toContain("t('nav.leadAcquisition'")
     expect(layout).not.toContain("path: '/dashboard',\n        label: t('nav.dashboard'")
+  })
+
+  it('registers lead acquisition as a business route for chat-capable users', () => {
+    expect(router).toContain("path: 'lead-acquisition'")
+    expect(router).toContain("name: 'LeadAcquisition'")
+    expect(router).toContain("component: () => import('@/views/LeadAcquisition/index.vue')")
+    expect(router).toContain("meta: { title: 'Lead Acquisition', requiredCapability: 'chat' }")
+    expect(router).toContain("name: 'DouyinLeadRunDetail'")
+    expect(router).toContain("meta: { title: 'Douyin Lead Run', requiredCapability: 'chat' }")
   })
 
   it('sends successful logins to Home when chat access is available', () => {
@@ -26,6 +37,8 @@ describe('home navigation', () => {
 
   it('defines localized home labels', () => {
     expect(zh).toContain("home: '首页'")
+    expect(zh).toContain("leadAcquisition: '获客'")
     expect(en).toContain("home: 'Home'")
+    expect(en).toContain("leadAcquisition: 'Leads'")
   })
 })

@@ -51,7 +51,7 @@ public class DouyinLeadAcquisitionRunService {
                 workspaceId == null ? 1L : workspaceId,
                 null,
                 UUID.randomUUID().toString(),
-                "skill.douyin.lead_acquisition.v1",
+                "skill.douyin.lead_acquisition",
                 "skill",
                 "douyin.lead_acquisition",
                 null,

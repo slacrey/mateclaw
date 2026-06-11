@@ -25,6 +25,7 @@ public record LeadEngagementDTO(
                 row.getFailureCode(),
                 row.getFailureMessage(),
                 row.getEvidenceRef(),
-                "send_dm".equalsIgnoreCase(row.getEngagementType()) && "succeeded".equalsIgnoreCase(row.getStatus()));
+                ("send_dm".equalsIgnoreCase(row.getEngagementType()) || "dm_draft".equalsIgnoreCase(row.getEngagementType()))
+                        && "succeeded".equalsIgnoreCase(row.getStatus()));
     }
 }

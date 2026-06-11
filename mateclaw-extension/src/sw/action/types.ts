@@ -87,7 +87,11 @@ export interface ClickProfileActionParams {
 
 export interface TypeDmDraftParams {
   text: string
+  send?: boolean
+  sendOnly?: boolean
 }
+
+export type CloseTabParams = Record<string, never>
 
 export interface MoveMouseParams {
   x: number
@@ -113,7 +117,7 @@ export interface DouyinCommentNetworkParams {
 // ActionKind discriminated union
 // -----------------------------------------------------------------
 
-export type ActionKind = 'navigate' | 'click' | 'type' | 'press_key' | 'scroll' | 'scroll_region' | 'register_region' | 'detect_region' | 'extract_region' | 'open_author_from_comment' | 'click_profile_action' | 'type_dm_draft' | 'move_mouse' | 'wait' | 'douyin_comment_network'
+export type ActionKind = 'navigate' | 'click' | 'type' | 'press_key' | 'scroll' | 'scroll_region' | 'register_region' | 'detect_region' | 'extract_region' | 'open_author_from_comment' | 'click_profile_action' | 'type_dm_draft' | 'close_tab' | 'move_mouse' | 'wait' | 'douyin_comment_network'
 
 export type ActionParams =
   | { kind: 'navigate';   params: NavigateParams }
@@ -128,6 +132,7 @@ export type ActionParams =
   | { kind: 'open_author_from_comment'; params: OpenAuthorFromCommentParams }
   | { kind: 'click_profile_action'; params: ClickProfileActionParams }
   | { kind: 'type_dm_draft'; params: TypeDmDraftParams }
+  | { kind: 'close_tab'; params: CloseTabParams }
   | { kind: 'move_mouse'; params: MoveMouseParams }
   | { kind: 'wait';       params: WaitParams }
   | { kind: 'douyin_comment_network'; params: DouyinCommentNetworkParams }

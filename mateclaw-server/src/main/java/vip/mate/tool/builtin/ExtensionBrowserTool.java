@@ -17,6 +17,8 @@ import vip.mate.browser.edge.action.ClickSuccess;
 import vip.mate.browser.edge.action.ClickPayload;
 import vip.mate.browser.edge.action.DetectRegionPayload;
 import vip.mate.browser.edge.action.DetectRegionSuccess;
+import vip.mate.browser.edge.action.CloseTabPayload;
+import vip.mate.browser.edge.action.CloseTabSuccess;
 import vip.mate.browser.edge.action.DouyinCommentNetworkPayload;
 import vip.mate.browser.edge.action.DouyinCommentNetworkSuccess;
 import vip.mate.browser.edge.action.ExtractRegionPayload;
@@ -761,6 +763,19 @@ public class ExtensionBrowserTool {
         return extension_browser_press_key_at_tab(new TabRef.Active(), key, null);
     }
 
+    public String service_close_tab_active() {
+        BrowserSession session = resolveSession();
+        if (session == null) return noSession();
+
+        ActionRequest req = new ActionRequest(
+                newMsgId(),
+                new TabRef.Active(),
+                ActionKind.CLOSE_TAB,
+                new CloseTabPayload(),
+                DEFAULT_DEADLINE_MS);
+        return executePlan(session, List.of(req));
+    }
+
     public String service_scroll_region_main(String regionKey, String direction, double amount) {
         return extension_browser_scroll_region(regionKey, direction, amount, null, null, null, null);
     }
@@ -880,14 +895,26 @@ public class ExtensionBrowserTool {
     }
 
     public String service_type_dm_draft_active(String text) {
-        String active = service_type_dm_draft(new TabRef.Active(), text);
+        return service_type_dm_draft_active(text, false);
+    }
+
+    public String service_type_dm_draft_active(String text, boolean send) {
+        String active = service_type_dm_draft(new TabRef.Active(), text, send, false);
         if (!active.contains("\"NO_TARGET_TAB\"") && !active.contains("tab_ref=\\\"active\\\"")) {
             return active;
         }
-        return service_type_dm_draft(new TabRef.Main(), text);
+        return service_type_dm_draft(new TabRef.Main(), text, send, false);
     }
 
-    private String service_type_dm_draft(TabRef tabRef, String text) {
+    public String service_send_dm_active(String text) {
+        String active = service_type_dm_draft(new TabRef.Active(), text, true, true);
+        if (!active.contains("\"NO_TARGET_TAB\"") && !active.contains("tab_ref=\\\"active\\\"")) {
+            return active;
+        }
+        return service_type_dm_draft(new TabRef.Main(), text, true, true);
+    }
+
+    private String service_type_dm_draft(TabRef tabRef, String text, boolean send, boolean sendOnly) {
         BrowserSession session = resolveSession();
         if (session == null) return noSession();
 
@@ -895,7 +922,7 @@ public class ExtensionBrowserTool {
                 newMsgId(),
                 tabRef,
                 ActionKind.TYPE_DM_DRAFT,
-                new TypeDmDraftPayload(text),
+                new TypeDmDraftPayload(text, send, sendOnly),
                 DEFAULT_DEADLINE_MS);
         return executePlan(session, List.of(req));
     }
@@ -1029,6 +1056,7 @@ public class ExtensionBrowserTool {
             case OpenAuthorFromCommentSuccess ignored -> "open_author_from_comment";
             case ClickProfileActionSuccess ignored -> "click_profile_action";
             case TypeDmDraftSuccess ignored -> "type_dm_draft";
+            case CloseTabSuccess ignored -> "close_tab";
             case DouyinCommentNetworkSuccess ignored -> "douyin_comment_network";
             case MoveMouseSuccess ignored -> "move_mouse";
             case WaitSuccess ignored -> "wait";

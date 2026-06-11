@@ -7,7 +7,7 @@ metadata:
   category: lead_acquisition
   description: 搜索抖音视频评论区，匹配潜在线索并发起关注/私信草稿
 
-# Compatibility fields consumed by the current SkillPackageV2Loader.
+# Compatibility fields consumed by the current skill package loader.
 id: douyin.lead_acquisition
 package_version: v2
 version: 1.0.0
@@ -68,7 +68,7 @@ capabilities:
       - browser
     metadata:
       risk_level: medium
-      phase: v1
+      maturity: product
       workflow_steps:
         - open_search
         - sort_results
@@ -85,7 +85,7 @@ capabilities:
       - llm
     metadata:
       risk_level: low
-      phase: v1
+      maturity: product
       workflow_steps:
         - match_comments
   - id: draft_outreach

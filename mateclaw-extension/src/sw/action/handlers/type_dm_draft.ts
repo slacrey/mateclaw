@@ -15,22 +15,73 @@ export const typeDmDraftHandler = (
     if (!text) {
       throw new ActionFailureError('HANDLER_ERROR', 'type_dm_draft text is required', false)
     }
+    const send = params?.send === true
+    const sendOnly = params?.sendOnly === true
     const chromeApi = deps.chrome ?? globalThis.chrome
     if (!chromeApi?.scripting?.executeScript) {
       throw new ActionFailureError('HANDLER_ERROR', 'chrome.scripting.executeScript is unavailable', true)
+    }
+    if (sendOnly) {
+      const sent = await clickDmSendInPage(chromeApi, tabId, text)
+      if (!sent.ok) {
+        throw new ActionFailureError(
+          'GROUNDING_AMBIGUOUS',
+          `dm send failed: ${sent.reason || 'send_button_not_found'}`,
+          false,
+        )
+      }
+      return {
+        ok: true,
+        elapsed_ms: 0,
+        payload: {
+          draftTyped: true,
+          text,
+          target: 'dm_existing_draft',
+          sent: sent.sent === true,
+          sendTarget: sent.target,
+        },
+      }
     }
 
     const results = await chromeApi.scripting.executeScript({
       target: { tabId, allFrames: false },
       func: typeDouyinDmDraftInPage,
-      args: [text],
+      args: [text, send],
     })
     const payload = results?.[0]?.result as
-      | { ok?: boolean; reason?: string; draftTyped?: boolean; target?: string }
+      | { ok?: boolean; reason?: string; draftTyped?: boolean; sent?: boolean; target?: string; sendTarget?: string }
       | undefined
+    if (payload?.draftTyped === true) {
+      if (!send || payload.sent === true) {
+        return {
+          ok: true,
+          elapsed_ms: 0,
+          payload: {
+            draftTyped: true,
+            text,
+            target: payload.target || 'dm_editable',
+            sent: payload.sent === true,
+            sendTarget: payload.sendTarget,
+          },
+        }
+      }
+      throw new ActionFailureError(
+        'GROUNDING_AMBIGUOUS',
+        `dm draft typed but send failed: ${payload.reason || 'dm_send_not_confirmed'}`,
+        false,
+      )
+    }
     if (payload?.ok !== true || payload.draftTyped !== true) {
       const cdp = await typeDmDraftByCdp(deps.debugger, tabId, text)
       if (cdp.ok === true) {
+        const sent = send ? await clickDmSendInPage(chromeApi, tabId, text) : { ok: true, sent: false, target: undefined }
+        if (!sent.ok) {
+          throw new ActionFailureError(
+            'GROUNDING_AMBIGUOUS',
+            `dm draft typed but send failed: ${sent.reason || 'send_button_not_found'}`,
+            false,
+          )
+        }
         return {
           ok: true,
           elapsed_ms: 0,
@@ -38,6 +89,8 @@ export const typeDmDraftHandler = (
             draftTyped: true,
             text,
             target: cdp.target || 'dm_cdp_insert_text',
+            sent: sent.sent === true,
+            sendTarget: sent.target,
           },
         }
       }
@@ -54,6 +107,8 @@ export const typeDmDraftHandler = (
         draftTyped: true,
         text,
         target: payload.target || 'dm_editable',
+        sent: payload.sent === true,
+        sendTarget: payload.sendTarget,
       },
     }
   }
@@ -100,7 +155,10 @@ async function typeDmDraftByCdp(
   }
 }
 
-function typeDouyinDmDraftInPage(text: string): { ok: boolean; reason?: string; draftTyped?: boolean; target?: string } {
+async function typeDouyinDmDraftInPage(
+  text: string,
+  send: boolean,
+): Promise<{ ok: boolean; reason?: string; draftTyped?: boolean; sent?: boolean; target?: string; sendTarget?: string }> {
   if (!/douyin\.com$/u.test(location.hostname) && !location.hostname.endsWith('.douyin.com')) {
     return { ok: false, reason: 'not_douyin_page' }
   }
@@ -153,12 +211,563 @@ function typeDouyinDmDraftInPage(text: string): { ok: boolean; reason?: string; 
   const typed = editableText(target).includes(text) ||
     findDmEditableText().includes(text) ||
     clean(document.body?.innerText || document.body?.textContent || '').includes(text)
-  return {
-    ok: typed,
-    draftTyped: typed,
-    reason: typed ? undefined : 'draft_text_not_visible_in_editable',
-    target: targetDescription(target),
+  if (!typed || !send) {
+    return {
+      ok: typed,
+      draftTyped: typed,
+      sent: false,
+      reason: typed ? undefined : 'draft_text_not_visible_in_editable',
+      target: targetDescription(target),
+    }
   }
+  await sleep(160)
+  const sendResult = clickDmSendButton(text, target)
+  if (!sendResult.ok) {
+    return {
+      ok: false,
+      draftTyped: true,
+      sent: false,
+      reason: sendResult.reason,
+      target: targetDescription(target),
+      sendTarget: sendResult.target,
+    }
+  }
+  await sleep(260)
+  const sent = !draftStillVisibleInEditable(text)
+  return {
+    ok: sent,
+    draftTyped: true,
+    sent,
+    reason: sent ? undefined : 'dm_send_not_confirmed_after_click',
+    target: targetDescription(target),
+    sendTarget: sendResult.target,
+  }
+}
+
+async function clickDmSendInPage(
+  chromeApi: typeof globalThis.chrome,
+  tabId: number,
+  text: string,
+): Promise<{ ok: boolean; sent?: boolean; target?: string; reason?: string }> {
+  const [result] = await chromeApi.scripting.executeScript({
+    target: { tabId, allFrames: false },
+    func: async (draft: string) => {
+      const clean = (value: string) => String(value || '').replace(/\s+/g, '')
+      const elementText = (el: HTMLElement) =>
+        `${el.getAttribute('placeholder') || ''} ${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''} ${el.innerText || el.textContent || ''}`.replace(/\s+/g, '')
+      const editableText = (el: HTMLElement) => {
+        if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return el.value || ''
+        return el.innerText || el.textContent || ''
+      }
+      const isEditable = (el: HTMLElement) =>
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        el.isContentEditable ||
+        (el.getAttribute('role') || '').toLowerCase() === 'textbox' ||
+        el.getAttribute('data-slate-editor') === 'true' ||
+        el.classList.contains('ProseMirror')
+      const editableRoot = (el: HTMLElement): HTMLElement | null => {
+        if (isEditable(el)) return el
+        const closest = el.closest<HTMLElement>('textarea, input, [contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"], [role="textbox"], [data-slate-editor="true"], .ProseMirror')
+        if (closest && isEditable(closest)) return closest
+        const nested = el.querySelector<HTMLElement>('textarea, input, [contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"], [role="textbox"], [data-slate-editor="true"], .ProseMirror')
+        return nested && isEditable(nested) ? nested : null
+      }
+      const findEditable = () => {
+        const selectors = [
+          'textarea',
+          'input',
+          '[contenteditable="true"]',
+          '[contenteditable=""]',
+          '[contenteditable="plaintext-only"]',
+          '[role="textbox"]',
+          '[data-slate-editor="true"]',
+          '.ProseMirror',
+          '[placeholder*="消息"]',
+          '[placeholder*="私信"]',
+          '[placeholder*="发送"]',
+          '[aria-label*="消息"]',
+          '[aria-label*="私信"]',
+        ].join(',')
+        const viewportH = window.innerHeight || document.documentElement.clientHeight || 1
+        const viewportW = window.innerWidth || document.documentElement.clientWidth || 1
+        return Array.from(document.querySelectorAll<HTMLElement>(selectors))
+          .map((el, index) => {
+            const root = editableRoot(el)
+            const rect = (root ?? el).getBoundingClientRect()
+            return { el: root, index, rect, text: root ? elementText(root) : '' }
+          })
+          .filter((item): item is { el: HTMLElement; index: number; rect: DOMRect; text: string } => item.el !== null)
+          .filter(item => item.rect.width > 0 && item.rect.height > 0)
+          .filter(item => item.rect.top >= Math.max(80, viewportH * 0.22))
+          .filter(item => item.rect.left >= viewportW * 0.52)
+          .filter(item => !item.text.includes('搜索'))
+          .sort((a, b) => b.rect.top - a.rect.top || a.index - b.index)[0]?.el ?? null
+      }
+      const allEditableText = () => Array.from(document.querySelectorAll<HTMLElement>('textarea, input, [contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"], [role="textbox"], [data-slate-editor="true"], .ProseMirror'))
+        .map(editableText)
+        .join('\n')
+      const isDisabled = (el: HTMLElement) =>
+        el.getAttribute('aria-disabled') === 'true' ||
+        el.getAttribute('disabled') === 'true' ||
+        (el instanceof HTMLButtonElement && el.disabled)
+      const sendSelector = '.e2e-send-msg-btn,.messageMsgInputpublishRedBtn,.messageMsgInputpublishBtn'
+      const explicitActionSelector = 'button,[role="button"],[aria-label*="发送"],[title*="发送"],div[tabindex],span[tabindex],label'
+      const hasClassToken = (el: Element, pattern: RegExp) => {
+        const names = [
+          String(el.getAttribute('class') || ''),
+          String((el as HTMLElement).className || ''),
+          String(el.parentElement?.getAttribute('class') || ''),
+          String((el.parentElement as HTMLElement | null)?.className || ''),
+        ].join(' ')
+        return pattern.test(names)
+      }
+      const actionRoot = (el: HTMLElement): HTMLElement => {
+        const explicitSend = el.closest<HTMLElement>(sendSelector)
+        if (explicitSend) return explicitSend
+        const explicitAction = el.closest<HTMLElement>(explicitActionSelector)
+        if (explicitAction) return explicitAction
+        const svg = el.closest<HTMLElement>('svg')
+        return svg ?? el
+      }
+      const uniqueActionItems = (root: ParentNode, selectors: string) => {
+        const seen = new Set<HTMLElement>()
+        return Array.from(root.querySelectorAll<HTMLElement>(selectors))
+          .map((el, index) => ({ el: actionRoot(el), index }))
+          .filter(item => {
+            if (seen.has(item.el)) return false
+            seen.add(item.el)
+            return true
+          })
+          .map(item => ({ ...item, rect: item.el.getBoundingClientRect(), text: elementText(item.el) }))
+      }
+      const isAttachmentControl = (el: HTMLElement, text: string) => {
+        const normalized = clean(text)
+        if (/上传|文件|图片|照片|相册|附件|选择文件|image|file|upload/u.test(normalized)) return true
+        if (hasClassToken(el, /semi-upload|upload|file|attach/i)) return true
+        if (el instanceof HTMLInputElement && el.type === 'file') return true
+        if (el.querySelector('input[type="file"]')) return true
+        const label = el.closest('label')
+        return !!label?.querySelector('input[type="file"]')
+      }
+      const likelySendText = (text: string) => {
+        const normalized = clean(text)
+        return normalized === '发送' ||
+          normalized === 'Send' ||
+          (/发送/u.test(normalized) && !/发送消息|输入消息|发送一条文字消息|对方回复|关闭会话|消息/u.test(normalized))
+      }
+      const colorNumbers = (value: string) => {
+        const match = String(value || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i)
+        return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null
+      }
+      const sendAccent = (value: string) => {
+        const rgb = colorNumbers(value)
+        return !!rgb && rgb[0] >= 220 && rgb[1] <= 95 && rgb[2] >= 65 && rgb[2] <= 150
+      }
+      const hasSendAccent = (el: HTMLElement) => {
+        if (hasClassToken(el, /e2e-send-msg-btn|messageMsgInputpublishRedBtn|publishRedBtn/i)) return true
+        const candidates = [el, el.parentElement, el.closest<HTMLElement>('button,[role="button"],div[tabindex],span[tabindex]')]
+          .filter((candidate): candidate is HTMLElement => !!candidate)
+        return candidates.some(candidate => {
+          const style = getComputedStyle(candidate)
+          return sendAccent(style.backgroundColor) || sendAccent(style.color) || sendAccent(style.borderColor)
+        })
+      }
+      const nearEditable = (rect: DOMRect, editableRect: DOMRect) => {
+        const verticalOverlap = rect.top <= editableRect.bottom + 44 && rect.bottom >= editableRect.top - 44
+        const rightOfEditable = rect.left >= editableRect.right - 120 || rect.right >= editableRect.right - 24
+        const plausibleSize = rect.width >= 24 && rect.width <= 140 && rect.height >= 24 && rect.height <= 80
+        return verticalOverlap && rightOfEditable && plausibleSize
+      }
+      const centerX = (rect: DOMRect) => rect.left + rect.width / 2
+      const centerY = (rect: DOMRect) => rect.top + rect.height / 2
+      const sameRow = (rect: DOMRect, editableRect: DOMRect) =>
+        centerY(rect) >= editableRect.top - 8 && centerY(rect) <= editableRect.bottom + 8
+      const isCompactIcon = (rect: DOMRect) =>
+        rect.width >= 18 && rect.width <= 72 && rect.height >= 18 && rect.height <= 72
+      const actionSelectors = `${explicitActionSelector},${sendSelector},svg,path`
+      const findComposerRoot = (editable: HTMLElement) => {
+        const editableRect = editable.getBoundingClientRect()
+        let current = editable.parentElement
+        for (let depth = 0; current && current !== document.body && depth < 8; depth += 1, current = current.parentElement) {
+          const rect = current.getBoundingClientRect()
+          if (rect.width <= editableRect.width + 80 || rect.height <= 0 || rect.height > 160) continue
+          if (rect.top > editableRect.top + 16 || rect.bottom < editableRect.bottom - 16) continue
+          const rightActions = uniqueActionItems(current, actionSelectors)
+            .filter(item => item.el !== editable && !editable.contains(item.el))
+            .filter(item => item.rect.width > 0 && item.rect.height > 0)
+            .filter(item => sameRow(item.rect, editableRect))
+            .filter(item => centerX(item.rect) >= editableRect.right - 8)
+            .filter(item => !isAttachmentControl(item.el, item.text))
+          if (rightActions.length > 0) return current
+        }
+        return null
+      }
+      let composer: HTMLElement | null = null
+      const rightmostComposerAction = (rect: DOMRect, editableRect: DOMRect) => {
+        const composerRect = composer?.getBoundingClientRect()
+        if (!composerRect) return false
+        const rightBand = Math.max(64, Math.min(110, composerRect.width * 0.18))
+        return sameRow(rect, editableRect) &&
+          centerX(rect) >= editableRect.right - 8 &&
+          centerX(rect) >= composerRect.right - rightBand
+      }
+      const iconOnlySend = (el: HTMLElement, rect: DOMRect, editableRect: DOMRect, text: string) =>
+        !clean(text) && rightmostComposerAction(rect, editableRect) && hasSendAccent(el)
+      const pickStructuralSend = (
+        rawItems: Array<{ el: HTMLElement; rect: DOMRect; text: string }>,
+        safeItems: Array<{ el: HTMLElement; rect: DOMRect; text: string }>,
+        editableRect: DOMRect,
+      ) => {
+        const rawRowActions = rawItems
+          .filter(item => sameRow(item.rect, editableRect))
+          .filter(item => centerX(item.rect) >= editableRect.right - 8)
+          .filter(item => isCompactIcon(item.rect))
+          .sort((a, b) => centerX(b.rect) - centerX(a.rect))
+        if (rawRowActions.length < 2) return null
+        const safeRowActions = safeItems
+          .filter(item => rawRowActions.some(raw => raw.el === item.el))
+          .sort((a, b) => centerX(b.rect) - centerX(a.rect))
+        const rightmostRaw = rawRowActions[0]
+        const rightmostSafe = safeRowActions[0]
+        const secondRaw = rawRowActions[1]
+        if (!rightmostRaw || !rightmostSafe || rightmostRaw.el !== rightmostSafe.el || !secondRaw) return null
+        if (centerX(rightmostRaw.rect) - centerX(secondRaw.rect) < 12) return null
+        if (!rightmostComposerAction(rightmostRaw.rect, editableRect)) return null
+        if (clean(rightmostRaw.text)) return null
+        return rightmostRaw.el
+      }
+      const score = (item: { el: HTMLElement; rect: DOMRect; text: string }, editableRect: DOMRect) => {
+        let value = 0
+        const role = (item.el.getAttribute('role') || item.el.tagName || '').toLowerCase()
+        const normalized = clean(item.text)
+        if (role.includes('button')) value += 120
+        if (normalized === '发送' || normalized === 'Send') value += 140
+        if (/发送/u.test(normalized)) value += 80
+        if (composer?.contains(item.el)) value += 120
+        if (iconOnlySend(item.el, item.rect, editableRect, item.text)) value += 180
+        if (rightmostComposerAction(item.rect, editableRect)) value += 120
+        if (nearEditable(item.rect, editableRect)) value += 40
+        value += Math.max(0, centerX(item.rect) - editableRect.right) / 10
+        if (/搜索|关闭会话|回关|发送消息|输入消息|对方回复/u.test(normalized)) value -= 240
+        if (isAttachmentControl(item.el, item.text)) value -= 500
+        return value
+      }
+      const click = (el: HTMLElement) => {
+        el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+        el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, composed: true }))
+        const nativeClick = (el as HTMLElement & { click?: () => void }).click
+        if (typeof nativeClick === 'function') nativeClick.call(el)
+        else el.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }))
+      }
+      await new Promise<void>(resolve => setTimeout(resolve, 160))
+      const editable = findEditable()
+      if (!editable) return { ok: false, reason: 'dm_editable_not_found_before_send' }
+      composer = findComposerRoot(editable)
+      const wanted = clean(draft)
+      if (!clean(allEditableText()).includes(wanted) && !clean(editableText(editable)).includes(wanted)) {
+        return { ok: false, reason: 'draft_not_visible_before_send' }
+      }
+      const editableRect = editable.getBoundingClientRect()
+      const viewportW = window.innerWidth || document.documentElement.clientWidth || 1
+      const viewportH = window.innerHeight || document.documentElement.clientHeight || 1
+      const selectors = `${explicitActionSelector},${sendSelector},svg,path`
+      const buttonRoot: ParentNode = composer ?? document
+      const rawItems = uniqueActionItems(buttonRoot, selectors)
+        .filter(item => item.rect.width > 0 && item.rect.height > 0)
+        .filter(item => item.rect.left >= viewportW * 0.45)
+        .filter(item => item.rect.top >= Math.max(120, viewportH * 0.32))
+        .filter(item => !isDisabled(item.el))
+        .filter(item => composer?.contains(item.el) || likelySendText(item.text))
+      const safeItems = rawItems.filter(item => !isAttachmentControl(item.el, item.text))
+      const structuralSend = pickStructuralSend(rawItems, safeItems, editableRect)
+      const button = safeItems
+        .filter(item => likelySendText(item.text) || iconOnlySend(item.el, item.rect, editableRect, item.text) || item.el === structuralSend)
+        .sort((a, b) => score(b, editableRect) - score(a, editableRect) || a.index - b.index)[0]?.el ?? null
+      if (!button) return { ok: false, reason: 'dm_send_button_not_found' }
+      button.scrollIntoView({ block: 'center', inline: 'center' })
+      click(button)
+      await new Promise<void>(resolve => setTimeout(resolve, 260))
+      const sent = !clean(allEditableText()).includes(wanted)
+      return {
+        ok: sent,
+        sent,
+        target: button.tagName.toLowerCase(),
+        reason: sent ? undefined : 'dm_send_not_confirmed_after_click',
+      }
+    },
+    args: [text],
+  })
+  const payload = result?.result as { ok?: boolean; sent?: boolean; target?: string; reason?: string } | undefined
+  return {
+    ok: payload?.ok === true,
+    sent: payload?.sent === true,
+    target: payload?.target,
+    reason: payload?.reason,
+  }
+}
+
+function clickDmSendButton(
+  text: string,
+  editable?: HTMLElement | null,
+): { ok: boolean; sent?: boolean; target?: string; reason?: string } {
+  if (!/douyin\.com$/u.test(location.hostname) && !location.hostname.endsWith('.douyin.com')) {
+    return { ok: false, reason: 'not_douyin_page' }
+  }
+  const wanted = clean(text)
+  if (!wanted) return { ok: false, reason: 'empty_draft' }
+  const currentEditable = editable ?? findDmEditable()
+  if (!currentEditable) return { ok: false, reason: 'dm_editable_not_found_before_send' }
+  if (!clean(findDmEditableText()).includes(wanted) && !clean(editableText(currentEditable)).includes(wanted)) {
+    return { ok: false, reason: 'draft_not_visible_before_send' }
+  }
+  const button = findDmSendButton(currentEditable)
+  if (!button) return { ok: false, reason: 'dm_send_button_not_found' }
+  button.scrollIntoView({ block: 'center', inline: 'center' })
+  clickElement(button)
+  const sendTarget = targetDescription(button)
+  return {
+    ok: true,
+    sent: false,
+    target: sendTarget,
+  }
+}
+
+function draftStillVisibleInEditable(text: string): boolean {
+  const wanted = clean(text)
+  return !!wanted && clean(findDmEditableText()).includes(wanted)
+}
+
+function findDmSendButton(editable: HTMLElement): HTMLElement | null {
+  const editableRect = editable.getBoundingClientRect()
+  const viewportW = window.innerWidth || document.documentElement.clientWidth || 1
+  const viewportH = window.innerHeight || document.documentElement.clientHeight || 1
+  const composer = findDmComposerRoot(editable)
+  const searchRoot: ParentNode = composer ?? document
+  const rawItems = uniqueDmActionItems(searchRoot)
+    .filter(item => item.rect.width > 0 && item.rect.height > 0)
+    .filter(item => item.rect.left >= viewportW * 0.45)
+    .filter(item => item.rect.top >= Math.max(120, viewportH * 0.32))
+    .filter(item => !isDisabled(item.el))
+    .filter(item => composer?.contains(item.el) || isLikelySendButtonText(item.text))
+  const safeItems = rawItems.filter(item => !isAttachmentLikeControl(item.el, item.text))
+  const structuralSend = pickStructuralDmSend(rawItems, safeItems, editableRect, composer)
+  return safeItems
+    .filter(item => isLikelySendButtonText(item.text) || isIconOnlySendButton(item.el, item.rect, editableRect, item.text, composer) || item.el === structuralSend)
+    .sort((a, b) => scoreSendButton(b, editableRect, composer) - scoreSendButton(a, editableRect, composer) || a.index - b.index)[0]?.el ?? null
+}
+
+function isLikelySendButtonText(text: string): boolean {
+  const normalized = clean(text)
+  return normalized === '发送'
+    || normalized === 'Send'
+    || (/发送/u.test(normalized)
+      && !/发送消息|输入消息|发送一条文字消息|对方回复|关闭会话|消息/u.test(normalized))
+}
+
+function isNearEditableSendControl(rect: DOMRect, editableRect: DOMRect): boolean {
+  const verticalOverlap = rect.top <= editableRect.bottom + 44 && rect.bottom >= editableRect.top - 44
+  const rightOfEditable = rect.left >= editableRect.right - 120 || rect.right >= editableRect.right - 24
+  const plausibleSize = rect.width >= 24 && rect.width <= 140 && rect.height >= 24 && rect.height <= 80
+  return verticalOverlap && rightOfEditable && plausibleSize
+}
+
+function isIconOnlySendButton(
+  el: HTMLElement,
+  rect: DOMRect,
+  editableRect: DOMRect,
+  text: string,
+  composer: HTMLElement | null,
+): boolean {
+  return !clean(text)
+    && isRightmostComposerAction(rect, editableRect, composer)
+    && hasSendAccent(el)
+}
+
+function findDmComposerRoot(editable: HTMLElement): HTMLElement | null {
+  const editableRect = editable.getBoundingClientRect()
+  let current = editable.parentElement
+  for (let depth = 0; current && current !== document.body && depth < 8; depth += 1, current = current.parentElement) {
+    const rect = current.getBoundingClientRect()
+    if (rect.width <= editableRect.width + 80 || rect.height <= 0 || rect.height > 160) continue
+    if (rect.top > editableRect.top + 16 || rect.bottom < editableRect.bottom - 16) continue
+    const rightActions = uniqueDmActionItems(current)
+      .filter(item => item.el !== editable && !editable.contains(item.el))
+      .filter(item => item.rect.width > 0 && item.rect.height > 0)
+      .filter(item => sameComposerRow(item.rect, editableRect))
+      .filter(item => rectCenterX(item.rect) >= editableRect.right - 8)
+      .filter(item => !isAttachmentLikeControl(item.el, item.text))
+    if (rightActions.length > 0) {
+      return current
+    }
+  }
+  return null
+}
+
+function dmSendSelector(): string {
+  return '.e2e-send-msg-btn,.messageMsgInputpublishRedBtn,.messageMsgInputpublishBtn'
+}
+
+function dmExplicitActionSelector(): string {
+  return 'button,[role="button"],[aria-label*="发送"],[title*="发送"],div[tabindex],span[tabindex],label'
+}
+
+function dmActionSelector(): string {
+  return `${dmExplicitActionSelector()},${dmSendSelector()},svg,path`
+}
+
+function dmActionRoot(el: HTMLElement): HTMLElement {
+  const explicitSend = el.closest<HTMLElement>(dmSendSelector())
+  if (explicitSend) return explicitSend
+  const explicitAction = el.closest<HTMLElement>(dmExplicitActionSelector())
+  if (explicitAction) return explicitAction
+  const svg = el.closest<HTMLElement>('svg')
+  return svg ?? el
+}
+
+function uniqueDmActionItems(root: ParentNode): Array<{ el: HTMLElement; index: number; rect: DOMRect; text: string }> {
+  const seen = new Set<HTMLElement>()
+  return Array.from(root.querySelectorAll<HTMLElement>(dmActionSelector()))
+    .map((el, index) => ({ el: dmActionRoot(el), index }))
+    .filter(item => {
+      if (seen.has(item.el)) return false
+      seen.add(item.el)
+      return true
+    })
+    .map(item => ({ ...item, rect: item.el.getBoundingClientRect(), text: elementText(item.el) }))
+}
+
+function pickStructuralDmSend(
+  rawItems: Array<{ el: HTMLElement; rect: DOMRect; text: string }>,
+  safeItems: Array<{ el: HTMLElement; rect: DOMRect; text: string }>,
+  editableRect: DOMRect,
+  composer: HTMLElement | null,
+): HTMLElement | null {
+  const rawRowActions = rawItems
+    .filter(item => sameComposerRow(item.rect, editableRect))
+    .filter(item => rectCenterX(item.rect) >= editableRect.right - 8)
+    .filter(item => isCompactDmIcon(item.rect))
+    .sort((a, b) => rectCenterX(b.rect) - rectCenterX(a.rect))
+  if (rawRowActions.length < 2) return null
+  const safeRowActions = safeItems
+    .filter(item => rawRowActions.some(raw => raw.el === item.el))
+    .sort((a, b) => rectCenterX(b.rect) - rectCenterX(a.rect))
+  const rightmostRaw = rawRowActions[0]
+  const secondRaw = rawRowActions[1]
+  const rightmostSafe = safeRowActions[0]
+  if (!rightmostRaw || !secondRaw || !rightmostSafe || rightmostRaw.el !== rightmostSafe.el) return null
+  if (rectCenterX(rightmostRaw.rect) - rectCenterX(secondRaw.rect) < 12) return null
+  if (!isRightmostComposerAction(rightmostRaw.rect, editableRect, composer)) return null
+  if (clean(rightmostRaw.text)) return null
+  return rightmostRaw.el
+}
+
+function isCompactDmIcon(rect: DOMRect): boolean {
+  return rect.width >= 18 && rect.width <= 72 && rect.height >= 18 && rect.height <= 72
+}
+
+function isRightmostComposerAction(rect: DOMRect, editableRect: DOMRect, composer: HTMLElement | null): boolean {
+  if (!composer) return false
+  const composerRect = composer.getBoundingClientRect()
+  const rightBand = Math.max(64, Math.min(110, composerRect.width * 0.18))
+  return sameComposerRow(rect, editableRect)
+    && rectCenterX(rect) >= editableRect.right - 8
+    && rectCenterX(rect) >= composerRect.right - rightBand
+}
+
+function sameComposerRow(rect: DOMRect, editableRect: DOMRect): boolean {
+  const y = rectCenterY(rect)
+  return y >= editableRect.top - 8 && y <= editableRect.bottom + 8
+}
+
+function rectCenterX(rect: DOMRect): number {
+  return rect.left + rect.width / 2
+}
+
+function rectCenterY(rect: DOMRect): number {
+  return rect.top + rect.height / 2
+}
+
+function isAttachmentLikeControl(el: HTMLElement, text: string): boolean {
+  const normalized = clean(text)
+  if (/上传|文件|图片|照片|相册|附件|选择文件|image|file|upload/u.test(normalized)) return true
+  if (hasClassToken(el, /semi-upload|upload|file|attach/i)) return true
+  if (el instanceof HTMLInputElement && el.type === 'file') return true
+  if (el.querySelector('input[type="file"]')) return true
+  const label = el.closest('label')
+  return !!label?.querySelector('input[type="file"]')
+}
+
+function hasSendAccent(el: HTMLElement): boolean {
+  if (hasClassToken(el, /e2e-send-msg-btn|messageMsgInputpublishRedBtn|publishRedBtn/i)) return true
+  const candidates = [el, el.parentElement, el.closest<HTMLElement>('button,[role="button"],div[tabindex],span[tabindex]')]
+    .filter((candidate): candidate is HTMLElement => !!candidate)
+  return candidates.some(candidate => {
+    const style = getComputedStyle(candidate)
+    return colorLooksLikeDouyinSend(style.backgroundColor)
+      || colorLooksLikeDouyinSend(style.color)
+      || colorLooksLikeDouyinSend(style.borderColor)
+  })
+}
+
+function hasClassToken(el: Element, pattern: RegExp): boolean {
+  const names = [
+    String(el.getAttribute('class') || ''),
+    String((el as HTMLElement).className || ''),
+    String(el.parentElement?.getAttribute('class') || ''),
+    String((el.parentElement as HTMLElement | null)?.className || ''),
+  ].join(' ')
+  return pattern.test(names)
+}
+
+function colorLooksLikeDouyinSend(value: string): boolean {
+  const match = String(value || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i)
+  if (!match) return false
+  const red = Number(match[1])
+  const green = Number(match[2])
+  const blue = Number(match[3])
+  return red >= 220 && green <= 95 && blue >= 65 && blue <= 150
+}
+
+function scoreSendButton(
+  item: { el: HTMLElement; rect: DOMRect; text: string },
+  editableRect: DOMRect,
+  composer: HTMLElement | null,
+): number {
+  let score = 0
+  const role = (item.el.getAttribute('role') || item.el.tagName || '').toLowerCase()
+  const text = clean(item.text)
+  if (role.includes('button')) score += 120
+  if (text === '发送' || text === 'Send') score += 140
+  if (/发送/u.test(text)) score += 80
+  if (isIconOnlySendButton(item.el, item.rect, editableRect, item.text, composer)) score += 180
+  if (composer?.contains(item.el)) score += 120
+  if (isRightmostComposerAction(item.rect, editableRect, composer)) score += 120
+  if (isNearEditableSendControl(item.rect, editableRect)) score += 40
+  score += Math.max(0, rectCenterX(item.rect) - editableRect.right) / 10
+  if (/搜索|关闭会话|回关|发送消息|输入消息|对方回复/u.test(text)) score -= 240
+  if (isAttachmentLikeControl(item.el, item.text)) score -= 500
+  return score
+}
+
+function clickElement(el: HTMLElement): void {
+  if (typeof PointerEvent === 'function') {
+    el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }))
+  }
+  el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }))
+  if (typeof PointerEvent === 'function') {
+    el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, composed: true }))
+  }
+  el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, composed: true }))
+  const nativeClick = (el as HTMLElement & { click?: () => void }).click
+  if (typeof nativeClick === 'function') nativeClick.call(el)
+  else el.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }))
+}
+
+function isDisabled(el: HTMLElement): boolean {
+  return el.getAttribute('aria-disabled') === 'true'
+    || el.getAttribute('disabled') === 'true'
+    || (el instanceof HTMLButtonElement && el.disabled)
 }
 
 function findDmEditable(): HTMLElement | null {
@@ -239,7 +848,7 @@ function editableText(el: HTMLElement): string {
 }
 
 function elementText(el: HTMLElement): string {
-  return `${el.getAttribute('placeholder') || ''} ${el.getAttribute('aria-label') || ''} ${el.innerText || el.textContent || ''}`.replace(/\s+/g, '')
+  return `${el.getAttribute('placeholder') || ''} ${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''} ${el.innerText || el.textContent || ''}`.replace(/\s+/g, '')
 }
 
 function selectEditableContent(el: HTMLElement): boolean {

@@ -1,5 +1,8 @@
 <template>
-  <div class="settings-section browser-pairing-section">
+  <div
+    class="settings-section browser-pairing-section"
+    :class="{ 'is-embedded': embedded, 'is-compact': compact }"
+  >
     <div class="section-header">
       <h2 class="section-title">{{ t('settings.browser.title') }}</h2>
       <p class="section-desc">{{ t('settings.browser.description') }}</p>
@@ -87,6 +90,17 @@ import {
 } from './pairing'
 
 const { t } = useI18n()
+
+withDefaults(
+  defineProps<{
+    embedded?: boolean
+    compact?: boolean
+  }>(),
+  {
+    embedded: false,
+    compact: false,
+  },
+)
 
 const status = ref<PairingStatus>('unknown')
 const deviceName = ref<string | null>(null)
@@ -203,6 +217,27 @@ onMounted(refresh)
 
 <style scoped>
 .settings-section { width: 100%; }
+.browser-pairing-section.is-embedded .section-header {
+  margin-bottom: 14px;
+}
+
+.browser-pairing-section.is-embedded .settings-card {
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.browser-pairing-section.is-compact .section-title {
+  font-size: 18px;
+}
+
+.browser-pairing-section.is-compact .settings-card {
+  padding: 16px;
+}
+
+.browser-pairing-section.is-compact .section-footer-note {
+  margin-top: 12px;
+}
+
 .section-header { display: flex; flex-direction: column; gap: 6px; margin-bottom: 20px; }
 .section-title { margin: 0; font-size: 22px; font-weight: 700; color: var(--mc-text-primary); }
 .section-desc { margin: 0; font-size: 14px; color: var(--mc-text-secondary); }

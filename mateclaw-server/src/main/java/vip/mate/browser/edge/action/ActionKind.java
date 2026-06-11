@@ -16,6 +16,7 @@ public enum ActionKind {
     OPEN_AUTHOR_FROM_COMMENT("open_author_from_comment"),
     CLICK_PROFILE_ACTION("click_profile_action"),
     TYPE_DM_DRAFT("type_dm_draft"),
+    CLOSE_TAB("close_tab"),
     DOUYIN_COMMENT_NETWORK("douyin_comment_network"),
     MOVE_MOUSE("move_mouse"),
     WAIT("wait");

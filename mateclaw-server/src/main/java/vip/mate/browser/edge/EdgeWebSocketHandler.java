@@ -173,6 +173,7 @@ public class EdgeWebSocketHandler extends TextWebSocketHandler implements SubPro
 
     private void onActionResult(WebSocketSession ws, EdgeMessage msg) throws Exception {
         if (!validSession(ws, msg)) return;
+        logExtractRegionWirePayload(msg);
         ActionResult result;
         try {
             result = mapper.convertValue(msg.getPayload(), ActionResult.class);
@@ -190,6 +191,33 @@ public class EdgeWebSocketHandler extends TextWebSocketHandler implements SubPro
                     false);
         }
         actionExecutionService.deliverResult(msg.getInReplyTo(), result);
+    }
+
+    private void logExtractRegionWirePayload(EdgeMessage msg) {
+        Object payloadObj = msg.getPayload().get("payload");
+        if (!(payloadObj instanceof Map<?, ?> payload)) {
+            return;
+        }
+        if (!"extract_region".equals(String.valueOf(payload.get("kind")))) {
+            return;
+        }
+        Object itemsObj = payload.get("items");
+        int items = itemsObj instanceof List<?> list ? list.size() : -1;
+        Object diagnostics = payload.get("diagnostics");
+        log.info("[edge.extract_region.raw] in_reply_to={} payloadKeys={} items={} diagnosticsPresent={} diagnostics={}",
+                msg.getInReplyTo(),
+                payload.keySet(),
+                items,
+                diagnostics != null,
+                diagnostics == null ? "{}" : compactJson(diagnostics));
+    }
+
+    private String compactJson(Object value) {
+        try {
+            return mapper.writeValueAsString(value);
+        } catch (Exception e) {
+            return String.valueOf(value);
+        }
     }
 
     private void onIndicatorStopClicked(WebSocketSession ws, EdgeMessage msg) throws Exception {

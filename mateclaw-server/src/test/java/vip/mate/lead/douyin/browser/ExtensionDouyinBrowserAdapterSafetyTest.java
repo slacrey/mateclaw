@@ -8,6 +8,8 @@ import vip.mate.lead.douyin.model.DouyinLeadAcquisitionInput;
 import vip.mate.lead.douyin.model.EngagementResult;
 import vip.mate.tool.builtin.ExtensionBrowserTool;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyDouble;
@@ -63,6 +65,249 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
         assertThat(point).isNotNull();
         assertThat(point.x()).isEqualTo(600d);
         assertThat(point.y()).isEqualTo(38d);
+    }
+
+    @Test
+    void followAndDraftFallsBackToDomProfileActionWhenA11yOmitsDmButton() {
+        ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
+        ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
+                browser,
+                new ObjectMapper(),
+                mock(DouyinCommentCollector.class));
+        DouyinCommentItem comment = new DouyinCommentItem(
+                "video",
+                "comment",
+                null,
+                "",
+                "https://www.douyin.com/user/MS4w",
+                null,
+                "不建议大家用易企秀，慢出心脏病了。",
+                null,
+                null,
+                null,
+                null);
+        String profileWithoutDmInA11y = """
+                {"ok":true,"url":"https://www.douyin.com/user/MS4w","title":"霞姐一百岁 - 抖音","viewport":{"w":1280,"h":800},"tree":"Heading[ref=ref_1, frame=0]: 霞姐一百岁 @{520,90 180x36}\\nStaticText[ref=ref_2, frame=0]: 已关注 @{912,224 86x36}\\nStaticText[ref=ref_3, frame=0]: 粉丝 32 @{520,150 90x24}\\nTab[ref=ref_4, frame=0]: 作品 @{520,280 80x32}"}
+                """;
+        String dmPage = """
+                {"ok":true,"url":"https://www.douyin.com/im/霞姐一百岁","title":"私信 - 抖音","viewport":{"w":1280,"h":800},"tree":"StaticText[ref=ref_1, frame=0]: 私信 @{420,80 80x28}\\nStaticText[ref=ref_2, frame=0]: 发送消息 @{520,140 120x28}\\nTextbox[ref=ref_3, frame=0]: 你好 @{520,700 360x44}"}
+                """;
+
+        when(browser.extension_browser_navigate(any(), any(), any())).thenReturn("{\"ok\":true}");
+        when(browser.service_observe_active("all")).thenReturn(profileWithoutDmInA11y, dmPage, dmPage);
+        when(browser.service_click_profile_action_active(List.of("私信", "发私信", "Message", "发消息")))
+                .thenReturn("{\"ok\":true,\"results\":[{\"payload\":{\"label\":\"私信\"}}]}");
+        when(browser.service_type_dm_draft_active("你好", false)).thenReturn("{\"ok\":true}");
+
+        EngagementResult result = adapter.followAndDraft(comment, "你好", false);
+
+        assertThat(result.status()).isEqualTo("succeeded");
+        assertThat(result.dmOpened()).isTrue();
+        assertThat(result.draftTyped()).isTrue();
+        assertThat(result.failureCode()).isNull();
+        verify(browser, never()).service_click_active(anyDouble(), anyDouble());
+        verify(browser).service_click_profile_action_active(List.of("私信", "发私信", "Message", "发消息"));
+    }
+
+    @Test
+    void followAndDraftRetriesDomProfileActionWhenA11yClickDoesNotOpenDmPage() {
+        ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
+        ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
+                browser,
+                new ObjectMapper(),
+                mock(DouyinCommentCollector.class));
+        DouyinCommentItem comment = new DouyinCommentItem(
+                "video",
+                "comment",
+                null,
+                "霞姐一百岁",
+                "https://www.douyin.com/user/MS4w",
+                null,
+                "不建议大家用易企秀，慢出心脏病了。",
+                null,
+                null,
+                null,
+                null);
+        String profileWithDmInA11y = """
+                {"ok":true,"url":"https://www.douyin.com/user/MS4w","title":"霞姐一百岁 - 抖音","viewport":{"w":1280,"h":800},"tree":"Heading[ref=ref_1, frame=0]: 霞姐一百岁 @{520,90 180x36}\\nStaticText[ref=ref_2, frame=0]: 已关注 @{912,224 86x36}\\nButton[ref=ref_3, frame=0]: 私信 @{1010,224 86x36}"}
+                """;
+        String dmPage = """
+                {"ok":true,"url":"https://www.douyin.com/im/霞姐一百岁","title":"私信 - 抖音","viewport":{"w":1280,"h":800},"tree":"StaticText[ref=ref_1, frame=0]: 私信 @{420,80 80x28}\\nStaticText[ref=ref_2, frame=0]: 发送消息 @{520,140 120x28}\\nTextbox[ref=ref_3, frame=0]: 你好 @{520,700 360x44}"}
+                """;
+
+        when(browser.extension_browser_navigate(any(), any(), any())).thenReturn("{\"ok\":true}");
+        when(browser.service_observe_active("all")).thenReturn(
+                profileWithDmInA11y,
+                profileWithDmInA11y,
+                profileWithDmInA11y,
+                profileWithDmInA11y,
+                profileWithDmInA11y,
+                profileWithDmInA11y,
+                profileWithDmInA11y,
+                profileWithDmInA11y,
+                profileWithDmInA11y,
+                profileWithDmInA11y,
+                profileWithDmInA11y,
+                dmPage,
+                dmPage);
+        when(browser.service_click_active(anyDouble(), anyDouble())).thenReturn("{\"ok\":true}");
+        when(browser.service_click_profile_action_active(List.of("私信", "发私信", "Message", "发消息")))
+                .thenReturn("{\"ok\":true,\"results\":[{\"payload\":{\"label\":\"私信\"}}]}");
+        when(browser.service_type_dm_draft_active("你好", false)).thenReturn("{\"ok\":true}");
+
+        EngagementResult result = adapter.followAndDraft(comment, "你好", false);
+
+        assertThat(result.status()).isEqualTo("succeeded");
+        assertThat(result.dmOpened()).isTrue();
+        assertThat(result.draftTyped()).isTrue();
+        assertThat(result.failureCode()).isNull();
+        verify(browser).service_click_active(anyDouble(), anyDouble());
+        verify(browser).service_click_profile_action_active(List.of("私信", "发私信", "Message", "发消息"));
+    }
+
+    @Test
+    void followAndDraftMarksSentWhenSendDmPrimitiveConfirmsSend() {
+        ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
+        ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
+                browser,
+                new ObjectMapper(),
+                mock(DouyinCommentCollector.class));
+        DouyinCommentItem comment = new DouyinCommentItem(
+                "video",
+                "comment",
+                null,
+                "",
+                "https://www.douyin.com/user/MS4w",
+                null,
+                "不建议大家用易企秀，慢出心脏病了。",
+                null,
+                null,
+                null,
+                null);
+        String profile = """
+                {"ok":true,"url":"https://www.douyin.com/user/MS4w","title":"霞姐一百岁 - 抖音","viewport":{"w":1280,"h":800},"tree":"Heading[ref=ref_1, frame=0]: 霞姐一百岁 @{520,90 180x36}\\nStaticText[ref=ref_2, frame=0]: 已关注 @{912,224 86x36}\\nStaticText[ref=ref_3, frame=0]: 粉丝 32 @{520,150 90x24}"}
+                """;
+        String dmPage = """
+                {"ok":true,"url":"https://www.douyin.com/im/霞姐一百岁","title":"私信 - 抖音","viewport":{"w":1280,"h":800},"tree":"StaticText[ref=ref_1, frame=0]: 私信 @{420,80 80x28}\\nStaticText[ref=ref_2, frame=0]: 发送消息 @{520,140 120x28}\\nTextbox[ref=ref_3, frame=0]:  @{520,700 360x44}"}
+                """;
+
+        when(browser.extension_browser_navigate(any(), any(), any())).thenReturn("{\"ok\":true}");
+        when(browser.service_observe_active("all")).thenReturn(profile, dmPage, dmPage);
+        when(browser.service_click_profile_action_active(List.of("私信", "发私信", "Message", "发消息")))
+                .thenReturn("{\"ok\":true,\"results\":[{\"payload\":{\"label\":\"私信\"}}]}");
+        when(browser.service_type_dm_draft_active("你好", true)).thenReturn("""
+                {"ok":true,"results":[{"payload":{"draftTyped":true,"text":"你好","target":"dm_editable","sent":true,"sendTarget":"button"}}]}
+                """);
+
+        EngagementResult result = adapter.followAndDraft(comment, "你好", true);
+
+        assertThat(result.status()).isEqualTo("succeeded");
+        assertThat(result.dmOpened()).isTrue();
+        assertThat(result.draftTyped()).isTrue();
+        assertThat(result.sent()).isTrue();
+        assertThat(result.failureCode()).isNull();
+        verify(browser).service_type_dm_draft_active("你好", true);
+    }
+
+    @Test
+    void followAndDraftSendsExistingDraftAfterDmPrimitiveDetach() {
+        ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
+        ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
+                browser,
+                new ObjectMapper(),
+                mock(DouyinCommentCollector.class));
+        DouyinCommentItem comment = new DouyinCommentItem(
+                "video",
+                "comment",
+                null,
+                "霞姐一百岁",
+                "https://www.douyin.com/user/MS4w",
+                null,
+                "不建议大家用易企秀，慢出心脏病了。",
+                null,
+                null,
+                null,
+                null);
+        String profile = """
+                {"ok":true,"url":"https://www.douyin.com/user/MS4w","title":"霞姐一百岁 - 抖音","viewport":{"w":1280,"h":800},"tree":"Heading[ref=ref_1, frame=0]: 霞姐一百岁 @{520,90 180x36}\\nStaticText[ref=ref_2, frame=0]: 已关注 @{912,224 86x36}\\nButton[ref=ref_3, frame=0]: 私信 @{1010,224 86x36}"}
+                """;
+        String dmPageWithDraft = """
+                {"ok":true,"url":"https://www.douyin.com/im/霞姐一百岁","title":"私信 - 抖音","viewport":{"w":1280,"h":800},"tree":"StaticText[ref=ref_1, frame=0]: 私信 @{420,80 80x28}\\nStaticText[ref=ref_2, frame=0]: 发送消息 @{520,140 120x28}\\nTextbox[ref=ref_3, frame=0]: 你好 @{520,700 360x44}"}
+                """;
+        String dmPageNoDraft = """
+                {"ok":true,"url":"https://www.douyin.com/im/霞姐一百岁","title":"私信 - 抖音","viewport":{"w":1280,"h":800},"tree":"StaticText[ref=ref_1, frame=0]: 私信 @{420,80 80x28}\\nStaticText[ref=ref_2, frame=0]: 发送消息 @{520,140 120x28}\\nTextbox[ref=ref_3, frame=0]:  @{520,700 360x44}"}
+                """;
+
+        when(browser.extension_browser_navigate(any(), any(), any())).thenReturn("{\"ok\":true}");
+        when(browser.service_observe_active("all")).thenReturn(
+                profile,
+                dmPageWithDraft,
+                dmPageWithDraft,
+                dmPageWithDraft,
+                dmPageNoDraft);
+        when(browser.service_click_active(anyDouble(), anyDouble())).thenReturn("{\"ok\":true}");
+        when(browser.service_type_dm_draft_active("你好", true))
+                .thenThrow(new RuntimeException("SESSION_DETACHED: target_closed"));
+        when(browser.service_send_dm_active("你好")).thenReturn("""
+                {"ok":true,"results":[{"payload":{"draftTyped":true,"sent":true,"sendTarget":"button"}}]}
+                """);
+
+        EngagementResult result = adapter.followAndDraft(comment, "你好", true);
+
+        assertThat(result.status()).isEqualTo("succeeded");
+        assertThat(result.dmOpened()).isTrue();
+        assertThat(result.draftTyped()).isTrue();
+        assertThat(result.sent()).isTrue();
+        assertThat(result.failureCode()).isNull();
+        verify(browser).service_send_dm_active("你好");
+        verify(browser, never()).service_type_active(eq("你好"), any());
+    }
+
+    @Test
+    void followAndDraftClosesActiveEngagementTabWhenMainTabStillShowsVideo() {
+        ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
+        ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
+                browser,
+                new ObjectMapper(),
+                mock(DouyinCommentCollector.class));
+        DouyinCommentItem comment = new DouyinCommentItem(
+                "video",
+                "comment",
+                null,
+                "霞姐一百岁",
+                "https://www.douyin.com/user/MS4w",
+                null,
+                "不建议大家用易企秀，慢出心脏病了。",
+                null,
+                null,
+                null,
+                null);
+        String video = """
+                {"ok":true,"url":"https://www.douyin.com/jingxuan/search/易企秀?modal_id=6689257066038676740","title":"易企秀 - 抖音","viewport":{"w":1280,"h":800},"tree":"Button[ref=ref_1, frame=0]: 评论 @{1180,320 80x44}"}
+                """;
+        String profile = """
+                {"ok":true,"url":"https://www.douyin.com/user/MS4w","title":"霞姐一百岁 - 抖音","viewport":{"w":1280,"h":800},"tree":"Heading[ref=ref_1, frame=0]: 霞姐一百岁 @{520,90 180x36}\\nStaticText[ref=ref_2, frame=0]: 已关注 @{912,224 86x36}\\nButton[ref=ref_3, frame=0]: 私信 @{1010,224 86x36}"}
+                """;
+        String dmPage = """
+                {"ok":true,"url":"https://www.douyin.com/im/霞姐一百岁","title":"私信 - 抖音","viewport":{"w":1280,"h":800},"tree":"StaticText[ref=ref_1, frame=0]: 私信 @{420,80 80x28}\\nStaticText[ref=ref_2, frame=0]: 发送消息 @{520,140 120x28}\\nTextbox[ref=ref_3, frame=0]: 你好 @{520,700 360x44}"}
+                """;
+
+        when(browser.service_observe_main("all")).thenReturn(video, video, video);
+        when(browser.extension_browser_navigate(any(), any(), any())).thenReturn("{\"ok\":true}");
+        when(browser.service_observe_active("all")).thenReturn(profile, dmPage, dmPage);
+        when(browser.service_click_active(anyDouble(), anyDouble())).thenReturn("{\"ok\":true}");
+        when(browser.service_type_dm_draft_active("你好", false)).thenReturn("{\"ok\":true}");
+        when(browser.service_close_tab_active()).thenReturn("{\"ok\":true}");
+
+        EngagementResult result = adapter.followAndDraft(comment, "你好", false);
+
+        assertThat(result.status()).isEqualTo("succeeded");
+        verify(browser).service_close_tab_active();
+        verify(browser, never()).service_press_key_active("Control+W");
+        verify(browser, never()).extension_browser_navigate(
+                eq("https://www.douyin.com/jingxuan/search/易企秀?modal_id=6689257066038676740"),
+                eq("domcontentloaded"),
+                any());
     }
 
     @Test
@@ -741,6 +986,36 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
     }
 
     @Test
+    void openVideoUsesArrowDownWhenCurrentVideoIsAlreadyOpen() {
+        ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
+        ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
+                browser,
+                new ObjectMapper(),
+                mock(DouyinCommentCollector.class));
+        String currentWithComments = """
+                {"ok":true,"url":"https://www.douyin.com/jingxuan/search/易企秀?modal_id=1111111111111","title":"第一个视频 - 抖音","viewport":{"w":1280,"h":800},"tree":"Text[ref=ref_1, frame=0]: 全部评论(90) @{730,80 180x32}\\nText[ref=ref_2, frame=0]: 暂时没有更多评论 @{820,720 180x28}"}
+                """;
+        String currentClosed = """
+                {"ok":true,"url":"https://www.douyin.com/jingxuan/search/易企秀?modal_id=1111111111111","title":"第一个视频 - 抖音","viewport":{"w":1280,"h":800},"tree":"Button[ref=ref_1, frame=0]: 评论 @{1180,320 80x44}"}
+                """;
+        String secondVideo = """
+                {"ok":true,"url":"https://www.douyin.com/jingxuan/search/易企秀?modal_id=2222222222222","title":"第二个视频 - 抖音","viewport":{"w":1280,"h":800},"tree":"Button[ref=ref_1, frame=0]: 评论 @{1180,320 80x44}"}
+                """;
+        when(browser.service_observe_main("all")).thenReturn(currentWithComments, currentClosed, secondVideo);
+        when(browser.service_press_key_main("x")).thenReturn("{\"ok\":true}");
+        when(browser.service_press_key_main("ArrowDown")).thenReturn("{\"ok\":true}");
+
+        DouyinBrowserAdapter.BrowserObservation opened = adapter.openVideo(1);
+
+        assertThat(opened.code()).isEqualTo("VIDEO_TARGET");
+        assertThat(opened.url()).contains("2222222222222");
+        assertThat(opened.message()).contains("keyboard_arrow_down:index=1");
+        verify(browser).service_press_key_main("x");
+        verify(browser).service_press_key_main("ArrowDown");
+        verify(browser, never()).service_click_main(anyDouble(), anyDouble());
+    }
+
+    @Test
     void openVideoUsesSortedSnapshotWhenLaterObservationDropsFirstCard() {
         ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
         ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
@@ -1022,15 +1297,15 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
         DouyinBrowserAdapter.RegionInfo region = DouyinBrowserAdapter.RegionInfo.comments(
                 960d, 80d, 520d, 760d, "test");
         String firstPage = """
-                {"ok":true,"url":"https://www.douyin.com/search/openclaw?modal_id=111","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 2 @{980,88 140x28}\\nLink[ref=ref_2, frame=0]: Ly @{980,180 80x24}\\nStaticText[ref=ref_3, frame=0]: 对于99%的人用豆包就行了。 @{1030,212 260x32}"}
+                {"ok":true,"url":"https://www.douyin.com/search/openclaw?modal_id=111","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 1 @{980,88 140x28}\\nLink[ref=ref_2, frame=0]: Ly @{980,180 80x24}\\nStaticText[ref=ref_3, frame=0]: 对于99%的人用豆包就行了。 @{1030,212 260x32}"}
                 """;
         String lastPage = """
-                {"ok":true,"url":"https://www.douyin.com/search/openclaw?modal_id=111","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 2 @{980,88 140x28}\\nLink[ref=ref_2, frame=0]: Ly @{980,180 80x24}\\nStaticText[ref=ref_3, frame=0]: 对于99%的人用豆包就行了。 @{1030,212 260x32}\\nStaticText[ref=ref_4, frame=0]: 没有更多评论 @{1030,720 160x28}"}
+                {"ok":true,"url":"https://www.douyin.com/search/openclaw?modal_id=111","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 1 @{980,88 140x28}\\nLink[ref=ref_2, frame=0]: Ly @{980,180 80x24}\\nStaticText[ref=ref_3, frame=0]: 对于99%的人用豆包就行了。 @{1030,212 260x32}\\nStaticText[ref=ref_4, frame=0]: 没有更多评论 @{1030,720 160x28}"}
                 """;
         when(browser.service_observe_main("all")).thenReturn(firstPage, lastPage, lastPage);
         when(browser.service_extract_region_main("douyin.comments", 160)).thenReturn("""
                 {"ok":true,"results":[{"payload":{"items":[
-                  {"itemType":"comment_count","text":"2"},
+                  {"itemType":"comment_count","text":"1"},
                   {"itemType":"douyin_comment","author":"Ly","text":"对于99%的人用豆包就行了。","href":"https://www.douyin.com/user/MS4w","bbox":{"x":1030,"y":212,"width":260,"height":32}}
                 ]}}]}
                 """);
@@ -1049,6 +1324,86 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
                 anyDouble(),
                 anyDouble(),
                 anyDouble());
+    }
+
+    @Test
+    void collectAllCommentsDoesNotAbortWhenPreWheelPanelVerificationFailsButPanelStillExists() {
+        ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
+        ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
+                browser,
+                new ObjectMapper(),
+                new DouyinCommentCollector());
+        DouyinBrowserAdapter.RegionInfo region = DouyinBrowserAdapter.RegionInfo.comments(
+                960d, 80d, 520d, 760d, "dom-comment-items");
+        String firstPage = """
+                {"ok":true,"url":"https://www.douyin.com/search/yqx?modal_id=6689257066038676740","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 2 @{980,88 140x28}\\nLink[ref=ref_2, frame=0]: A1 @{980,180 80x24}\\nStaticText[ref=ref_3, frame=0]: 第一条评论内容。 @{1030,212 260x32}\\nTextbox[ref=ref_4, frame=0]: 说点什么 @{980,800 280x44}"}
+                """;
+        String secondPage = """
+                {"ok":true,"url":"https://www.douyin.com/search/yqx?modal_id=6689257066038676740","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 2 @{980,88 140x28}\\nLink[ref=ref_5, frame=0]: A2 @{980,180 80x24}\\nStaticText[ref=ref_6, frame=0]: 第二条评论内容。 @{1030,212 260x32}\\nTextbox[ref=ref_7, frame=0]: 说点什么 @{980,800 280x44}"}
+                """;
+        String endPage = """
+                {"ok":true,"url":"https://www.douyin.com/search/yqx?modal_id=6689257066038676740","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 2 @{980,88 140x28}\\nStaticText[ref=ref_8, frame=0]: 暂时没有更多评论 @{1030,720 200x28}"}
+                """;
+        when(browser.service_observe_main("all")).thenReturn(firstPage, firstPage, secondPage, endPage, endPage);
+        when(browser.service_extract_region_main("douyin.comments", 160)).thenReturn(
+                """
+                {"ok":true,"results":[{"payload":{"items":[
+                  {"itemType":"comment_count","text":"2"},
+                  {"itemType":"douyin_comment","author":"A1","text":"第一条评论内容。","href":"https://www.douyin.com/user/a1","bbox":{"x":1030,"y":212,"width":260,"height":32}}
+                ]}}]}
+                """,
+                """
+                {"ok":true,"results":[{"payload":{"items":[
+                  {"itemType":"comment_count","text":"2"},
+                  {"itemType":"douyin_comment","author":"A2","text":"第二条评论内容。","href":"https://www.douyin.com/user/a2","bbox":{"x":1030,"y":212,"width":260,"height":32}}
+                ]}}]}
+                """,
+                """
+                {"ok":true,"results":[{"payload":{"items":[
+                  {"itemType":"comment_count","text":"2"},
+                  {"itemType":"comment_end","text":"暂时没有更多评论","bbox":{"x":1030,"y":720,"width":200,"height":28}}
+                ]}}]}
+                """,
+                """
+                {"ok":true,"results":[{"payload":{"items":[
+                  {"itemType":"comment_count","text":"2"},
+                  {"itemType":"comment_end","text":"暂时没有更多评论","bbox":{"x":1030,"y":720,"width":200,"height":28}}
+                ]}}]}
+                """);
+        when(browser.service_hover_main(anyDouble(), anyDouble())).thenReturn("{\"ok\":true}");
+        when(browser.service_scroll_region_main(eq("douyin.comments"), eq("down"), anyDouble(), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(
+                        """
+                        {"ok":true,"results":[{"payload":{
+                          "moved":false,
+                          "mode":"comment_region_wheel",
+                          "reason":"comment_panel_not_verified_before_wheel"
+                        }}]}
+                        """,
+                        """
+                        {"ok":true,"results":[{"payload":{
+                          "moved":true,
+                          "mode":"comment_region_wheel",
+                          "reason":"comment_window_advanced",
+                          "forwardProgress":true
+                        }}]}
+                        """,
+                        """
+                        {"ok":true,"results":[{"payload":{
+                          "moved":false,
+                          "mode":"comment_region_wheel",
+                          "reason":"comment_region_wheel_not_moved"
+                        }}]}
+                        """);
+
+        var result = adapter.collectAllComments(region);
+
+        assertThat(result.comments()).hasSize(2);
+        assertThat(result.complete()).isTrue();
+        assertThat(result.stopReason()).isEqualTo("END_OF_LIST");
+        assertThat(result.stopReason()).isNotEqualTo("COMMENT_PANEL_LOST_DURING_SCROLL");
+        assertThat(result.metadata()).containsEntry("staleScrolls", 2);
+        assertThat(result.metadata()).containsEntry("lastScrollReason", "comment_region_wheel_not_moved");
     }
 
     @Test
@@ -1092,9 +1447,12 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
         var result = adapter.collectAllComments(region);
 
         assertThat(result.complete()).isTrue();
-        assertThat(result.stopReason()).isEqualTo("END_OF_LIST");
+        assertThat(result.stopReason()).isEqualTo("END_OF_LIST_TOP_LEVEL");
         assertThat(result.metadata()).containsEntry("stableEndMarkerWindows", 2);
         assertThat(result.metadata()).containsEntry("collectedCount", 1);
+        assertThat(result.metadata()).containsEntry("declaredCountMismatch", true);
+        assertThat(result.metadata()).containsEntry("declaredTotalMayIncludeReplies", true);
+        assertThat(result.metadata()).containsEntry("partialCollection", false);
     }
 
     @Test
@@ -1187,6 +1545,42 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
     }
 
     @Test
+    void collectAllCommentsPrefersUiDeclaredCountOverNetworkAggregateTotal() {
+        ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
+        ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
+                browser,
+                new ObjectMapper(),
+                new DouyinCommentCollector());
+        DouyinBrowserAdapter.RegionInfo region = DouyinBrowserAdapter.RegionInfo.comments(
+                960d, 80d, 520d, 760d, "test");
+        String page = """
+                {"ok":true,"url":"https://www.douyin.com/search/yqx?modal_id=6689257066038676740","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 90 @{980,88 140x28}\\nTextbox[ref=ref_2, frame=0]: 说点什么 @{980,800 280x44}"}
+                """;
+        String endPage = """
+                {"ok":true,"url":"https://www.douyin.com/search/yqx?modal_id=6689257066038676740","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 90 @{980,88 140x28}\\nStaticText[ref=ref_3, frame=0]: 暂时没有更多评论 @{1030,720 200x28}"}
+                """;
+        when(browser.service_observe_main("all")).thenReturn(page, page, endPage, endPage);
+        when(browser.service_douyin_comment_network_main("drain", null, null, null)).thenReturn("""
+                {"ok":true,"results":[{"payload":{"pages":[
+                  {"url":"https://www.douyin.com/aweme/v1/web/comment/list/?aweme_id=6689257066038676740&cursor=0","status":200,"body":"{\\"aweme_id\\":\\"6689257066038676740\\",\\"total\\":144,\\"has_more\\":false,\\"comments\\":[{\\"cid\\":\\"c1\\",\\"text\\":\\"支持\\",\\"user\\":{\\"nickname\\":\\"Ly\\",\\"sec_uid\\":\\"MS4w\\"}}]}"}
+                ]}}]}
+                """);
+        when(browser.service_extract_region_main("douyin.comments", 160)).thenReturn("""
+                {"ok":true,"results":[{"payload":{"items":[]}}]}
+                """);
+        when(browser.service_hover_main(anyDouble(), anyDouble())).thenReturn("{\"ok\":true}");
+        when(browser.service_scroll_region_main(eq("douyin.comments"), eq("down"), anyDouble(), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn("{\"ok\":true,\"results\":[{\"payload\":{\"moved\":true,\"mode\":\"comment_region_wheel\",\"reason\":\"comment_window_advanced\",\"forwardProgress\":true}}]}");
+
+        var result = adapter.collectAllComments(region);
+
+        assertThat(result.declaredCommentCount()).isEqualTo(90);
+        assertThat(result.complete()).isFalse();
+        assertThat(result.stopReason()).isEqualTo("END_OF_LIST_DECLARED_MISMATCH");
+        assertThat(result.metadata()).containsEntry("remainingDeclaredComments", 89);
+    }
+
+    @Test
     void collectAllCommentsUsesA11yVisibleCommentsWhenDomExtractionIsEmpty() {
         ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
         ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
@@ -1216,12 +1610,52 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
                 .containsExactly(
                         "听了半天就是在卖广告",
                         "又是转折点，又是财富！你们这些博主天天的服了");
-        assertThat(result.complete()).isTrue();
-        assertThat(result.stopReason()).isEqualTo("END_OF_LIST");
+        assertThat(result.complete()).isFalse();
+        assertThat(result.stopReason()).isEqualTo("END_OF_LIST_A11Y_ONLY");
         assertThat(result.metadata()).containsEntry("a11yTreeComments", 2L);
         assertThat(result.metadata()).containsEntry("primaryCollectionSource", "a11y_tree");
+        assertThat(result.metadata()).containsEntry("domExtractionUnavailable", true);
         verify(browser, atLeastOnce()).service_scroll_region_main(
                 eq("douyin.comments"), eq("down"), anyDouble(), org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void collectAllCommentsDoesNotMergeA11yCommentsWhenDomExtractionSucceeds() {
+        ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
+        ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
+                browser,
+                new ObjectMapper(),
+                new DouyinCommentCollector());
+        DouyinBrowserAdapter.RegionInfo region = DouyinBrowserAdapter.RegionInfo.comments(
+                718d, 17d, 562d, 558d, "dom-comment-items");
+        String page = """
+                {"ok":true,"url":"https://www.douyin.com/jingxuan/search/yqx?modal_id=6689257066038676740","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1280,"h":575},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 1 @{760,58 140x28}\\nLink[ref=ref_2, frame=0]: 视频作者 @{760,124 90x28}\\nStaticText[ref=ref_3, frame=0]: 工作都很忙，幸好还有你！❤ #易企秀 #vlog日常 @{810,164 360x32}\\nLink[ref=ref_4, frame=0]: 污染作者 @{760,230 100x28}\\nStaticText[ref=ref_5, frame=0]: 这不是结构化 DOM 评论 @{810,270 260x32}\\nTextbox[ref=ref_6, frame=0]: 说点什么 @{760,520 320x44}"}
+                """;
+        String endPage = """
+                {"ok":true,"url":"https://www.douyin.com/jingxuan/search/yqx?modal_id=6689257066038676740","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1280,"h":575},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 1 @{760,58 140x28}\\nStaticText[ref=ref_7, frame=0]: 暂时没有更多评论 @{810,500 200x28}"}
+                """;
+        when(browser.service_observe_main("all")).thenReturn(page, page, endPage, endPage);
+        when(browser.service_douyin_comment_network_main("drain", null, null, null)).thenReturn("""
+                {"ok":true,"results":[{"payload":{"pages":[]}}]}
+                """);
+        when(browser.service_extract_region_main("douyin.comments", 160)).thenReturn("""
+                {"ok":true,"results":[{"payload":{"items":[
+                  {"itemType":"comment_count","text":"1"},
+                  {"itemType":"douyin_comment","author":"真实用户","text":"这是结构化 DOM 评论","href":"https://www.douyin.com/user/MS4w","bbox":{"x":780,"y":212,"width":260,"height":32}}
+                ]}}]}
+                """);
+        when(browser.service_hover_main(anyDouble(), anyDouble())).thenReturn("{\"ok\":true}");
+        when(browser.service_scroll_region_main(eq("douyin.comments"), eq("down"), anyDouble(), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn("{\"ok\":true,\"results\":[{\"payload\":{\"moved\":true,\"mode\":\"comment_region_wheel\",\"reason\":\"comment_window_advanced\",\"forwardProgress\":true}}]}");
+
+        var result = adapter.collectAllComments(region);
+
+        assertThat(result.comments()).hasSize(1);
+        assertThat(result.comments().getFirst().authorName()).isEqualTo("真实用户");
+        assertThat(result.comments().getFirst().text()).isEqualTo("这是结构化 DOM 评论");
+        assertThat(result.metadata()).containsEntry("extractedRegionComments", 1L);
+        assertThat(result.metadata()).containsEntry("a11yTreeComments", 0L);
+        assertThat(result.metadata()).containsEntry("primaryCollectionSource", "extract_region");
     }
 
     @Test
@@ -1234,15 +1668,15 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
         DouyinBrowserAdapter.RegionInfo region = DouyinBrowserAdapter.RegionInfo.comments(
                 960d, 80d, 520d, 760d, "test");
         String page = """
-                {"ok":true,"url":"https://www.douyin.com/search/openclaw?modal_id=111","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 50 @{980,88 140x28}\\nLink[ref=ref_2, frame=0]: Ly @{980,180 80x24}\\nStaticText[ref=ref_3, frame=0]: 第一条评论内容。 @{1030,212 260x32}"}
+                {"ok":true,"url":"https://www.douyin.com/search/openclaw?modal_id=111","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 1 @{980,88 140x28}\\nLink[ref=ref_2, frame=0]: Ly @{980,180 80x24}\\nStaticText[ref=ref_3, frame=0]: 第一条评论内容。 @{1030,212 260x32}"}
                 """;
         String endPage = """
-                {"ok":true,"url":"https://www.douyin.com/search/openclaw?modal_id=111","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 50 @{980,88 140x28}\\nLink[ref=ref_2, frame=0]: Ly @{980,180 80x24}\\nStaticText[ref=ref_3, frame=0]: 第一条评论内容。 @{1030,212 260x32}\\nStaticText[ref=ref_4, frame=0]: 暂时没有更多评论 @{1030,720 200x28}"}
+                {"ok":true,"url":"https://www.douyin.com/search/openclaw?modal_id=111","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":855},"tree":"StaticText[ref=ref_1, frame=0]: 全部评论 1 @{980,88 140x28}\\nLink[ref=ref_2, frame=0]: Ly @{980,180 80x24}\\nStaticText[ref=ref_3, frame=0]: 第一条评论内容。 @{1030,212 260x32}\\nStaticText[ref=ref_4, frame=0]: 暂时没有更多评论 @{1030,720 200x28}"}
                 """;
         when(browser.service_observe_main("all")).thenReturn(page, page, endPage, endPage);
         when(browser.service_extract_region_main("douyin.comments", 160)).thenReturn("""
                 {"ok":true,"results":[{"payload":{"items":[
-                  {"itemType":"comment_count","text":"50"},
+                  {"itemType":"comment_count","text":"1"},
                   {"itemType":"douyin_comment","author":"Ly","text":"第一条评论内容。","href":"https://www.douyin.com/user/MS4w","bbox":{"x":1030,"y":212,"width":260,"height":32}}
                 ]}}]}
                 """);

@@ -118,8 +118,15 @@ class ActionSuccessPayloadTest {
                 new ExtractRegionSuccess.BBox(1, 2, 3, 4),
                 "douyin_comment",
                 "alice",
-                java.util.List.of("https://example.com"));
-        var success = new ExtractRegionSuccess("douyin.comments", java.util.List.of(item));
+                java.util.List.of("https://example.com"),
+                true);
+        var success = new ExtractRegionSuccess(
+                "douyin.comments",
+                java.util.List.of(item),
+                java.util.Map.of(
+                        "commentListCount", 1,
+                        "documentCommentItems", 66,
+                        "firstTexts", java.util.List.of("hello")));
 
         String json = mapper.writeValueAsString(success);
         ExtractRegionSuccess back = mapper.readValue(json, ExtractRegionSuccess.class);
@@ -127,6 +134,9 @@ class ActionSuccessPayloadTest {
         assertThat(json)
                 .contains("\"regionKey\":\"douyin.comments\"")
                 .contains("\"itemType\":\"douyin_comment\"")
+                .contains("\"visibleInRegion\":true")
+                .contains("\"commentListCount\":1")
+                .contains("\"documentCommentItems\":66")
                 .contains("\"bbox\":{\"x\":1.0,\"y\":2.0,\"width\":3.0,\"height\":4.0}");
         assertThat(back).isEqualTo(success);
     }
@@ -168,10 +178,13 @@ class ActionSuccessPayloadTest {
         assertThat(scrollBack).isInstanceOf(ScrollSuccess.class);
 
         String extractJson = """
-            {"kind":"extract_region","regionKey":"douyin.comments","items":[]}
+            {"kind":"extract_region","regionKey":"douyin.comments","items":[],"diagnostics":{"commentListCount":1}}
             """;
         ActionSuccessPayload extractBack = mapper.readValue(extractJson, ActionSuccessPayload.class);
-        assertThat(extractBack).isEqualTo(new ExtractRegionSuccess("douyin.comments", java.util.List.of()));
+        assertThat(extractBack).isEqualTo(new ExtractRegionSuccess(
+                "douyin.comments",
+                java.util.List.of(),
+                java.util.Map.of("commentListCount", 1)));
 
         String detectJson = """
             {"kind":"detect_region","regionKey":"douyin.comments","rect":{"x":10,"y":20,"width":300,"height":400},"safePoint":{"x":220,"y":260},"source":"dom"}
@@ -214,5 +227,14 @@ class ActionSuccessPayloadTest {
         ActionSuccessPayload back = mapper.readValue(json, ActionSuccessPayload.class);
 
         assertThat(back).isEqualTo(new DouyinCommentNetworkSuccess("drain", java.util.List.of(), 0, 0));
+    }
+
+    @Test
+    void abstractInterfaceDispatch_closeTab() throws Exception {
+        ActionSuccessPayload back = mapper.readValue(
+                "{\"kind\":\"close_tab\",\"tabId\":42}",
+                ActionSuccessPayload.class);
+
+        assertThat(back).isEqualTo(new CloseTabSuccess(42));
     }
 }

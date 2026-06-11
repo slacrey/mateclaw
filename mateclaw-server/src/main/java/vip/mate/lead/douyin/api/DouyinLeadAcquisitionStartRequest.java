@@ -1,6 +1,7 @@
 package vip.mate.lead.douyin.api;
 
 import vip.mate.lead.douyin.model.DouyinLeadAcquisitionInput;
+import vip.mate.exception.MateClawException;
 
 public record DouyinLeadAcquisitionStartRequest(
         String keyword,
@@ -23,6 +24,15 @@ public record DouyinLeadAcquisitionStartRequest(
     }
 
     public DouyinLeadAcquisitionInput normalized() {
+        if (keyword == null || keyword.isBlank()) {
+            throw new MateClawException("err.lead.douyin.keyword_required", "Douyin keyword is required");
+        }
+        if (videoLimit != null
+                && (videoLimit < DouyinLeadAcquisitionInput.MIN_VIDEO_LIMIT
+                || videoLimit > DouyinLeadAcquisitionInput.MAX_VIDEO_LIMIT)) {
+            throw new MateClawException("err.lead.douyin.video_limit_invalid",
+                    "Douyin videoLimit must be between 1 and 50");
+        }
         return new DouyinLeadAcquisitionInput(
                 keyword,
                 sort,

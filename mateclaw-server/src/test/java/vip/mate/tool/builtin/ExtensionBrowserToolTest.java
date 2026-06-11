@@ -10,6 +10,8 @@ import vip.mate.browser.edge.action.ActionRequest;
 import vip.mate.browser.edge.action.ActionResult;
 import vip.mate.browser.edge.action.ClickPayload;
 import vip.mate.browser.edge.action.ClickSuccess;
+import vip.mate.browser.edge.action.CloseTabPayload;
+import vip.mate.browser.edge.action.CloseTabSuccess;
 import vip.mate.browser.edge.action.MoveMousePayload;
 import vip.mate.browser.edge.action.NavigateSuccess;
 import vip.mate.browser.edge.action.PressKeyPayload;
@@ -305,6 +307,27 @@ class ExtensionBrowserToolTest {
         assertThat(sent.get(0).kind()).isEqualTo(ActionKind.PRESS_KEY);
         var payload = (PressKeyPayload) sent.get(0).params();
         assertThat(payload.key()).isEqualTo("x");
+    }
+
+    @Test
+    void serviceCloseTabActive_dispatchesCloseTabRequest() throws Exception {
+        when(planExec.execute(any(), any())).thenReturn(Mono.just((PlanResult)
+                new PlanResult.Success(List.of(
+                        new ActionResult.Success(11L, new CloseTabSuccess(42L))))));
+
+        String out = tool.service_close_tab_active();
+
+        JsonNode j = mapper.readTree(out);
+        assertThat(j.get("results").get(0).get("payload").get("tabId").asLong())
+                .isEqualTo(42L);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(planExec).execute(any(), captor.capture());
+        @SuppressWarnings("unchecked")
+        List<ActionRequest> sent = (List<ActionRequest>) captor.getValue();
+        assertThat(sent.get(0).kind()).isEqualTo(ActionKind.CLOSE_TAB);
+        assertThat(sent.get(0).tabRef()).isEqualTo(new TabRef.Active());
+        assertThat(sent.get(0).params()).isInstanceOf(CloseTabPayload.class);
     }
 
     @Test

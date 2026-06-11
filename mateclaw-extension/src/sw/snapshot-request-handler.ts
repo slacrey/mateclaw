@@ -210,6 +210,7 @@ export class SnapshotRequestHandler {
       return
     }
 
+    logA11ySnapshotForDebug(tabId, snapshotId, req, snapshot)
     this.sendResponse(msg, {
       snapshot_id: snapshotId,
       captured_at_ms: capturedAtMs,
@@ -514,6 +515,35 @@ export class SnapshotRequestHandler {
 
   private clock(): number {
     return this.deps.clock ? this.deps.clock() : Date.now()
+  }
+}
+
+function logA11ySnapshotForDebug(
+  tabId: number,
+  snapshotId: string,
+  req: SnapshotRequestPayload,
+  snapshot: SnapshotResult,
+): void {
+  const url = snapshot.url || ''
+  if (!url.includes('douyin.com') && !url.includes('iesdouyin.com')) {
+    return
+  }
+  const tree = snapshot.tree || ''
+  const lines = tree ? tree.split('\n').length : 0
+  console.info('[mateclaw][a11y.snapshot]', {
+    snapshotId,
+    tabId,
+    url,
+    title: snapshot.title || '',
+    filter: req.filter,
+    frameId: req.frame_id ?? null,
+    refId: req.ref_id ?? null,
+    viewport: snapshot.viewport,
+    treeChars: tree.length,
+    treeLines: lines,
+  })
+  if (!tree) {
+    console.info('[mateclaw][a11y.snapshot][tree-empty]', { snapshotId, tabId, url })
   }
 }
 

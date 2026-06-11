@@ -57,17 +57,18 @@ describe('ActionExecutor', () => {
     expect(result.ok).toBe(true)
   })
 
-  it('routes type / scroll / scroll_region / register_region / detect_region / extract_region / move_mouse / wait / douyin_comment_network to their handlers', async () => {
+  it('routes type / scroll / scroll_region / register_region / detect_region / extract_region / close_tab / move_mouse / wait / douyin_comment_network to their handlers', async () => {
     const type = vi.fn(async () => ok({ chars_typed: 5 }))
     const scroll = vi.fn(async () => ok())
     const scroll_region = vi.fn(async () => ok({ regionKey: 'feed' }))
     const register_region = vi.fn(async () => ok({ regionKey: 'feed', rect: { x: 0, y: 0, width: 100, height: 100 } }))
     const detect_region = vi.fn(async () => ok({ regionKey: 'feed', rect: { x: 0, y: 0, width: 100, height: 100 } }))
     const extract_region = vi.fn(async () => ok({ regionKey: 'feed', items: [] }))
+    const close_tab = vi.fn(async () => ok({ tabId: 42 }))
     const move_mouse = vi.fn(async () => ok({ arrived_at_ms: 100, waypoints: 5 }))
     const wait = vi.fn(async () => ok({ waited_ms: 200 }))
     const douyin_comment_network = vi.fn(async () => ok({ op: 'drain', pages: [] }))
-    const exec = new ActionExecutor({ type, scroll, scroll_region, register_region, detect_region, extract_region, move_mouse, wait, douyin_comment_network } as unknown as ActionHandlers)
+    const exec = new ActionExecutor({ type, scroll, scroll_region, register_region, detect_region, extract_region, close_tab, move_mouse, wait, douyin_comment_network } as unknown as ActionHandlers)
 
     await exec.run(42, { msg_id: 'm', tab_ref: 'main', kind: 'type', params: { text: 'hello' }, deadline_ms: 1000 })
     await exec.run(42, { msg_id: 'm', tab_ref: 'main', kind: 'scroll', params: { direction: 'down', distance_px: 300, segments: 5 }, deadline_ms: 1000 })
@@ -75,6 +76,7 @@ describe('ActionExecutor', () => {
     await exec.run(42, { msg_id: 'm', tab_ref: 'main', kind: 'register_region', params: { regionKey: 'feed', rect: { x: 0, y: 0, width: 100, height: 100 } }, deadline_ms: 1000 })
     await exec.run(42, { msg_id: 'm', tab_ref: 'main', kind: 'detect_region', params: { regionKey: 'feed' }, deadline_ms: 1000 })
     await exec.run(42, { msg_id: 'm', tab_ref: 'main', kind: 'extract_region', params: { regionKey: 'feed' }, deadline_ms: 1000 })
+    await exec.run(42, { msg_id: 'm', tab_ref: 'active', kind: 'close_tab', params: {}, deadline_ms: 1000 })
     await exec.run(42, { msg_id: 'm', tab_ref: 'main', kind: 'move_mouse', params: { x: 50, y: 50, profile: 'natural' }, deadline_ms: 1000 })
     await exec.run(42, { msg_id: 'm', tab_ref: 'main', kind: 'wait', params: { strategy: 'network_idle' }, deadline_ms: 1000 })
     await exec.run(42, { msg_id: 'm', tab_ref: 'main', kind: 'douyin_comment_network', params: { op: 'drain' }, deadline_ms: 1000 })
@@ -85,6 +87,7 @@ describe('ActionExecutor', () => {
     expect(register_region).toHaveBeenCalledOnce()
     expect(detect_region).toHaveBeenCalledOnce()
     expect(extract_region).toHaveBeenCalledOnce()
+    expect(close_tab).toHaveBeenCalledOnce()
     expect(move_mouse).toHaveBeenCalledOnce()
     expect(wait).toHaveBeenCalledOnce()
     expect(douyin_comment_network).toHaveBeenCalledOnce()

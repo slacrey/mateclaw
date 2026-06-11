@@ -11,8 +11,10 @@ public record DouyinLeadAcquisitionInput(
 ) {
     public static final String DEFAULT_KEYWORD = "openclaw";
     public static final String DEFAULT_SORT = "most_liked";
-    public static final int DEFAULT_VIDEO_LIMIT = 1;
-    public static final String DEFAULT_COMMENT_MATCH_RULE = "对于99%的人用豆包就行了。";
+    public static final int DEFAULT_VIDEO_LIMIT = 50;
+    public static final int MIN_VIDEO_LIMIT = 1;
+    public static final int MAX_VIDEO_LIMIT = 50;
+    public static final String DEFAULT_COMMENT_MATCH_RULE = "";
     public static final String DEFAULT_DM_DRAFT = "你好";
 
     public DouyinLeadAcquisitionInput(
@@ -29,8 +31,8 @@ public record DouyinLeadAcquisitionInput(
     public DouyinLeadAcquisitionInput {
         keyword = defaulted(keyword, DEFAULT_KEYWORD);
         sort = defaulted(sort, DEFAULT_SORT);
-        videoLimit = videoLimit <= 0 ? DEFAULT_VIDEO_LIMIT : Math.min(videoLimit, 50);
-        commentMatchRule = defaulted(commentMatchRule, DEFAULT_COMMENT_MATCH_RULE);
+        videoLimit = videoLimit <= 0 ? DEFAULT_VIDEO_LIMIT : Math.min(Math.max(videoLimit, MIN_VIDEO_LIMIT), MAX_VIDEO_LIMIT);
+        commentMatchRule = optional(commentMatchRule);
         dmDraft = defaulted(dmDraft, DEFAULT_DM_DRAFT);
     }
 
@@ -47,5 +49,9 @@ public record DouyinLeadAcquisitionInput(
 
     private static String defaulted(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value.trim();
+    }
+
+    private static String optional(String value) {
+        return value == null ? "" : value.trim();
     }
 }

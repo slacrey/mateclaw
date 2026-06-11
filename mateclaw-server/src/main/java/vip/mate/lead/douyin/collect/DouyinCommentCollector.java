@@ -160,13 +160,19 @@ public class DouyinCommentCollector {
                 continue;
             }
             String text = clean(item.path("text").asText(""));
-            if (!isLikelyCommentText(text)) {
+            String author = clean(item.path("author").asText(""));
+            if (!isStructuredExtractedCommentText(text, author)) {
                 continue;
             }
-            String author = clean(item.path("author").asText(""));
             String href = bestProfileHref(item);
             DouyinCommentItem.ClickTarget target = clickTarget(item.path("bbox"), item.path("href").asText(null));
             String key = stableCommentKey(videoKey, author, href, text);
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("source", "extract_region");
+            metadata.put("rawText", text);
+            if (item.has("visibleInRegion")) {
+                metadata.put("visibleInRegion", item.path("visibleInRegion").asBoolean(false));
+            }
             out.add(new DouyinCommentItem(
                     videoKey,
                     key,
@@ -178,7 +184,7 @@ public class DouyinCommentCollector {
                     null,
                     null,
                     target,
-                    Map.of("source", "extract_region", "rawText", text)));
+                    metadata));
         }
         return out;
     }
@@ -468,6 +474,10 @@ public class DouyinCommentCollector {
     }
 
     public int declaredCommentCount(String tree) {
+        return declaredCommentCount(tree, null);
+    }
+
+    public int declaredCommentCount(String tree, DouyinBrowserAdapter.RegionInfo region) {
         int best = 0;
         if (tree == null || tree.isBlank()) {
             return best;
@@ -536,15 +546,18 @@ public class DouyinCommentCollector {
                 continue;
             }
             TreeLine author = nearestAuthor(lines, i).orElse(null);
-            if (author == null && !isLikelyCommentText(line.name()) && !isStrongStandaloneCommentText(line.name())) {
+            if (author == null) {
                 continue;
             }
-            String authorName = author == null ? "" : author.name();
+            String authorName = author.name();
             if (!authorName.isBlank() && clean(authorName).equals(clean(line.name()))) {
                 continue;
             }
-            DouyinCommentItem.ClickTarget authorTarget = author == null
-                    || !isHighConfidenceAuthorTarget(author)
+            String commentText = stripAuthorPrefix(line.name(), authorName);
+            if (!isPossibleA11yCommentText(commentText)) {
+                continue;
+            }
+            DouyinCommentItem.ClickTarget authorTarget = !isHighConfidenceAuthorTarget(author)
                     || !isVisibleViewportTarget(author)
                     ? null
                     : new DouyinCommentItem.ClickTarget(
@@ -552,7 +565,7 @@ public class DouyinCommentCollector {
                     (double) author.centerY(),
                     author.ref(),
                     Map.of("x", author.x(), "y", author.y(), "width", author.w(), "height", author.h()));
-            String key = stableCommentKey(videoKey, authorName, null, line.name());
+            String key = stableCommentKey(videoKey, authorName, null, commentText);
             out.putIfAbsent(key, new DouyinCommentItem(
                     videoKey,
                     key,
@@ -560,7 +573,7 @@ public class DouyinCommentCollector {
                     authorName,
                     null,
                     null,
-                    line.name(),
+                    commentText,
                     null,
                     null,
                     authorTarget,
@@ -572,6 +585,9 @@ public class DouyinCommentCollector {
     private boolean isPossibleA11yCommentText(String text) {
         String value = clean(text);
         if (value.length() < 4 || value.length() > 600) {
+            return false;
+        }
+        if (value.matches("^转发\\s*[·・•]?$")) {
             return false;
         }
         String normalized = value.toLowerCase(Locale.ROOT);
@@ -660,6 +676,54 @@ public class DouyinCommentCollector {
                 || value.contains("，")
                 || value.contains(",")
                 || (value.length() >= 14 && !isLikelyCompactUserName(value));
+    }
+
+    private boolean isStructuredExtractedCommentText(String text, String author) {
+        String value = clean(text);
+        if (value.isBlank() || value.length() > 600) {
+            return false;
+        }
+        String cleanAuthor = clean(author);
+        if (cleanAuthor.isBlank() && value.contains("#")) {
+            return false;
+        }
+        if (!cleanAuthor.isBlank() && clean(value).equals(cleanAuthor)) {
+            return false;
+        }
+        if (value.endsWith("头像")
+                || value.contains("头像")
+                || COMMENT_TIME_LOCATION.matcher(value).matches()
+                || GENERIC_USER_ID.matcher(value).matches()
+                || value.equals("评论")
+                || value.equals("详情")
+                || value.equals("TA的作品")
+                || value.equals("问AI")
+                || value.equals("回复")
+                || value.equals("关注")
+                || value.equals("已关注")
+                || value.equals("互相关注")
+                || value.equals("回关")
+                || value.equals("私信")
+                || value.equals("发私信")
+                || value.equals("条回复")
+                || value.startsWith("展开")
+                || value.equals("点赞")
+                || value.equals("分享")
+                || value.equals("收藏")
+                || value.equals("留下你的精彩评论吧")
+                || value.equals("说点什么")
+                || value.equals("发表评论")
+                || value.equals("没有更多评论")
+                || value.equals("暂时没有更多评论")
+                || value.equals("已展示全部评论")
+                || value.equals("到底了")
+                || value.equals("大家都在搜：")
+                || value.equals("Stop Agent")
+                || value.matches("^\\d+(?:\\.\\d+)?([万wWkK千])?$")
+                || value.matches("^\\d+条?回复$")) {
+            return false;
+        }
+        return true;
     }
 
     private boolean isLikelyAuthorLine(TreeLine line) {
@@ -838,9 +902,11 @@ public class DouyinCommentCollector {
         String cleanText = clean(text);
         String cleanAuthor = clean(author);
         if (!cleanAuthor.isBlank() && cleanText.startsWith(cleanAuthor)) {
-            return clean(cleanText.substring(cleanAuthor.length()));
+            cleanText = clean(cleanText.substring(cleanAuthor.length()));
         }
-        return cleanText;
+        return cleanText
+                .replaceFirst("^转发\\s*[·・•]\\s*", "")
+                .trim();
     }
 
     private String stableCommentKey(String videoKey, String author, String profileHref, String text) {
@@ -926,4 +992,5 @@ public class DouyinCommentCollector {
             return y + h / 2;
         }
     }
+
 }

@@ -445,6 +445,288 @@ export const skillInstallApi = {
   },
 }
 
+// ==================== Lead Acquisition ====================
+export interface DouyinLeadAcquisitionStartRequest {
+  keyword?: string | null
+  sort?: 'most_liked' | 'latest' | string | null
+  videoLimit?: number | null
+  commentMatchRule?: string | null
+  dmDraft?: string | null
+  sendDm?: boolean | null
+  engage?: boolean | null
+}
+
+export interface DouyinLeadAcquisitionStartPayload {
+  keyword: string
+  sort: 'most_liked' | 'latest' | string
+  videoLimit: number
+  commentMatchRule: string
+  dmDraft: string
+  engage: boolean
+  sendDm: boolean
+}
+
+export interface DouyinLeadTemplatePayload {
+  name: string
+  keyword: string
+  sort: 'most_liked' | 'latest' | string
+  videoLimit: number
+  commentMatchRule: string
+  dmDraft: string
+  engage: boolean
+  sendDm: boolean
+}
+
+export interface DouyinLeadTemplate {
+  id: string
+  name: string
+  keyword: string | null
+  sort: string | null
+  videoLimit: number
+  commentMatchRule: string | null
+  dmDraft: string | null
+  engage: boolean
+  sendDm: boolean
+  createTime: string | null
+  updateTime: string | null
+}
+
+export interface DouyinLeadComment {
+  id: string
+  commentKey: string | null
+  videoKey: string | null
+  authorName: string | null
+  authorProfileUrl: string | null
+  text: string | null
+  matched: boolean
+  matchScore: number | null
+  matchReason: string | null
+}
+
+export interface DouyinLeadProfile {
+  id: string
+  platform: string | null
+  profileUrl: string | null
+  displayName: string | null
+  handle: string | null
+  avatarUrl: string | null
+  bio: string | null
+}
+
+export interface DouyinLeadEngagement {
+  id: string
+  profileId: string | null
+  commentId: string | null
+  actionType: string | null
+  status: string | null
+  draftText: string | null
+  failureCode: string | null
+  failureMessage: string | null
+  evidenceRef: string | null
+  sent: boolean
+}
+
+export interface DouyinLeadRunVideoResult {
+  index?: number | null
+  videoKey?: string | null
+  title?: string | null
+  url?: string | null
+  status?: string | null
+  errorCode?: string | null
+  errorMessage?: string | null
+  commentsCollected?: number | null
+  declaredCommentCount?: number | null
+  remainingDeclaredComments?: number | null
+  collectionCoverage?: number | null
+  matchedComments?: number | null
+  engagementsCreated?: number | null
+  [key: string]: unknown
+}
+
+export interface DouyinLeadRunSummary {
+  requestedVideoLimit: number
+  processedVideos: number
+  succeededVideos: number
+  failedVideos: number
+  commentsCollected: number
+  declaredCommentCount?: number | null
+  remainingDeclaredComments?: number | null
+  collectionCoverage?: number | null
+  matchedComments: number
+  engagementsCreated: number
+  videoResults?: DouyinLeadRunVideoResult[]
+}
+
+export interface DouyinLeadRunListItem {
+  runId: string | null
+  taskId: string | null
+  keyword: string | null
+  sort: string | null
+  status: string | null
+  requestedVideoLimit: number
+  processedVideos: number
+  failedVideos: number
+  commentsCollected: number
+  matchedComments: number
+  engagementsCreated: number
+  failureCode: string | null
+  failureMessage: string | null
+  createTime: string | null
+  updateTime: string | null
+}
+
+export interface DouyinLeadPoolItem {
+  runId: string | null
+  taskId: string | null
+  keyword: string | null
+  sort: string | null
+  runStatus: string | null
+  commentId: string | null
+  commentKey: string | null
+  videoKey: string | null
+  authorName: string | null
+  authorProfileUrl: string | null
+  text: string | null
+  matchScore: number | null
+  matchReason: string | null
+  engagementId: string | null
+  profileId: string | null
+  profileUrl: string | null
+  displayName: string | null
+  actionType: string | null
+  engagementStatus: string | null
+  sent: boolean
+  draftText: string | null
+  failureCode: string | null
+  failureMessage: string | null
+  evidenceRef: string | null
+  createTime: string | null
+  updateTime: string | null
+}
+
+export interface DouyinLeadFailureReasonStat {
+  reason: string
+  count: number
+}
+
+export interface DouyinLeadStatsResponse {
+  taskCount: number
+  runningTasks: number
+  succeededTasks: number
+  failedTasks: number
+  requestedVideos: number
+  processedVideos: number
+  succeededVideos: number
+  failedVideos: number
+  commentsCollected: number
+  matchedComments: number
+  engagementsCreated: number
+  sentMessages: number
+  matchRate: number
+  engagementRate: number
+  sendSuccessRate: number
+  failureReasons: DouyinLeadFailureReasonStat[]
+}
+
+export type DouyinLeadTimelineEventType =
+  | 'run_created'
+  | 'run_started'
+  | 'run_status_changed'
+  | 'lead.search.started'
+  | 'lead.search.completed'
+  | 'lead.sort.started'
+  | 'lead.sort.completed'
+  | 'lead.video.started'
+  | 'lead.video.opened'
+  | 'lead.comments.opened'
+  | 'lead.comments.region_detected'
+  | 'lead.comments.collecting'
+  | 'lead.comments.collected'
+  | 'lead.comment.matched'
+  | 'lead.comment.match_skipped'
+  | 'lead.engagement.started'
+  | 'lead.engagement.completed'
+  | 'lead.engagement.skipped'
+  | 'lead.video.completed'
+  | 'lead.video.failed'
+  | 'lead.run.summary'
+  | 'lead.run.failed'
+  | 'run_snapshot'
+  | 'heartbeat'
+  | 'done'
+  | (string & {})
+
+export interface DouyinLeadTimelineEvent {
+  id: string
+  stepId: string | null
+  type: DouyinLeadTimelineEventType
+  severity: 'info' | 'warn' | 'error' | string | null
+  payloadJson: string | null
+  createTime?: string | null
+}
+
+export interface DouyinLeadAcquisitionRunResponse {
+  runId: string | null
+  taskId: string | null
+  status: string
+  commentsCollected: number
+  declaredCommentCount?: number | null
+  remainingDeclaredComments?: number | null
+  collectionCoverage?: number | null
+  matchedComments: number
+  comments: DouyinLeadComment[]
+  matches: DouyinLeadComment[]
+  engagements: DouyinLeadEngagement[]
+  events: DouyinLeadTimelineEvent[]
+  /** Run summary counters. Also mirrored in the lead.run.summary event payload. */
+  requestedVideoLimit?: number | null
+  processedVideos?: number | null
+  succeededVideos?: number | null
+  failedVideos?: number | null
+  engagementsCreated?: number | null
+  summary?: DouyinLeadRunSummary | null
+  runSummary?: DouyinLeadRunSummary | null
+}
+
+export const leadAcquisitionApi = {
+  startDouyinRun: (data?: DouyinLeadAcquisitionStartRequest) =>
+    http.post<DouyinLeadAcquisitionRunResponse>('/lead-acquisition/douyin/runs', data ?? {}),
+  getDouyinStats: (params?: { limit?: number; keyword?: string }) =>
+    http.get<DouyinLeadStatsResponse>('/lead-acquisition/douyin/stats', { params: params ?? {} }),
+  listDouyinRuns: (limit = 20) =>
+    http.get<DouyinLeadRunListItem[]>('/lead-acquisition/douyin/runs', { params: { limit } }),
+  listDouyinLeads: (params?: { limit?: number; status?: string; keyword?: string }) =>
+    http.get<DouyinLeadPoolItem[]>('/lead-acquisition/douyin/leads', { params: params ?? {} }),
+  listDouyinTemplates: () =>
+    http.get<DouyinLeadTemplate[]>('/lead-acquisition/douyin/templates'),
+  createDouyinTemplate: (data: DouyinLeadTemplatePayload) =>
+    http.post<DouyinLeadTemplate>('/lead-acquisition/douyin/templates', data),
+  updateDouyinTemplate: (id: string | number, data: DouyinLeadTemplatePayload) =>
+    http.put<DouyinLeadTemplate>(`/lead-acquisition/douyin/templates/${id}`, data),
+  deleteDouyinTemplate: (id: string | number) =>
+    http.delete<{ deleted: boolean; id: string }>(`/lead-acquisition/douyin/templates/${id}`),
+  getDouyinRun: (runId: string | number) =>
+    http.get<DouyinLeadAcquisitionRunResponse>(`/lead-acquisition/runs/${runId}`),
+  streamDouyinRunEventsUrl: (runId: string | number, afterEventId?: string | number | null) => {
+    const params = new URLSearchParams()
+    const token = localStorage.getItem('token')
+    if (token) params.set('token', token)
+    if (afterEventId != null && afterEventId !== '') params.set('afterEventId', String(afterEventId))
+    const query = params.toString()
+    return `/api/v1/lead-acquisition/runs/${runId}/events/stream${query ? `?${query}` : ''}`
+  },
+  cancelRun: (runId: string | number) =>
+    http.post<{ cancelled: boolean; runId: string }>(`/lead-acquisition/runs/${runId}/cancel`),
+  getDouyinTask: (taskId: string | number) =>
+    http.get<DouyinLeadAcquisitionRunResponse>(`/lead-acquisition/tasks/${taskId}`),
+  listDouyinComments: (taskId: string | number) =>
+    http.get<DouyinLeadComment[]>(`/lead-acquisition/tasks/${taskId}/comments`),
+  listDouyinProfiles: (taskId: string | number) =>
+    http.get<DouyinLeadProfile[]>(`/lead-acquisition/tasks/${taskId}/profiles`),
+  listDouyinEngagements: (taskId: string | number) =>
+    http.get<DouyinLeadEngagement[]>(`/lead-acquisition/tasks/${taskId}/engagements`),
+}
+
 // ==================== Datasource ====================
 export const datasourceApi = {
   list: () => http.get('/datasources'),

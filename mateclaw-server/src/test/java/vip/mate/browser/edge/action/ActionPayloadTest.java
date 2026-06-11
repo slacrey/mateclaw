@@ -156,6 +156,17 @@ class ActionPayloadTest {
     }
 
     @Test
+    void closeTabPayload_roundTrip() throws Exception {
+        var payload = new CloseTabPayload();
+
+        String json = mapper.writeValueAsString(payload);
+        CloseTabPayload back = mapper.readValue(json, CloseTabPayload.class);
+
+        assertThat(json).isEqualTo("{}");
+        assertThat(back).isEqualTo(payload);
+    }
+
+    @Test
     void clickPayload_clickCountDefaultsTo1() throws Exception {
         String json = "{\"x\":10,\"y\":20}";
 
@@ -291,6 +302,13 @@ class ActionPayloadTest {
 
         assertThat(p).isInstanceOf(DouyinCommentNetworkPayload.class);
         assertThat(((DouyinCommentNetworkPayload) p).op()).isEqualTo("drain");
+    }
+
+    @Test
+    void abstractInterfaceDispatch_closeTab() throws Exception {
+        ActionPayload p = mapper.readValue("{\"kind\":\"close_tab\"}", ActionPayload.class);
+
+        assertThat(p).isInstanceOf(CloseTabPayload.class);
     }
 
     @Test
