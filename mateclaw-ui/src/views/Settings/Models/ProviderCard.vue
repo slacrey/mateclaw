@@ -44,6 +44,16 @@
       </span>
     </p>
 
+    <div v-if="hasQuota" class="quota-row" :class="{ 'quota-row--empty': provider.quotaExhausted }">
+      <div class="quota-row__main">
+        <span class="quota-row__label">{{ t('settings.model.quotaRemaining') }}</span>
+        <span class="quota-row__value">{{ formatTokens(provider.quotaRemainingTokens || 0) }}</span>
+      </div>
+      <button class="quota-row__recharge" type="button" @click="showRechargeQr">
+        {{ t('settings.model.recharge') }}
+      </button>
+    </div>
+
     <!-- CREDENTIAL: the showcase. Inline API Key for the 90% case. -->
     <div class="cred-block">
       <!-- API-key flow (non-OAuth providers that need a key) -->
@@ -202,6 +212,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { ElMessageBox } from 'element-plus'
 import type { ProviderInfo } from '@/types'
 
 const props = defineProps<{
@@ -240,6 +251,8 @@ const saving = computed(() => props.savingApiKeyId === props.provider.id)
 const totalModelCount = computed(() =>
   (props.provider.models?.length || 0) + (props.provider.extraModels?.length || 0)
 )
+
+const hasQuota = computed(() => props.provider.quotaRemainingTokens !== undefined)
 
 /**
  * Single source of truth for the headline pill — collapses liveness + configured
@@ -318,6 +331,25 @@ function onCancel() {
   if (saving.value) return
   draft.value = ''
   editing.value = false
+}
+
+function formatTokens(value: number): string {
+  return new Intl.NumberFormat().format(Math.max(0, value))
+}
+
+function showRechargeQr() {
+  ElMessageBox.alert(
+    `<div class="provider-recharge-dialog">
+      <img src="/business-qr.svg" alt="${t('settings.model.rechargeQrAlt')}" />
+      <p>${t('settings.model.rechargeQrHint')}</p>
+    </div>`,
+    t('settings.model.rechargeTitle'),
+    {
+      dangerouslyUseHTMLString: true,
+      confirmButtonText: t('common.close'),
+      customClass: 'provider-recharge-messagebox',
+    }
+  )
 }
 </script>
 
@@ -459,6 +491,72 @@ function onCancel() {
   font-size: 11px;
   font-weight: 600;
   cursor: help;
+}
+
+.quota-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--mc-border);
+  border-radius: 8px;
+  background: var(--mc-bg-secondary);
+}
+.quota-row--empty {
+  border-color: rgba(220, 38, 38, 0.35);
+  background: rgba(220, 38, 38, 0.06);
+}
+.quota-row__main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.quota-row__label {
+  font-size: 11px;
+  color: var(--mc-text-tertiary);
+}
+.quota-row__value {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--mc-text-primary);
+  line-height: 1.2;
+  word-break: break-word;
+}
+.quota-row__recharge {
+  flex: 0 0 auto;
+  border: 1px solid var(--mc-border);
+  background: var(--mc-bg-primary);
+  color: var(--mc-text-primary);
+  border-radius: 6px;
+  height: 30px;
+  padding: 0 11px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.quota-row__recharge:hover {
+  border-color: var(--mc-primary);
+  color: var(--mc-primary);
+}
+:global(.provider-recharge-messagebox .provider-recharge-dialog) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+:global(.provider-recharge-messagebox .provider-recharge-dialog img) {
+  width: min(220px, 72vw);
+  height: auto;
+  border: 1px solid var(--mc-border);
+  border-radius: 8px;
+}
+:global(.provider-recharge-messagebox .provider-recharge-dialog p) {
+  margin: 0;
+  color: var(--mc-text-secondary);
+  font-size: 13px;
 }
 
 /* CRED BLOCK — the showcase */

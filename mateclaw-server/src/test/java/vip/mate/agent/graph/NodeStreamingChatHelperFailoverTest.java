@@ -5,7 +5,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.metadata.ChatGenerationMetadata;
+import org.springframework.ai.chat.metadata.DefaultUsage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
@@ -15,6 +17,7 @@ import vip.mate.channel.web.ChatStreamTracker;
 import vip.mate.llm.failover.FallbackEntry;
 import vip.mate.llm.failover.ProviderHealthProperties;
 import vip.mate.llm.failover.ProviderHealthTracker;
+import vip.mate.llm.service.ProviderTokenQuotaService;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -58,6 +61,18 @@ class NodeStreamingChatHelperFailoverTest {
         return m;
     }
 
+    /** Build a successful model whose response carries token usage metadata. */
+    private static ChatModel successModelWithUsage(String text, int promptTokens, int completionTokens) {
+        ChatModel m = mock(ChatModel.class);
+        Generation gen = new Generation(new AssistantMessage(text), ChatGenerationMetadata.NULL);
+        ChatResponseMetadata metadata = ChatResponseMetadata.builder()
+                .usage(new DefaultUsage(promptTokens, completionTokens, promptTokens + completionTokens))
+                .build();
+        ChatResponse resp = new ChatResponse(List.of(gen), metadata);
+        when(m.stream(any(Prompt.class))).thenReturn(Flux.just(resp));
+        return m;
+    }
+
     /** Build a chat-model mock whose stream() errors with the given Throwable. */
     private static ChatModel errorModel(Throwable err) {
         ChatModel m = mock(ChatModel.class);
@@ -69,6 +84,14 @@ class NodeStreamingChatHelperFailoverTest {
         // Construct via the full constructor so health tracking is wired and the
         // chain walker has provider-id context.
         return new NodeStreamingChatHelper(streamTracker, chain, null, healthTracker, primaryProviderId);
+    }
+
+    private NodeStreamingChatHelper helperWithQuota(List<FallbackEntry> chain,
+                                                    String primaryProviderId,
+                                                    ProviderTokenQuotaService quotaService,
+                                                    Long workspaceId) {
+        return new NodeStreamingChatHelper(streamTracker, chain, null, healthTracker,
+                primaryProviderId, null, quotaService, workspaceId);
     }
 
     private static Prompt smallPrompt() {
@@ -216,5 +239,24 @@ class NodeStreamingChatHelperFailoverTest {
 
         assertEquals("primary works fine", result.text());
         assertEquals(0, fallbackCalls.get(), "primary success must not touch the fallback chain");
+    }
+
+    @Test
+    @DisplayName("Quota usage is recorded against the fallback provider that actually produced the answer")
+    void fallbackSuccessRecordsQuotaOnActualProvider() {
+        ChatModel primary = errorModel(new RuntimeException("401 Unauthorized"));
+        ChatModel fallback = successModelWithUsage("deepseek answered", 10, 5);
+        ProviderTokenQuotaService quotaService = mock(ProviderTokenQuotaService.class);
+        var helper = helperWithQuota(
+                List.of(new FallbackEntry("deepseek", fallback)),
+                "dashscope",
+                quotaService,
+                20L);
+
+        var result = helper.streamCall(primary, smallPrompt(), "conv-quota-fallback", "reasoning");
+
+        assertEquals("deepseek answered", result.text());
+        verify(quotaService).recordUsage(20L, "deepseek", 10, 5);
+        verify(quotaService, never()).recordUsage(anyLong(), eq("dashscope"), anyInt(), anyInt());
     }
 }

@@ -467,14 +467,28 @@ function onMenuSelect(item: DropdownMenuItem) {
 
 <style scoped>
 .conversation-panel {
+  --mc-text-primary: rgba(248, 251, 255, 0.96);
+  --mc-text-secondary: rgba(207, 220, 255, 0.78);
+  --mc-text-tertiary: rgba(172, 194, 246, 0.62);
+  --mc-bg-elevated: rgba(15, 33, 82, 0.82);
+  --mc-bg-sunken: rgba(255, 255, 255, 0.08);
+  --mc-bg-muted: rgba(255, 255, 255, 0.10);
+  --mc-panel-raised: rgba(255, 255, 255, 0.08);
+  --mc-border: rgba(166, 194, 255, 0.28);
+  --mc-border-light: rgba(166, 194, 255, 0.18);
+  --mc-border-strong: rgba(25, 191, 209, 0.46);
   width: 248px;
   min-width: 248px;
-  background: linear-gradient(180deg, var(--mc-panel-top), var(--mc-panel-bottom));
-  border-right: 1px solid var(--mc-border-light);
+  background:
+    linear-gradient(180deg, var(--mc-sidebar-bg, rgba(8, 22, 66, 0.88)), rgba(4, 12, 36, 0.96));
+  border-right: 1px solid var(--mc-sidebar-border, rgba(166, 194, 255, 0.28));
+  color: var(--mc-text-primary);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   transition: width 0.25s ease, min-width 0.25s ease;
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(18px);
 }
 
 .conversation-panel.conv-collapsed {
@@ -508,16 +522,22 @@ function onMenuSelect(item: DropdownMenuItem) {
   height: 28px;
   border: none;
   border-bottom: 1px solid var(--mc-border-light);
-  background: transparent;
+  background: rgba(255, 255, 255, 0.02);
   color: var(--mc-text-tertiary);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
   flex-shrink: 0;
 }
 
-.conv-collapse-btn:hover {
-  background: var(--mc-bg-muted);
+.conv-collapse-btn:hover,
+.conv-collapse-btn:focus-visible {
+  background: var(--mc-sidebar-hover, rgba(255, 255, 255, 0.10));
   color: var(--mc-text-primary);
+}
+
+.conv-collapse-btn:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px rgba(25, 191, 209, 0.42);
 }
 
 .panel-header {
@@ -537,16 +557,16 @@ function onMenuSelect(item: DropdownMenuItem) {
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--mc-accent);
+  color: var(--mc-accent, #19BFD1);
   margin-bottom: 4px;
 }
 
 .panel-title {
   font-size: 16px;
   font-weight: 700;
-  color: var(--mc-text-primary);
+  color: var(--mc-sidebar-text-active, #ffffff);
   margin: 0;
-  letter-spacing: -0.03em;
+  letter-spacing: 0;
 }
 
 .panel-header-actions {
@@ -566,17 +586,24 @@ function onMenuSelect(item: DropdownMenuItem) {
   align-items: center;
   justify-content: center;
   color: var(--mc-text-secondary);
-  transition: all 0.15s;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
 }
 
-.panel-icon-btn:hover {
+.panel-icon-btn:hover,
+.panel-icon-btn:focus-visible {
   color: var(--mc-text-primary);
-  border-color: var(--mc-text-tertiary);
+  border-color: var(--mc-accent, #19BFD1);
+  background: var(--mc-sidebar-hover, rgba(255, 255, 255, 0.10));
+}
+
+.panel-icon-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(25, 191, 209, 0.24);
 }
 
 .panel-icon-btn.active {
-  background: var(--mc-primary);
-  border-color: var(--mc-primary);
+  background: var(--mc-sidebar-active, linear-gradient(135deg, #476CFF, #6E8BFF));
+  border-color: rgba(255, 255, 255, 0.34);
   color: white;
 }
 
@@ -584,19 +611,31 @@ function onMenuSelect(item: DropdownMenuItem) {
   width: 28px;
   height: 28px;
   border: 1px solid var(--mc-border);
-  background: var(--mc-panel-raised);
+  background: linear-gradient(135deg, var(--mc-primary, #476CFF), var(--mc-accent, #19BFD1));
   border-radius: 10px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--mc-text-primary);
-  transition: all 0.15s;
+  color: #ffffff;
+  box-shadow: 0 10px 22px rgba(71, 108, 255, 0.20);
+  transition: filter 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
+.new-chat-btn:hover,
+.new-chat-btn:focus-visible {
+  filter: brightness(1.08);
+  box-shadow: 0 12px 26px rgba(25, 191, 209, 0.24);
+  transform: translateY(-1px);
+}
+
+.new-chat-btn:focus-visible {
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.62);
+  box-shadow: 0 0 0 3px rgba(25, 191, 209, 0.30), 0 12px 26px rgba(25, 191, 209, 0.24);
 }
 
 .new-chat-btn:hover {
-  background: var(--mc-primary);
-  border-color: var(--mc-primary);
   color: white;
 }
 
@@ -615,7 +654,7 @@ function onMenuSelect(item: DropdownMenuItem) {
   width: 100%;
   font-size: 12px;
   color: var(--mc-text-secondary);
-  background: var(--mc-bg-elevated);
+  background: rgba(5, 17, 54, 0.42);
   border: 1px solid var(--mc-border);
   border-radius: 8px;
   padding: 6px 8px;
@@ -624,7 +663,8 @@ function onMenuSelect(item: DropdownMenuItem) {
 }
 
 .conv-filter-select:focus {
-  border-color: var(--mc-primary);
+  border-color: var(--mc-accent, #19BFD1);
+  box-shadow: 0 0 0 3px rgba(25, 191, 209, 0.18);
 }
 
 .conversation-list {
@@ -637,7 +677,7 @@ function onMenuSelect(item: DropdownMenuItem) {
   padding: 10px 10px 6px;
   font-size: 10px;
   font-weight: 700;
-  color: var(--mc-text-tertiary);
+  color: var(--mc-sidebar-group-title, rgba(192, 210, 255, 0.56));
   text-transform: uppercase;
   letter-spacing: 0.12em;
 }
@@ -648,18 +688,23 @@ function onMenuSelect(item: DropdownMenuItem) {
   align-items: center;
   gap: 8px;
   padding: 10px 11px;
-  border-radius: 14px;
+  border: 1px solid transparent;
+  border-radius: 12px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s, box-shadow 0.15s;
 }
 
-.conv-item:hover {
-  background: var(--mc-bg-sunken);
+.conv-item:hover,
+.conv-item:focus-within {
+  background: var(--mc-sidebar-hover, rgba(255, 255, 255, 0.10));
+  border-color: var(--mc-border);
   transform: translateY(-1px);
 }
 
 .conv-item.active {
-  background: var(--mc-primary-bg);
+  background: var(--mc-sidebar-active, linear-gradient(135deg, #476CFF, #6E8BFF));
+  border-color: rgba(255, 255, 255, 0.34);
+  box-shadow: 0 12px 28px rgba(20, 44, 130, 0.24);
 }
 
 .conv-icon {
@@ -669,7 +714,7 @@ function onMenuSelect(item: DropdownMenuItem) {
 }
 
 .conv-item.active .conv-icon {
-  color: var(--mc-primary);
+  color: var(--mc-sidebar-text-active, #ffffff);
 }
 
 /* Running indicator: pulsing dot on the icon corner (visible collapsed too). */
@@ -681,7 +726,7 @@ function onMenuSelect(item: DropdownMenuItem) {
   height: 7px;
   border-radius: 50%;
   background: #fbbf24;
-  box-shadow: 0 0 4px rgba(251, 191, 36, 0.6), 0 0 0 2px var(--mc-bg-primary, #fff);
+  box-shadow: 0 0 4px rgba(251, 191, 36, 0.6), 0 0 0 2px rgba(8, 22, 66, 0.96);
   animation: pulse-dot 1.2s infinite;
   pointer-events: none;
 }
@@ -693,7 +738,7 @@ function onMenuSelect(item: DropdownMenuItem) {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--mc-primary, #d97757);
+  background: var(--mc-accent, #19BFD1);
   margin-left: 6px;
   flex-shrink: 0;
   vertical-align: middle;
@@ -707,12 +752,12 @@ function onMenuSelect(item: DropdownMenuItem) {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--mc-primary, #d97757);
+  background: var(--mc-primary, #476CFF);
   opacity: 0.7;
   margin-left: 6px;
   flex-shrink: 0;
   vertical-align: middle;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--mc-primary, #d97757) 18%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--mc-primary, #476CFF) 20%, transparent);
 }
 
 .conv-item.is-running {
@@ -720,11 +765,11 @@ function onMenuSelect(item: DropdownMenuItem) {
 }
 
 .conv-item.is-running:hover {
-  background: color-mix(in srgb, #fbbf24 14%, var(--mc-bg-sunken));
+  background: color-mix(in srgb, #fbbf24 14%, rgba(255, 255, 255, 0.08));
 }
 
 .conv-item.is-running.active {
-  background: var(--mc-primary-bg);
+  background: var(--mc-sidebar-active, linear-gradient(135deg, #476CFF, #6E8BFF));
 }
 
 /* Expanded state: small "generating..." badge to the right of the title. */
@@ -735,13 +780,14 @@ function onMenuSelect(item: DropdownMenuItem) {
   flex-shrink: 0;
   font-size: 10px;
   font-weight: 500;
-  color: #b45309;
-  background: rgba(251, 191, 36, 0.15);
-  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: #fde68a;
+  background: rgba(251, 191, 36, 0.16);
+  border: 1px solid rgba(253, 230, 138, 0.34);
   padding: 1px 6px 1px 5px;
   border-radius: 10px;
   line-height: 1.3;
   white-space: nowrap;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12);
 }
 
 .conv-running-badge-pulse {
@@ -750,6 +796,19 @@ function onMenuSelect(item: DropdownMenuItem) {
   border-radius: 50%;
   background: #f59e0b;
   animation: pulse-dot 1.2s infinite;
+}
+
+.conv-item.is-running.active .conv-running-badge {
+  color: #713f12;
+  background: rgba(255, 251, 235, 0.94);
+  border-color: rgba(253, 230, 138, 0.92);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.30),
+    0 6px 16px rgba(12, 32, 96, 0.18);
+}
+
+.conv-item.is-running.active .conv-running-badge-pulse {
+  background: #f59e0b;
 }
 
 .conv-info {
@@ -778,7 +837,12 @@ function onMenuSelect(item: DropdownMenuItem) {
 }
 
 .conv-item.active .conv-title {
-  color: var(--mc-primary);
+  color: var(--mc-sidebar-text-active, #ffffff);
+}
+
+.conv-item.active .conv-meta,
+.conv-item.active .conv-dot {
+  color: rgba(226, 236, 255, 0.74);
 }
 
 .conv-meta {
@@ -799,12 +863,12 @@ function onMenuSelect(item: DropdownMenuItem) {
   font-size: 13px;
   font-weight: 500;
   color: var(--mc-text-primary);
-  background: var(--mc-bg-elevated);
-  border: 1px solid var(--mc-primary);
+  background: rgba(5, 17, 54, 0.72);
+  border: 1px solid var(--mc-accent, #19BFD1);
   border-radius: 6px;
   padding: 2px 6px;
   outline: none;
-  box-shadow: 0 0 0 2px rgba(217, 119, 87, 0.15);
+  box-shadow: 0 0 0 3px rgba(25, 191, 209, 0.18);
 }
 
 /* The kebab overlays the right edge of the row so it reserves no layout
@@ -819,7 +883,7 @@ function onMenuSelect(item: DropdownMenuItem) {
   align-items: center;
   padding-left: 18px;
   border-radius: 12px;
-  background: linear-gradient(to right, transparent, var(--mc-bg-sunken) 42%);
+  background: linear-gradient(to right, transparent, rgba(12, 28, 74, 0.96) 42%);
   opacity: 0;
   transition: opacity 0.15s;
 }
@@ -831,7 +895,7 @@ function onMenuSelect(item: DropdownMenuItem) {
 }
 
 .conv-item.active .conv-kebab-wrap {
-  background: linear-gradient(to right, transparent, var(--mc-primary-bg) 42%);
+  background: linear-gradient(to right, transparent, rgba(71, 108, 255, 0.72) 42%);
 }
 
 .conv-kebab {
@@ -851,9 +915,15 @@ function onMenuSelect(item: DropdownMenuItem) {
 }
 
 .conv-kebab:hover,
+.conv-kebab:focus-visible,
 .conv-kebab.open {
   background: var(--mc-bg-elevated);
   color: var(--mc-text-primary);
+}
+
+.conv-kebab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(25, 191, 209, 0.34);
 }
 
 .conv-checkbox {
@@ -867,11 +937,12 @@ function onMenuSelect(item: DropdownMenuItem) {
   width: 15px;
   height: 15px;
   cursor: pointer;
-  accent-color: var(--mc-primary);
+  accent-color: var(--mc-accent, #19BFD1);
 }
 
 .conv-item.is-selected {
-  background: var(--mc-primary-bg);
+  background: rgba(71, 108, 255, 0.22);
+  border-color: var(--mc-border-strong);
 }
 
 .conv-select-bar {
@@ -880,6 +951,7 @@ function onMenuSelect(item: DropdownMenuItem) {
   gap: 8px;
   padding: 10px 12px;
   border-top: 1px solid var(--mc-border-light);
+  background: rgba(5, 17, 54, 0.30);
 }
 
 .conv-select-all {
@@ -893,9 +965,16 @@ function onMenuSelect(item: DropdownMenuItem) {
   white-space: nowrap;
 }
 
-.conv-select-all:hover {
+.conv-select-all:hover,
+.conv-select-all:focus-visible {
   background: var(--mc-bg-sunken);
   color: var(--mc-text-primary);
+}
+
+.conv-select-all:focus-visible,
+.conv-batch-delete:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(25, 191, 209, 0.24);
 }
 
 .conv-select-count {
@@ -958,7 +1037,7 @@ function onMenuSelect(item: DropdownMenuItem) {
 
   .conversation-panel.mobile-open {
     transform: translateX(0);
-    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.1);
+    box-shadow: 12px 0 36px rgba(4, 12, 36, 0.34);
   }
 }
 </style>

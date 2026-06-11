@@ -43,6 +43,12 @@ public class ProviderInfoDTO {
     /** RFC-074: whether the user has explicitly enabled this provider. False = lives in the catalog drawer only. */
     private Boolean enabled;
 
+    /** Workspace-level quota for built-in provider credits. Null for unmanaged providers. */
+    private Long quotaLimitTokens;
+    private Long quotaUsedTokens;
+    private Long quotaRemainingTokens;
+    private Boolean quotaExhausted;
+
     // Issue #81: derived fields powering the chat-console liveness-aware popup.
     // All six are computed from existing columns; none are persisted.
 

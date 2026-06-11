@@ -533,7 +533,7 @@ defineExpose({
 .attachment-chip__label span:last-child {
   flex-shrink: 0;
   font-size: 12px;
-  color: var(--mc-primary, #D97757);
+  color: var(--mc-primary, #476CFF);
 }
 
 .attachment-chip__remove {
@@ -541,8 +541,8 @@ defineExpose({
   height: 22px;
   border: 0;
   border-radius: 999px;
-  background: rgba(217, 119, 87, 0.16);
-  color: var(--mc-primary-hover, #C1572B);
+  background: rgba(71, 108, 255, 0.12);
+  color: var(--mc-primary-hover, #3455F4);
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
@@ -552,7 +552,12 @@ defineExpose({
 }
 
 .attachment-chip__remove:hover {
-  background: rgba(217, 119, 87, 0.24);
+  background: rgba(25, 191, 209, 0.16);
+}
+
+.attachment-chip__remove:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(25, 191, 209, 0.22);
 }
 
 .attachment-chip--dir {
@@ -574,15 +579,16 @@ defineExpose({
   gap: 10px;
   align-items: flex-end;
   background: var(--mc-input-bg, #ffffff);
-  border: none;
+  border: 1px solid var(--mc-input-border, rgba(120, 151, 226, 0.42));
   border-radius: 16px;
   padding: 8px 10px 8px 12px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04);
-  transition: box-shadow 0.15s;
+  box-shadow: 0 8px 26px rgba(38, 70, 165, 0.10);
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .chat-input-wrapper.is-focused .input-area {
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1), 0 0 0 2px rgba(217, 119, 87, 0.25);
+  border-color: var(--mc-accent, #19BFD1);
+  box-shadow: 0 10px 30px rgba(38, 70, 165, 0.12), 0 0 0 3px rgba(25, 191, 209, 0.20);
 }
 
 .chat-textarea {
@@ -624,7 +630,7 @@ defineExpose({
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
   background: transparent;
   color: var(--mc-text-secondary, #64748b);
 }
@@ -632,6 +638,11 @@ defineExpose({
 .action-btn:hover:not(:disabled) {
   background: var(--mc-bg-sunken, #f1f5f9);
   color: var(--mc-text-primary, #1e293b);
+}
+
+.action-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(25, 191, 209, 0.22);
 }
 
 .action-btn:disabled {
@@ -667,17 +678,17 @@ defineExpose({
 }
 
 .talk-btn:hover:not(:disabled) {
-  color: var(--mc-primary, #D97757);
-  background: var(--mc-primary-light, rgba(217, 119, 87, 0.08));
+  color: var(--mc-primary, #476CFF);
+  background: var(--mc-primary-bg, rgba(71, 108, 255, 0.12));
 }
 
 .send-btn {
-  background: var(--mc-primary, #D97757);
+  background: var(--mc-primary, #476CFF);
   color: white;
 }
 
 .send-btn:hover:not(:disabled) {
-  background: var(--mc-primary-hover, #C1572B);
+  background: var(--mc-primary-hover, #3455F4);
 }
 
 .send-btn.is-loading {
@@ -728,9 +739,10 @@ defineExpose({
   justify-content: space-between;
   gap: 12px;
   background: var(--mc-input-bg, #ffffff);
+  border: 1px solid var(--mc-input-border, rgba(120, 151, 226, 0.42));
   border-radius: 16px;
   padding: 8px 8px 8px 12px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(217, 119, 87, 0.3);
+  box-shadow: 0 8px 26px rgba(38, 70, 165, 0.10), 0 0 0 3px rgba(25, 191, 209, 0.10);
   min-height: 50px;
 }
 
@@ -747,7 +759,7 @@ defineExpose({
 .approval-bar__icon {
   display: flex;
   align-items: center;
-  color: var(--mc-primary, #D97757);
+  color: var(--mc-primary, #476CFF);
   flex-shrink: 0;
 }
 
@@ -792,12 +804,12 @@ defineExpose({
 }
 
 .approval-bar__btn--approve {
-  background: var(--mc-primary, #D97757);
+  background: var(--mc-primary, #476CFF);
   color: #fff;
 }
 
 .approval-bar__btn--approve:hover {
-  background: var(--mc-primary-hover, #C1572B);
+  background: var(--mc-primary-hover, #3455F4);
 }
 
 /* Always-approve dropdown: orange-red border to signal it's a security-reducing
@@ -819,7 +831,7 @@ defineExpose({
   bottom: calc(100% + 6px);
   right: 0;
   min-width: 160px;
-  background: var(--mc-surface-primary, #fff);
+  background: var(--mc-bg-elevated, #fff);
   border: 1px solid var(--mc-border-light, #e5e7eb);
   border-radius: 6px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
@@ -838,7 +850,7 @@ defineExpose({
   cursor: pointer;
 }
 .approval-bar__menu-item:hover {
-  background: var(--mc-surface-tertiary, #f1f5f9);
+  background: var(--mc-bg-sunken, #f1f5f9);
 }
 
 .approval-bar__btn--deny {

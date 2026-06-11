@@ -17,9 +17,9 @@ import java.util.Set;
  * non-spilled responses are spilled in turn until the aggregate fits.</p>
  *
  * <p>Spill files live under {@link #storageBaseDir} when set, otherwise under
- * {@code <workspaceBasePath>/.mateclaw/tool-results/<conversationId>/} when a
+ * {@code <workspaceBasePath>/.huafanai/tool-results/<conversationId>/} when a
  * workspace is bound to the agent, otherwise under
- * {@code ${java.io.tmpdir}/mateclaw/tool-results/<conversationId>/}.</p>
+ * {@code ${java.io.tmpdir}/huafanai/tool-results/<conversationId>/}.</p>
  *
  * <pre>
  * mate:
@@ -80,8 +80,8 @@ public class ToolResultProperties {
 
     /**
      * Optional absolute path to override the default spill location.
-     * When blank, falls back to {@code <workspace>/.mateclaw/tool-results/} or
-     * {@code ${java.io.tmpdir}/mateclaw/tool-results/}.
+     * When blank, falls back to {@code <workspace>/.huafanai/tool-results/} or
+     * {@code ${java.io.tmpdir}/huafanai/tool-results/}.
      */
     private String storageBaseDir = "";
 

@@ -320,7 +320,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  color: var(--mc-primary, #d96d46);
+  color: var(--mc-primary, #476CFF);
 }
 
 .loading-copy {
@@ -337,7 +337,7 @@ onBeforeUnmount(() => {
 
 .icon-active {
   animation: icon-pulse 1.2s ease-in-out infinite;
-  color: var(--mc-primary, #d96d46);
+  color: var(--mc-primary, #476CFF);
 }
 
 .icon-warning {
@@ -347,7 +347,7 @@ onBeforeUnmount(() => {
 
 .loading-text {
   font-weight: 500;
-  color: var(--mc-primary, #d96d46);
+  color: var(--mc-primary, #476CFF);
 }
 
 .text-red { color: var(--mc-danger, #ef4444); }
@@ -356,10 +356,10 @@ onBeforeUnmount(() => {
   align-self: flex-start;
   font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
   font-size: 12px;
-  background: var(--mc-primary-light, rgba(217, 119, 87, 0.1));
+  background: var(--mc-primary-light, rgba(71, 108, 255, 0.10));
   padding: 1px 6px;
   border-radius: 4px;
-  color: var(--mc-primary, #d96d46);
+  color: var(--mc-primary, #476CFF);
   max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;

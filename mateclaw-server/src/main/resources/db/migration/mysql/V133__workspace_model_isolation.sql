@@ -1,4 +1,4 @@
--- Bind model providers and models to workspaces.
+-- V133: Bind model providers and models to workspaces.
 
 SET @c := (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
            WHERE TABLE_SCHEMA = DATABASE()

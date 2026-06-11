@@ -12,6 +12,7 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import vip.mate.channel.web.ChatStreamTracker;
 import vip.mate.llm.chatmodel.AssistantThinkingRelay;
 import vip.mate.llm.chatmodel.ReasoningContentCache;
+import vip.mate.llm.service.ProviderTokenQuotaService;
 
 import reactor.core.Disposable;
 
@@ -84,6 +85,10 @@ public class NodeStreamingChatHelper {
      */
     private final vip.mate.llm.failover.AvailableProviderPool providerPool;
 
+    private final ProviderTokenQuotaService providerTokenQuotaService;
+
+    private final Long workspaceId;
+
     public NodeStreamingChatHelper(ChatStreamTracker streamTracker) {
         this(streamTracker, List.of(), null, null, null, null);
     }
@@ -154,12 +159,26 @@ public class NodeStreamingChatHelper {
                                    vip.mate.llm.failover.ProviderHealthTracker healthTracker,
                                    String primaryProviderId,
                                    vip.mate.llm.failover.AvailableProviderPool providerPool) {
+        this(streamTracker, fallbackChain, cacheMetrics, healthTracker, primaryProviderId,
+                providerPool, null, null);
+    }
+
+    public NodeStreamingChatHelper(ChatStreamTracker streamTracker,
+                                   List<vip.mate.llm.failover.FallbackEntry> fallbackChain,
+                                   vip.mate.llm.cache.LlmCacheMetricsAggregator cacheMetrics,
+                                   vip.mate.llm.failover.ProviderHealthTracker healthTracker,
+                                   String primaryProviderId,
+                                   vip.mate.llm.failover.AvailableProviderPool providerPool,
+                                   ProviderTokenQuotaService providerTokenQuotaService,
+                                   Long workspaceId) {
         this.streamTracker = streamTracker;
         this.fallbackChain = fallbackChain == null ? List.of() : List.copyOf(fallbackChain);
         this.cacheMetrics = cacheMetrics;
         this.healthTracker = healthTracker;
         this.primaryProviderId = primaryProviderId;
         this.providerPool = providerPool;
+        this.providerTokenQuotaService = providerTokenQuotaService;
+        this.workspaceId = workspaceId;
     }
 
     private static List<vip.mate.llm.failover.FallbackEntry> wrap(ChatModel m) {
@@ -541,7 +560,7 @@ public class NodeStreamingChatHelper {
         if (!primarySkipped) for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
             llmCallCount++;
             if (attempt > 0) retryCount++;
-            lastResult = doStreamCall(chatModel, prompt, conversationId, phase, broadcast, attempt);
+            lastResult = doStreamCall(chatModel, prompt, conversationId, phase, broadcast, attempt, primaryProviderId);
             if (lastResult != null) {
                 // PTL: 不重试，直接返回给上层 Node 处理
                 if (lastResult.errorType() == ErrorType.PROMPT_TOO_LONG) {
@@ -668,7 +687,7 @@ public class NodeStreamingChatHelper {
             failoverCount++;
             llmCallCount++;
             StreamResult fallbackResult = doStreamCall(fallback, prompt, conversationId,
-                    phase + "_fallback_" + (i + 1), broadcast, 0);
+                    phase + "_fallback_" + (i + 1), broadcast, 0, entry.providerId());
             // Accept only fully successful fallbacks. Non-successful results (auth
             // error, client error, still-rate-limited) propagate to the next
             // fallback instead of being surfaced as the final result.
@@ -715,7 +734,8 @@ public class NodeStreamingChatHelper {
      */
     private StreamResult doStreamCall(ChatModel chatModel, Prompt prompt,
                                        String conversationId, String phase,
-                                       boolean broadcast, int attempt) {
+                                       boolean broadcast, int attempt,
+                                       String providerId) {
         // Collapse every SystemMessage in the prompt into a single SystemMessage
         // at index 0. Some OpenAI-compatible providers (LM Studio's built-in
         // server, certain strict vLLM / SGLang deployments) reject 400
@@ -768,7 +788,7 @@ public class NodeStreamingChatHelper {
         }
 
         try {
-            return doStreamCallInner(chatModel, outbound, conversationId, phase, broadcast, attempt);
+            return doStreamCallInner(chatModel, outbound, conversationId, phase, broadcast, attempt, providerId);
         } finally {
             // Idempotent: if consumer already took the entry, discard is a no-op.
             if (relayToken != null) {
@@ -800,7 +820,8 @@ public class NodeStreamingChatHelper {
 
     private StreamResult doStreamCallInner(ChatModel chatModel, Prompt prompt,
                                             String conversationId, String phase,
-                                            boolean broadcast, int attempt) {
+                                            boolean broadcast, int attempt,
+                                            String providerId) {
         if (attempt > 0) {
             long delay = Math.min(BACKOFF_BASE_MS * (1L << (attempt - 1)), BACKOFF_CAP_MS);
             // 加入 jitter 防止雷群效应
@@ -880,9 +901,8 @@ public class NodeStreamingChatHelper {
                     "timestamp", System.currentTimeMillis()
             ));
             String modelId = identifyModel(chatModel);
-            String providerId = primaryProviderId != null ? primaryProviderId : "";
             streamTracker.broadcastObject(conversationId, "llm_request_sent", Map.of(
-                    "provider", providerId,
+                    "provider", providerId != null ? providerId : "",
                     "model", modelId != null ? modelId : "",
                     "phase", phase != null ? phase : "",
                     "timestamp", System.currentTimeMillis()
@@ -1082,7 +1102,7 @@ public class NodeStreamingChatHelper {
                                 toolCallAccumulators.size(), conversationId);
                         return assembleStoppedResult(contentAccum, thinkingAccum, toolCallAccumulators,
                                 promptTokens.get(), completionTokens.get(),
-                                cacheReadTokens.get(), cacheWriteTokens.get(), phase);
+                                cacheReadTokens.get(), cacheWriteTokens.get(), phase, providerId);
                     }
                     log.info("[{}] Stop requested during LLM call, no content accumulated, aborting: conversationId={}",
                             phase, conversationId);
@@ -1116,7 +1136,7 @@ public class NodeStreamingChatHelper {
                 return assembleResult(contentAccum, thinkingAccum, toolCallAccumulators,
                         promptTokens.get(), completionTokens.get(),
                         cacheReadTokens.get(), cacheWriteTokens.get(),
-                        phase, true, error.getMessage());
+                        phase, true, error.getMessage(), providerId);
             }
 
             // ===== 无内容：分类错误并决定是否重试 =====
@@ -1198,14 +1218,16 @@ public class NodeStreamingChatHelper {
                 promptTokens.get(), completionTokens.get(),
                 cacheReadTokens.get(), cacheWriteTokens.get(), phase,
                 truncated,
-                truncationReason);
+                truncationReason,
+                providerId);
     }
 
     /** 组装 stopped partial 结果（用户主动停止，有已累积内容） */
     private StreamResult assembleStoppedResult(StringBuilder contentAccum, StringBuilder thinkingAccum,
                                                 List<ToolCallAccumulator> toolCallAccumulators,
                                                 int promptTok, int completionTok,
-                                                int cacheReadTok, int cacheWriteTok, String phase) {
+                                                int cacheReadTok, int cacheWriteTok, String phase,
+                                                String providerId) {
         List<AssistantMessage.ToolCall> finalToolCalls = buildFinalToolCalls(toolCallAccumulators);
         String fullContent = contentAccum.toString();
         String fullThinking = thinkingAccum.toString();
@@ -1226,6 +1248,7 @@ public class NodeStreamingChatHelper {
         cacheReasoningContent(fullThinking, finalToolCalls);
 
         recordCacheMetrics(phase, promptTok, completionTok, cacheReadTok, cacheWriteTok);
+        recordProviderQuotaUsage(providerId, promptTok, completionTok);
         return new StreamResult(fullContent, fullThinking, assembledMessage,
                 finalToolCalls, !finalToolCalls.isEmpty(), promptTok, completionTok,
                 true, null, ErrorType.NONE, true, cacheReadTok, cacheWriteTok);
@@ -1236,7 +1259,8 @@ public class NodeStreamingChatHelper {
                                          List<ToolCallAccumulator> toolCallAccumulators,
                                          int promptTok, int completionTok,
                                          int cacheReadTok, int cacheWriteTok,
-                                         String phase, boolean partial, String errorMsg) {
+                                         String phase, boolean partial, String errorMsg,
+                                         String providerId) {
         List<AssistantMessage.ToolCall> finalToolCalls = buildFinalToolCalls(toolCallAccumulators);
         String fullContent = contentAccum.toString();
         String fullThinking = thinkingAccum.toString();
@@ -1259,6 +1283,7 @@ public class NodeStreamingChatHelper {
         cacheReasoningContent(fullThinking, finalToolCalls);
 
         recordCacheMetrics(phase, promptTok, completionTok, cacheReadTok, cacheWriteTok);
+        recordProviderQuotaUsage(providerId, promptTok, completionTok);
         return new StreamResult(fullContent, fullThinking, assembledMessage,
                 finalToolCalls, !finalToolCalls.isEmpty(), promptTok, completionTok,
                 partial, errorMsg, ErrorType.NONE, false, cacheReadTok, cacheWriteTok);
@@ -1323,6 +1348,13 @@ public class NodeStreamingChatHelper {
             return;
         }
         cacheMetrics.record(phase, promptTok, completionTok, cacheReadTok, cacheWriteTok);
+    }
+
+    private void recordProviderQuotaUsage(String providerId, int promptTok, int completionTok) {
+        if (providerTokenQuotaService == null || workspaceId == null || providerId == null) {
+            return;
+        }
+        providerTokenQuotaService.recordUsage(workspaceId, providerId, promptTok, completionTok);
     }
 
     /** 构建纯错误 StreamResult（无任何内容） */

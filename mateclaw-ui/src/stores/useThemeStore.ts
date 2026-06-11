@@ -9,9 +9,10 @@ export const useThemeStore = defineStore('theme', () => {
   function getInitialMode(): ThemeMode {
     try {
       const stored = localStorage.getItem(STORAGE_KEY)
-      if (stored === 'light' || stored === 'dark' || stored === 'system') return stored
+      if (stored === 'light') return stored
+      if (stored === 'dark' || stored === 'system') localStorage.setItem(STORAGE_KEY, 'light')
     } catch { /* ignore */ }
-    return 'system'
+    return 'light'
   }
 
   function resolveIsDark(mode: ThemeMode): boolean {

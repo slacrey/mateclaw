@@ -262,7 +262,7 @@ watch(
   position: absolute;
   inset: -20px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(217, 119, 87, 0.12) 0%, transparent 70%);
+  background: radial-gradient(circle, rgba(71, 108, 255, 0.16) 0%, transparent 70%);
   animation: logo-glow 3s ease-in-out infinite;
 }
 
@@ -277,7 +277,7 @@ watch(
   height: 64px;
   object-fit: contain;
   display: block;
-  filter: drop-shadow(0 4px 12px rgba(217, 119, 87, 0.2));
+  filter: drop-shadow(0 4px 14px rgba(38, 70, 165, 0.24));
 }
 
 .welcome-title {
@@ -324,10 +324,10 @@ watch(
 }
 
 .suggestion-card:hover {
-  border-color: var(--mc-primary, #D97757);
-  background: var(--mc-primary-bg, rgba(217, 119, 87, 0.06));
+  border-color: var(--mc-primary, #476CFF);
+  background: var(--mc-primary-bg, rgba(71, 108, 255, 0.08));
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(217, 119, 87, 0.08);
+  box-shadow: 0 4px 12px rgba(38, 70, 165, 0.12);
 }
 
 .suggestion-card__icon {
@@ -355,7 +355,7 @@ watch(
 .suggestion-card:hover .suggestion-card__arrow {
   opacity: 1;
   transform: translateX(0);
-  color: var(--mc-primary, #D97757);
+  color: var(--mc-primary, #476CFF);
 }
 
 /* 加载更多 */

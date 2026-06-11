@@ -42,6 +42,8 @@ import vip.mate.llm.model.ModelProviderEntity;
 import vip.mate.llm.routing.ProviderRouter;
 import vip.mate.llm.service.ModelConfigService;
 import vip.mate.llm.service.ModelProviderService;
+import vip.mate.llm.service.ModelWorkspaceResolver;
+import vip.mate.llm.service.ProviderTokenQuotaService;
 import vip.mate.planning.service.PlanningService;
 import vip.mate.skill.runtime.SkillCatalogRenderer;
 import vip.mate.skill.service.SkillService;
@@ -117,6 +119,7 @@ public class AgentGraphBuilder {
     private final vip.mate.llm.failover.ProviderHealthTracker providerHealthTracker;
     private final vip.mate.llm.chatmodel.ProviderChatModelFactory chatModelFactory;
     private final vip.mate.llm.failover.AvailableProviderPool providerPool;
+    private final ProviderTokenQuotaService providerTokenQuotaService;
     private final vip.mate.tool.document.GeneratedFileCache generatedFileCache;
     /** DashScope-specific construction lives here; only called for the built-in-search log. */
     private final vip.mate.llm.chatmodel.DashScopeChatModelBuilder dashScopeBuilder;
@@ -521,7 +524,7 @@ public class AgentGraphBuilder {
             NodeStreamingChatHelper streamingHelper = new NodeStreamingChatHelper(
                     streamTracker, fallbackChain, llmCacheMetricsAggregator, providerHealthTracker,
                     primaryModelConfig != null ? primaryModelConfig.getProvider() : null,
-                    providerPool);
+                    providerPool, providerTokenQuotaService, ModelWorkspaceResolver.currentWorkspaceId());
             ToolExecutionExecutor executor = new ToolExecutionExecutor(
                     toolSet, toolGuardService, approvalService, streamTracker,
                     toolTimeoutProperties, toolResultStorage, toolConcurrencyRegistry,
@@ -766,7 +769,7 @@ public class AgentGraphBuilder {
             NodeStreamingChatHelper streamingHelper = new NodeStreamingChatHelper(
                     streamTracker, fallbackChain, llmCacheMetricsAggregator, providerHealthTracker,
                     primaryModelConfig != null ? primaryModelConfig.getProvider() : null,
-                    providerPool);
+                    providerPool, providerTokenQuotaService, ModelWorkspaceResolver.currentWorkspaceId());
             ToolExecutionExecutor executor = new ToolExecutionExecutor(
                     toolSet, toolGuardService, approvalService, streamTracker,
                     toolTimeoutProperties, toolResultStorage, toolConcurrencyRegistry,

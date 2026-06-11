@@ -2213,9 +2213,11 @@ function handleCodeCopy(e: MouseEvent) {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: linear-gradient(180deg, var(--mc-chat-header-bg), var(--mc-chat-bg));
+  background:
+    linear-gradient(180deg, var(--mc-chat-header-bg, rgba(255, 255, 255, 0.78)), var(--mc-chat-bg, rgba(244, 248, 255, 0.92)) 28%, var(--mc-bg-muted, rgba(231, 240, 255, 0.78)));
   position: relative;
   min-height: 0;
+  box-shadow: inset 1px 0 0 var(--mc-border-light, rgba(162, 187, 242, 0.34));
 }
 
 /* 拖拽上传遮罩 */
@@ -2226,8 +2228,8 @@ function handleCodeCopy(e: MouseEvent) {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(217, 119, 87, 0.06);
-  backdrop-filter: blur(2px);
+  background: rgba(71, 108, 255, 0.10);
+  backdrop-filter: blur(6px);
 }
 
 .drop-overlay__content {
@@ -2236,12 +2238,13 @@ function handleCodeCopy(e: MouseEvent) {
   align-items: center;
   gap: 12px;
   padding: 40px 60px;
-  border: 2px dashed var(--mc-primary, #D97757);
+  border: 2px dashed var(--mc-accent, #19BFD1);
   border-radius: 16px;
-  background: var(--mc-bg-elevated, #f8fafc);
-  color: var(--mc-primary, #D97757);
+  background: var(--mc-surface-strong, rgba(255, 255, 255, 0.96));
+  color: var(--mc-primary, #476CFF);
   font-size: 16px;
   font-weight: 500;
+  box-shadow: 0 24px 64px rgba(38, 70, 165, 0.18);
 }
 
 .fade-enter-active,
@@ -2259,11 +2262,12 @@ function handleCodeCopy(e: MouseEvent) {
   align-items: center;
   justify-content: space-between;
   padding: 10px 16px;
-  background: linear-gradient(180deg, var(--mc-panel-raised), var(--mc-surface-overlay));
-  border-bottom: 1px solid var(--mc-border);
+  background: linear-gradient(180deg, var(--mc-panel-raised, rgba(255, 255, 255, 0.76)), var(--mc-surface-overlay, rgba(255, 255, 255, 0.68)));
+  border-bottom: 1px solid var(--mc-border-light, rgba(162, 187, 242, 0.34));
   min-height: 52px;
   backdrop-filter: blur(12px);
   gap: 10px;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.46);
 }
 
 .chat-header-left {
@@ -2300,15 +2304,18 @@ function handleCodeCopy(e: MouseEvent) {
   align-items: center;
   gap: 6px;
   padding: 5px 10px;
-  background: var(--mc-primary-bg);
+  background: var(--mc-primary-bg, rgba(71, 108, 255, 0.12));
+  border: 1px solid var(--mc-border-strong, rgba(71, 108, 255, 0.48));
   border-radius: 999px;
   max-width: 100%;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.34);
 }
 
 .agent-badge-icon {
   display: flex;
   align-items: center;
   font-size: 14px;
+  filter: drop-shadow(0 0 8px rgba(25, 191, 209, 0.22));
 }
 
 .agent-badge-text {
@@ -2321,7 +2328,7 @@ function handleCodeCopy(e: MouseEvent) {
 .agent-badge-name {
   font-size: 13px;
   font-weight: 600;
-  color: var(--mc-primary);
+  color: var(--mc-primary, #476CFF);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2354,31 +2361,38 @@ function handleCodeCopy(e: MouseEvent) {
 .header-btn {
   width: 30px;
   height: 30px;
-  border: 1px solid var(--mc-border);
-  background: var(--mc-panel-raised);
+  border: 1px solid var(--mc-border, rgba(120, 151, 226, 0.42));
+  background: var(--mc-panel-raised, rgba(255, 255, 255, 0.76));
   border-radius: 10px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--mc-text-secondary);
-  transition: all 0.15s;
+  color: var(--mc-text-secondary, #415276);
+  transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
 }
 
-.header-btn:hover {
-  border-color: var(--mc-danger);
-  color: var(--mc-danger);
+.header-btn:hover,
+.header-btn:focus-visible {
+  border-color: var(--mc-primary, #476CFF);
+  background: var(--mc-primary-bg, rgba(71, 108, 255, 0.12));
+  color: var(--mc-primary, #476CFF);
+}
+
+.header-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(25, 191, 209, 0.22);
 }
 
 .model-prompt {
   margin: 24px auto 0;
   max-width: 540px;
   padding: 20px;
-  background: var(--mc-bg-elevated);
-  border: 1px solid var(--mc-border);
+  background: linear-gradient(180deg, var(--mc-surface-strong, rgba(255, 255, 255, 0.96)), var(--mc-bg-elevated, rgba(255, 255, 255, 0.92)));
+  border: 1px solid var(--mc-border-light, rgba(162, 187, 242, 0.34));
   border-radius: 16px;
   text-align: center;
-  box-shadow: 0 8px 24px rgba(124, 63, 30, 0.06);
+  box-shadow: 0 18px 48px rgba(38, 70, 165, 0.12);
 }
 
 .model-prompt-title {
@@ -2397,17 +2411,27 @@ function handleCodeCopy(e: MouseEvent) {
 
 .btn-primary {
   padding: 8px 16px;
-  background: linear-gradient(135deg, var(--mc-primary), var(--mc-primary-hover));
+  background: linear-gradient(135deg, var(--mc-primary, #476CFF), var(--mc-accent, #19BFD1));
   color: white;
-  border: none;
+  border: 1px solid color-mix(in srgb, var(--mc-primary, #476CFF) 70%, white);
   border-radius: 12px;
   font-size: 14px;
   cursor: pointer;
-  transition: background 0.15s;
+  box-shadow: 0 10px 22px rgba(71, 108, 255, 0.18);
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.15s;
 }
 
-.btn-primary:hover {
-  background: var(--mc-primary-hover);
+.btn-primary:hover,
+.btn-primary:focus-visible {
+  background: linear-gradient(135deg, var(--mc-primary-hover, #3455F4), var(--mc-accent, #19BFD1));
+  box-shadow: 0 12px 28px rgba(25, 191, 209, 0.22);
+  transform: translateY(-1px);
+}
+
+.btn-primary:focus-visible {
+  outline: none;
+  border-color: var(--mc-accent, #19BFD1);
+  box-shadow: 0 0 0 3px rgba(25, 191, 209, 0.24), 0 12px 28px rgba(25, 191, 209, 0.22);
 }
 
 /* Issue #81: side-by-side primary + secondary actions in the model prompt. */
@@ -2432,6 +2456,13 @@ function handleCodeCopy(e: MouseEvent) {
 .btn-secondary:hover {
   background: var(--mc-panel-raised);
   border-color: var(--mc-primary);
+}
+
+.btn-secondary:focus-visible,
+.conv-toggle-btn:focus-visible {
+  outline: none;
+  border-color: var(--mc-primary, #476CFF);
+  box-shadow: 0 0 0 3px rgba(25, 191, 209, 0.22);
 }
 
 /* ===== 移动端元素（桌面端隐藏） ===== */
@@ -2466,7 +2497,8 @@ function handleCodeCopy(e: MouseEvent) {
     position: fixed;
     inset: 0;
     z-index: 99;
-    background: rgba(0, 0, 0, 0.3);
+    background: rgba(4, 12, 36, 0.48);
+    backdrop-filter: blur(2px);
   }
 
   .conv-toggle-btn {
@@ -2475,11 +2507,11 @@ function handleCodeCopy(e: MouseEvent) {
     justify-content: center;
     width: 32px;
     height: 32px;
-    border: 1px solid var(--mc-border);
-    background: var(--mc-bg-elevated);
+    border: 1px solid var(--mc-border, rgba(120, 151, 226, 0.42));
+    background: var(--mc-bg-elevated, rgba(255, 255, 255, 0.92));
     border-radius: 6px;
     cursor: pointer;
-    color: var(--mc-text-secondary);
+    color: var(--mc-text-secondary, #415276);
     flex-shrink: 0;
     transition: all 0.15s;
   }
@@ -2494,6 +2526,11 @@ function handleCodeCopy(e: MouseEvent) {
     gap: 8px;
   }
 
+  .chat-header-right {
+    min-width: 0;
+    flex-shrink: 1;
+  }
+
   .agent-badge {
     padding: 4px 8px;
   }
@@ -2506,7 +2543,7 @@ function handleCodeCopy(e: MouseEvent) {
     display: none;
   }
 
-  .model-select-trigger {
+  :deep(.model-select-trigger) {
     max-width: 160px;
   }
 
@@ -2528,9 +2565,10 @@ function handleCodeCopy(e: MouseEvent) {
 
   .chat-header-right {
     gap: 4px;
+    min-width: 0;
   }
 
-  .model-select-trigger {
+  :deep(.model-select-trigger) {
     max-width: 120px;
     height: 30px;
     padding: 0 8px;

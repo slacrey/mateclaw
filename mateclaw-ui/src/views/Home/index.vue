@@ -267,10 +267,29 @@ function calcDuration(run: any) {
 
 <style scoped>
 .home-shell {
+  --home-surface-bg: rgba(255, 255, 255, 0.82);
+  --home-surface-strong-bg: rgba(255, 255, 255, 0.90);
+  --home-surface-border: rgba(155, 181, 255, 0.32);
+  --home-surface-border-strong: rgba(155, 181, 255, 0.34);
+  --home-surface-shadow: 0 14px 34px rgba(45, 83, 180, 0.10);
+  --home-row-border: rgba(155, 181, 255, 0.22);
+  --home-table-head-bg: rgba(231, 240, 255, 0.82);
+  --home-row-hover-bg: rgba(71, 108, 255, 0.06);
   background: transparent;
   height: 100%;
   min-height: 0;
   overflow: hidden;
+}
+
+:global(html.dark) .home-shell {
+  --home-surface-bg: rgba(12, 27, 70, 0.82);
+  --home-surface-strong-bg: rgba(10, 24, 62, 0.90);
+  --home-surface-border: rgba(157, 181, 255, 0.26);
+  --home-surface-border-strong: rgba(157, 181, 255, 0.30);
+  --home-surface-shadow: 0 18px 42px rgba(0, 0, 0, 0.28);
+  --home-row-border: rgba(157, 181, 255, 0.18);
+  --home-table-head-bg: rgba(19, 42, 98, 0.78);
+  --home-row-hover-bg: rgba(71, 108, 255, 0.16);
 }
 
 .home-frame {
@@ -298,17 +317,32 @@ function calcDuration(run: any) {
   width: 100%;
   overflow: hidden;
   padding: 30px 34px;
-  border: 1px solid var(--mc-border-light);
+  border: 1px solid rgba(178, 202, 255, 0.38);
   border-radius: var(--mc-radius-md);
   background:
-    linear-gradient(135deg, rgba(217, 109, 70, 0.13), rgba(24, 74, 69, 0.1)),
+    radial-gradient(circle at 82% 18%, rgba(255, 255, 255, 0.70), transparent 25%),
+    linear-gradient(135deg, rgba(18, 44, 132, 0.88), rgba(78, 121, 255, 0.62) 48%, rgba(224, 245, 255, 0.72)),
     linear-gradient(180deg, var(--mc-panel-top), var(--mc-panel-bottom));
-  box-shadow: var(--mc-shadow-soft);
+  color: #ffffff;
+  box-shadow: 0 24px 58px rgba(38, 70, 165, 0.18);
   text-align: left;
   cursor: pointer;
 }
 
+.home-banner::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.16) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.16) 1px, transparent 1px);
+  background-size: 72px 72px;
+  opacity: 0.34;
+  pointer-events: none;
+}
+
 .home-banner__click-layer:focus-visible,
+.home-banner__play:focus-visible,
 .employee-card:focus-visible,
 .home-modal__action:focus-visible,
 .home-modal__close:focus-visible {
@@ -333,7 +367,7 @@ function calcDuration(run: any) {
 }
 
 .home-banner__eyebrow {
-  color: var(--mc-accent);
+  color: rgba(211, 250, 255, 0.92);
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -343,16 +377,17 @@ function calcDuration(run: any) {
 
 .home-banner h1 {
   margin: 0;
-  color: var(--mc-text-primary);
+  color: #ffffff;
   font-size: 34px;
   line-height: 1.18;
   font-weight: 850;
+  text-shadow: 0 2px 16px rgba(12, 32, 96, 0.22);
 }
 
 .home-banner p {
   max-width: 520px;
   margin: 12px 0 0;
-  color: var(--mc-text-secondary);
+  color: rgba(224, 242, 255, 0.88);
   font-size: 15px;
   line-height: 1.7;
 }
@@ -368,7 +403,10 @@ function calcDuration(run: any) {
   position: absolute;
   display: block;
   border-radius: 50%;
-  box-shadow: var(--mc-shadow-soft);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.42) inset,
+    0 18px 34px rgba(31, 72, 190, 0.28),
+    0 0 34px rgba(55, 213, 229, 0.34);
 }
 
 .home-banner__node--primary {
@@ -376,7 +414,8 @@ function calcDuration(run: any) {
   top: 24px;
   width: 76px;
   height: 76px;
-  background: var(--mc-primary);
+  background:
+    radial-gradient(circle at 30% 28%, rgba(255, 255, 255, 0.88), rgba(194, 208, 255, 0.58) 28%, rgba(71, 108, 255, 0.96) 70%);
 }
 
 .home-banner__node--accent {
@@ -384,7 +423,8 @@ function calcDuration(run: any) {
   top: 76px;
   width: 48px;
   height: 48px;
-  background: var(--mc-accent);
+  background:
+    radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.92), rgba(55, 213, 229, 0.72) 34%, rgba(25, 191, 209, 0.94) 76%);
 }
 
 .home-banner__line {
@@ -394,7 +434,8 @@ function calcDuration(run: any) {
   width: 126px;
   height: 2px;
   transform: rotate(24deg);
-  background: rgba(217, 109, 70, 0.45);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.14), rgba(173, 238, 255, 0.86), rgba(157, 181, 255, 0.70));
+  box-shadow: 0 0 18px rgba(55, 213, 229, 0.42);
 }
 
 .home-banner__play {
@@ -409,10 +450,10 @@ function calcDuration(run: any) {
   border: 0;
   border-radius: var(--mc-radius-sm);
   color: #fff;
-  background: var(--mc-primary);
+  background: linear-gradient(135deg, var(--mc-primary-solid), var(--mc-primary-hover));
   font-size: 14px;
   font-weight: 700;
-  box-shadow: var(--mc-shadow-soft);
+  box-shadow: 0 14px 28px rgba(29, 68, 190, 0.28);
   cursor: pointer;
 }
 
@@ -448,10 +489,10 @@ function calcDuration(run: any) {
   gap: 9px;
   min-height: 180px;
   padding: 17px;
-  border: 1px solid var(--mc-border-light);
+  border: 1px solid var(--home-surface-border);
   border-radius: var(--mc-radius-md);
-  background: var(--mc-bg-elevated);
-  box-shadow: var(--mc-shadow-soft);
+  background: var(--home-surface-bg);
+  box-shadow: var(--home-surface-shadow);
   text-align: left;
   cursor: pointer;
   transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
@@ -460,7 +501,7 @@ function calcDuration(run: any) {
 .employee-card:hover {
   transform: translateY(-2px);
   border-color: var(--mc-primary-light);
-  box-shadow: var(--mc-shadow-medium);
+  box-shadow: 0 20px 48px rgba(45, 83, 180, 0.18);
 }
 
 .employee-card__top {
@@ -477,7 +518,9 @@ function calcDuration(run: any) {
   width: 42px;
   height: 42px;
   border-radius: var(--mc-radius-sm);
-  background: var(--mc-primary-bg);
+  background:
+    linear-gradient(135deg, rgba(71, 108, 255, 0.13), rgba(25, 191, 209, 0.16));
+  box-shadow: inset 0 0 0 1px rgba(157, 181, 255, 0.22);
   flex-shrink: 0;
 }
 
@@ -496,7 +539,8 @@ function calcDuration(run: any) {
   padding: 4px 8px;
   border-radius: var(--mc-radius-sm);
   color: var(--mc-accent);
-  background: var(--mc-accent-soft);
+  background: rgba(25, 191, 209, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(25, 191, 209, 0.14);
   font-size: 12px;
   font-weight: 700;
   overflow: hidden;
@@ -535,10 +579,10 @@ function calcDuration(run: any) {
 
 .home-runs {
   overflow: hidden;
-  border: 1px solid var(--mc-border-light);
+  border: 1px solid var(--home-surface-border-strong);
   border-radius: var(--mc-radius-md);
-  background: var(--mc-bg-elevated);
-  box-shadow: var(--mc-shadow-soft);
+  background: var(--home-surface-strong-bg);
+  box-shadow: var(--home-surface-shadow);
 }
 
 .home-runs table {
@@ -549,7 +593,7 @@ function calcDuration(run: any) {
 .home-runs th,
 .home-runs td {
   padding: 12px 15px;
-  border-bottom: 1px solid var(--mc-border-light);
+  border-bottom: 1px solid var(--home-row-border);
   color: var(--mc-text-secondary);
   font-size: 13px;
   text-align: left;
@@ -558,9 +602,17 @@ function calcDuration(run: any) {
 
 .home-runs th {
   color: var(--mc-text-tertiary);
-  background: var(--mc-bg-muted);
+  background: var(--home-table-head-bg);
   font-size: 12px;
   font-weight: 800;
+}
+
+.home-runs tbody tr {
+  transition: background 0.16s ease;
+}
+
+.home-runs tbody tr:hover {
+  background: var(--home-row-hover-bg);
 }
 
 .home-runs tr:last-child td {

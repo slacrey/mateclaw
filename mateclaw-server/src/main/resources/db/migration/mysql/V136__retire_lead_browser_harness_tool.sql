@@ -1,4 +1,4 @@
--- V133: Retire the legacy LeadBrowserHarnessTool seed.
+-- V136: Retire the legacy LeadBrowserHarnessTool seed.
 -- The Douyin lead-acquisition flow is now represented as a bundled Skill v2
 -- package with workflow DSL and schemas instead of a bindable monolithic tool.
 

@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import vip.mate.exception.MateClawException;
 import vip.mate.llm.anthropic.oauth.ClaudeCodeOAuthService;
+import vip.mate.llm.config.DefaultProviderKeyProperties;
 import vip.mate.llm.event.ModelConfigChangedEvent;
 import vip.mate.llm.failover.AvailableProviderPool;
 import vip.mate.llm.failover.ProviderHealthTracker;
@@ -54,6 +55,8 @@ public class ModelProviderService {
     /** RFC-073: pool / cooldown / probe-completion signals that drive {@link Liveness}. */
     private final AvailableProviderPool providerPool;
     private final ProviderHealthTracker providerHealthTracker;
+    private final DefaultProviderKeyProperties defaultProviderKeyProperties;
+    private final ProviderTokenQuotaService providerTokenQuotaService;
     /**
      * Lazy provider — {@link ProviderInitProbe} depends on this service, so direct injection
      * would create a startup cycle. The probe always exists at runtime; the indirection only
@@ -392,6 +395,7 @@ public class ModelProviderService {
             ModelProviderEntity copy = copyProviderForWorkspace(template, workspaceId);
             modelProviderMapper.insert(copy);
         }
+        providerTokenQuotaService.ensureDefaultQuotas(workspaceId);
         modelConfigService.copyModelsToWorkspace(ModelWorkspaceResolver.DEFAULT_WORKSPACE_ID, workspaceId);
     }
 
@@ -424,7 +428,28 @@ public class ModelProviderService {
         copy.setAuthType(template.getAuthType());
         copy.setFallbackPriority(template.getFallbackPriority());
         copy.setEnabled(template.getEnabled());
+        applyRegistrationDefaultProviderKey(copy);
         return copy;
+    }
+
+    private void applyRegistrationDefaultProviderKey(ModelProviderEntity copy) {
+        String defaultKey = defaultProviderKey(copy.getProviderId());
+        if (!StringUtils.hasText(defaultKey)) {
+            return;
+        }
+        copy.setApiKey(defaultKey.trim());
+        copy.setEnabled(true);
+    }
+
+    private String defaultProviderKey(String providerId) {
+        if (defaultProviderKeyProperties == null || providerId == null) {
+            return null;
+        }
+        return switch (providerId) {
+            case "dashscope" -> defaultProviderKeyProperties.getDashscope();
+            case "deepseek" -> defaultProviderKeyProperties.getDeepseek();
+            default -> null;
+        };
     }
 
     private ModelProviderEntity getProviderOrNull(String providerId) {
@@ -487,6 +512,7 @@ public class ModelProviderService {
             dto.setOauthExpiresAt(provider.getOauthExpiresAt());
         }
         dto.setFallbackPriority(provider.getFallbackPriority() != null ? provider.getFallbackPriority() : 0);
+        applyQuota(dto, provider);
         List<ModelInfoDTO> builtinModels = new ArrayList<>();
         List<ModelInfoDTO> extraModels = new ArrayList<>();
         if (models != null) {
@@ -505,6 +531,21 @@ public class ModelProviderService {
         dto.setExtraModels(extraModels);
         applySuggestedAction(dto, provider, providerLiveness);
         return dto;
+    }
+
+    private void applyQuota(ProviderInfoDTO dto, ModelProviderEntity provider) {
+        if (providerTokenQuotaService == null) {
+            return;
+        }
+        ProviderTokenQuotaDTO quota = providerTokenQuotaService.getQuota(
+                provider.getWorkspaceId(), provider.getProviderId());
+        if (quota == null) {
+            return;
+        }
+        dto.setQuotaLimitTokens(quota.limitTokens());
+        dto.setQuotaUsedTokens(quota.usedTokens());
+        dto.setQuotaRemainingTokens(quota.remainingTokens());
+        dto.setQuotaExhausted(quota.exhausted());
     }
 
     /**

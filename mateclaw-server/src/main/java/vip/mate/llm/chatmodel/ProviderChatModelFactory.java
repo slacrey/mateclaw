@@ -9,6 +9,8 @@ import vip.mate.llm.model.ModelConfigEntity;
 import vip.mate.llm.model.ModelProtocol;
 import vip.mate.llm.model.ModelProviderEntity;
 import vip.mate.llm.service.ModelProviderService;
+import vip.mate.llm.service.ModelWorkspaceResolver;
+import vip.mate.llm.service.ProviderTokenQuotaService;
 
 import java.util.EnumMap;
 import java.util.List;
@@ -37,10 +39,13 @@ public class ProviderChatModelFactory {
 
     private final Map<ModelProtocol, ChatModelBuilder> builders;
     private final ModelProviderService modelProviderService;
+    private final ProviderTokenQuotaService providerTokenQuotaService;
 
     public ProviderChatModelFactory(List<ChatModelBuilder> allBuilders,
-                                    ModelProviderService modelProviderService) {
+                                    ModelProviderService modelProviderService,
+                                    ProviderTokenQuotaService providerTokenQuotaService) {
         this.modelProviderService = modelProviderService;
+        this.providerTokenQuotaService = providerTokenQuotaService;
         Map<ModelProtocol, ChatModelBuilder> map = new EnumMap<>(ModelProtocol.class);
         for (ChatModelBuilder b : allBuilders) {
             ChatModelBuilder previous = map.put(b.supportedProtocol(), b);
@@ -63,6 +68,7 @@ public class ProviderChatModelFactory {
      */
     public ChatModel buildFor(ModelConfigEntity model, RetryTemplate retry) {
         ModelProviderEntity provider = modelProviderService.getProviderConfig(model.getProvider());
+        providerTokenQuotaService.assertNotExhausted(ModelWorkspaceResolver.currentWorkspaceId(), provider.getProviderId());
         ModelProtocol protocol = ModelProtocol.fromChatModel(provider.getChatModel());
         ChatModelBuilder builder = builders.get(protocol);
         if (builder == null) {
