@@ -107,6 +107,12 @@ CLAUDE.md
 # Codex CLI local artifacts
 .codex/
 
+# Desktop build artifacts
+mateclaw-desktop/dist/
+mateclaw-desktop/release/
+mateclaw-desktop/resources/runtime/
+mateclaw-desktop/resources/server/
+
 # Local git worktrees
 .worktrees/
 

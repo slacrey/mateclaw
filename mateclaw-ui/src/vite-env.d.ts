@@ -10,3 +10,13 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
+
+interface Window {
+  mateclawDesktop?: {
+    versions?: {
+      electron?: string
+      chrome?: string
+      node?: string
+    }
+  }
+}

@@ -66,17 +66,6 @@ export const extractRegionHandler = (deps: ExtractRegionHandlerDeps): ActionHand
       ? pageResult
       : Array.isArray(pageResult?.items) ? pageResult.items : []
     const diagnostics = !Array.isArray(pageResult) ? pageResult?.diagnostics : undefined
-    if (parsed.regionKey === 'douyin.comments') {
-      console.info('[mateclaw][extract_region][douyin.comments]', {
-        items: items.length,
-        diagnostics,
-        parsedRegionKey: parsed.regionKey,
-        runtimeRegionKey: region.key,
-        pageResultType: Array.isArray(pageResult) ? 'array' : typeof pageResult,
-        pageResultKeys: pageResult && typeof pageResult === 'object' ? Object.keys(pageResult) : [],
-        pageResultSummary: summarizePageResult(pageResult),
-      })
-    }
 
     return {
       ok: true,
@@ -87,22 +76,6 @@ export const extractRegionHandler = (deps: ExtractRegionHandlerDeps): ActionHand
         diagnostics,
       },
     }
-  }
-}
-
-function summarizePageResult(pageResult: unknown): Record<string, unknown> {
-  if (!pageResult || typeof pageResult !== 'object') {
-    return { value: pageResult === undefined ? 'undefined' : String(pageResult) }
-  }
-  const record = pageResult as Record<string, unknown>
-  return {
-    keys: Object.keys(record),
-    ok: record.ok,
-    code: record.code,
-    message: typeof record.message === 'string' ? record.message.slice(0, 240) : undefined,
-    itemsType: Array.isArray(record.items) ? 'array' : typeof record.items,
-    itemsLength: Array.isArray(record.items) ? record.items.length : undefined,
-    diagnosticsType: typeof record.diagnostics,
   }
 }
 
@@ -461,11 +434,6 @@ function extractDouyinCommentsInPage(region: RuntimeRegion, regionKey: string, m
         endMarkerItems: items.filter(item => item.itemType === 'comment_end').map(item => item.text),
         firstAuthors: comments.slice(0, 5).map(item => item.author || ''),
         firstTexts: comments.slice(0, 5).map(item => item.text),
-        selectedListTextSample: truncate(cleanText(selectedList?.innerText || selectedList?.textContent || ''), 1200),
-        selectedListOuterHtmlSample: truncate(selectedList?.outerHTML || '', 3200),
-        selectedListDirectChildHtmlSamples: selectedList
-          ? directCommentSlots(selectedList).slice(0, 5).map(slot => truncate(slot.outerHTML || '', 1200))
-          : [],
       }
     }
 
@@ -1675,25 +1643,11 @@ function douyinCommentDomDiagnostics(
     endMarkerItems: items.filter(item => item.itemType === 'comment_end').map(item => item.text),
     firstAuthors: comments.slice(0, 5).map(item => item.author || ''),
     firstTexts: comments.slice(0, 5).map(item => item.text),
-    selectedListTextSample: truncateDiagnosticText(cleanDiagnosticText(selectedList?.el.innerText || selectedList?.el.textContent || ''), 1200),
-    selectedListOuterHtmlSample: truncateDiagnosticText(selectedList?.el.outerHTML || '', 3200),
-    selectedListDirectChildHtmlSamples: selectedList
-      ? Array.from(selectedList.el.children)
-        .filter(child => child instanceof HTMLElement && child.tagName.toLowerCase() === 'div')
-        .slice(0, 5)
-        .map(child => truncateDiagnosticText((child as HTMLElement).outerHTML || '', 1200))
-      : [],
   }
 }
 
 function cleanDiagnosticText(text: string): string {
   return text.replace(/\s+/g, ' ').trim()
-}
-
-function truncateDiagnosticText(text: string, maxLength: number): string {
-  const value = cleanDiagnosticText(text)
-  if (value.length <= maxLength) return value
-  return `${value.slice(0, maxLength)}...[truncated:${value.length}]`
 }
 
 function extractDouyinSearchResults(

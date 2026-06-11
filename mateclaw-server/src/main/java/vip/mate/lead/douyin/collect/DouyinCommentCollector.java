@@ -227,6 +227,23 @@ public class DouyinCommentCollector {
         return false;
     }
 
+    public boolean commentsEmptyFromExtractedRegion(JsonNode extractRoot) {
+        JsonNode results = extractRoot.path("results");
+        if (!results.isArray() || results.isEmpty()) {
+            return false;
+        }
+        JsonNode items = results.get(0).path("payload").path("items");
+        if (!items.isArray()) {
+            return false;
+        }
+        for (JsonNode item : items) {
+            if (commentsEmpty(item.path("text").asText(""))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public NetworkCommentPage commentsFromNetworkPage(JsonNode page, String fallbackVideoKey) {
         JsonNode body = networkResponseBody(page);
         if (body == null || body.isMissingNode() || body.isNull()) {
@@ -516,6 +533,31 @@ public class DouyinCommentCollector {
                         || value.contains("没有更多评论")
                         || value.contains("到底了")
                         || value.contains("已展示全部评论"));
+    }
+
+    public boolean commentsEmpty(String tree) {
+        if (tree == null) {
+            return false;
+        }
+        String normalized = tree.replaceAll("\\s+", "");
+        return normalized.contains("暂时没有评论")
+                || normalized.contains("还没有评论")
+                || normalized.contains("暂无评论")
+                || normalized.contains("暂无相关评论");
+    }
+
+    public boolean commentsEmpty(String tree, DouyinBrowserAdapter.RegionInfo region) {
+        if (tree == null || region == null) {
+            return commentsEmpty(tree);
+        }
+        return parseLines(tree).stream()
+                .filter(line -> overlapsRegion(line, region))
+                .map(TreeLine::name)
+                .map(value -> value == null ? "" : value.replaceAll("\\s+", ""))
+                .anyMatch(value -> value.contains("暂时没有评论")
+                        || value.contains("还没有评论")
+                        || value.contains("暂无评论")
+                        || value.contains("暂无相关评论"));
     }
 
     public Optional<ExtensionPoint> inferDmInputPoint(DouyinBrowserAdapter.BrowserObservation obs) {

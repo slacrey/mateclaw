@@ -26,6 +26,13 @@ VALUES (1000000003, '推理分析师', '分步思考、推理过程清晰可见�
         NULL, 100, TRUE, 'pi:cpu', 'react,reasoning,tools', NOW(), NOW(), 0)
 ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), agent_type=VALUES(agent_type), system_prompt=VALUES(system_prompt), model_name=VALUES(model_name), max_iterations=VALUES(max_iterations), enabled=VALUES(enabled), icon=VALUES(icon), tags=VALUES(tags), update_time=VALUES(update_time), deleted=VALUES(deleted);
 
+-- 默认数字员工：获客专家（抖音获客专用入口）
+INSERT INTO mate_agent (id, name, description, agent_type, system_prompt, model_name, max_iterations, enabled, icon, tags, workspace_id, create_time, update_time, deleted)
+VALUES (1000000004, '获客专家', '把关键词、匹配规则、私信模板转成可执行的抖音获客任务，并汇总线索和触达结果', 'react',
+        '你是 MateClaw 的获客专家。你负责把用户的获客目标转成结构化抖音获客任务。请先确认关键词、排序方式、视频数量、评论匹配规则、私信模板、是否关注、是否发送私信；用户确认后使用专用抖音获客流程执行，并在结束时用中文汇总每个视频的评论采集、匹配命中和触达状态。',
+        NULL, 100, TRUE, 'pi:target', '获客,线索,douyin,lead', 1, NOW(), NOW(), 0)
+ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description), agent_type=VALUES(agent_type), system_prompt=VALUES(system_prompt), model_name=VALUES(model_name), max_iterations=VALUES(max_iterations), enabled=VALUES(enabled), icon=VALUES(icon), tags=VALUES(tags), workspace_id=VALUES(workspace_id), update_time=VALUES(update_time), deleted=VALUES(deleted);
+
 -- ==================== 本地模型 Provider（优先展示） ====================
 
 INSERT INTO mate_model_provider (provider_id, name, api_key_prefix, chat_model, api_key, base_url, generate_kwargs, is_custom, is_local, support_model_discovery, support_connection_check, freeze_url, require_api_key, create_time, update_time)

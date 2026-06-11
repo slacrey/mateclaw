@@ -9,230 +9,230 @@
             <p>输入目标关键词和匹配条件，系统会完成搜索、评论采集、评论匹配和触达结果汇总。</p>
           </div>
           <div class="lead-header__actions">
+            <button
+              class="ghost-button view-switch-button"
+              type="button"
+              :aria-pressed="activeView === 'history'"
+              @click="toggleLeadView"
+            >
+              <span>{{ activeView === 'history' ? '启动新任务' : '查看历史任务' }}</span>
+            </button>
             <button class="ghost-button" type="button" @click="openChatStarter">
               <el-icon><ChatDotRound /></el-icon>
               <span>用对话启动</span>
             </button>
-            <button class="ghost-button" type="button" @click="focusBrowserPanel">
+            <button class="ghost-button" type="button" @click="openBrowserPanel">
               <el-icon><Connection /></el-icon>
               <span>浏览器连接</span>
             </button>
           </div>
         </header>
 
-        <section class="lead-overview">
-          <button
-            v-for="channel in channels"
-            :key="channel.key"
-            class="channel-tab"
-            :class="{ 'is-active': channel.key === activeChannel }"
-            type="button"
-            @click="activeChannel = channel.key"
+        <Transition name="browser-scrim">
+          <div
+            v-if="browserPanelOpen"
+            class="browser-pairing-scrim"
+            aria-hidden="true"
+            @click="closeBrowserPanel"
+          ></div>
+        </Transition>
+        <Transition name="browser-panel">
+          <section
+            v-if="browserPanelOpen"
+            ref="browserPanelRef"
+            class="browser-pairing-popover"
+            role="dialog"
+            aria-modal="true"
+            aria-label="浏览器连接"
+            tabindex="-1"
+            @keydown.esc="closeBrowserPanel"
           >
-            <span class="channel-tab__icon">
-              <el-icon><component :is="channel.icon" /></el-icon>
-            </span>
-            <span>
-              <strong>{{ channel.title }}</strong>
-              <small>{{ channel.subtitle }}</small>
-            </span>
-          </button>
-        </section>
-
-        <section
-          ref="browserPanelRef"
-          class="browser-pairing-workspace"
-          :class="{ 'is-open': browserPanelOpen }"
-        >
-          <button
-            class="browser-pairing-toggle"
-            type="button"
-            :aria-expanded="browserPanelOpen"
-            @click="toggleBrowserPanel"
-          >
-            <span class="browser-pairing-toggle__main">
-              <span class="browser-pairing-toggle__icon">
-                <el-icon><Connection /></el-icon>
-              </span>
-              <span>
-                <strong>浏览器连接</strong>
-                <small>{{ browserPanelOpen ? '扩展配对与连接状态' : '默认收起，连接异常时展开检查' }}</small>
-              </span>
-            </span>
-            <span class="browser-pairing-toggle__action">
-              {{ browserPanelOpen ? '收起' : '展开' }}
-              <el-icon class="browser-pairing-toggle__chevron">
-                <ArrowDown />
-              </el-icon>
-            </span>
-          </button>
-
-          <Transition name="browser-panel">
-            <div v-if="browserPanelOpen" class="browser-pairing-body">
+            <div class="browser-pairing-popover__head">
+              <div>
+                <h2>浏览器连接</h2>
+                <p>扩展配对与连接状态</p>
+              </div>
+              <button class="text-button" type="button" @click="closeBrowserPanel">关闭</button>
+            </div>
+            <div class="browser-pairing-body">
               <BrowserPairingPanel embedded compact />
             </div>
-          </Transition>
-        </section>
+          </section>
+        </Transition>
 
-        <section class="lead-workbench">
-          <form class="launch-panel" @submit.prevent="submitDouyinRun">
-            <div class="panel-head">
-              <div>
-                <h2>启动任务</h2>
-                <p>默认按最多点赞排序，先采集一级评论并匹配正文。</p>
+        <template v-if="activeView === 'launch'">
+          <section class="lead-workbench">
+            <form class="launch-panel" @submit.prevent="submitDouyinRun">
+              <div class="panel-head">
+                <div>
+                  <h2>启动任务</h2>
+                  <p>默认按综合排序，先采集一级评论并匹配正文。</p>
+                </div>
               </div>
-            </div>
 
-            <div class="field-grid">
-              <label class="field field--wide">
-                <span>关键词</span>
-                <input
-                  v-model.trim="form.keyword"
-                  type="text"
-                  maxlength="120"
-                  placeholder="例如：易企秀"
-                  :disabled="taskLocked"
-                  required
-                />
-              </label>
+              <div class="field-grid">
+                <label class="field field--wide">
+                  <span>关键词</span>
+                  <input
+                    v-model.trim="form.keyword"
+                    type="text"
+                    maxlength="120"
+                    placeholder="例如：易企秀"
+                    :disabled="taskLocked"
+                    required
+                  />
+                </label>
 
-              <label class="field">
-                <span>排序</span>
-                <select v-model="form.sort" :disabled="taskLocked">
-                  <option value="most_liked">最多点赞</option>
-                  <option value="latest">最新发布</option>
-                </select>
-              </label>
+                <label class="field">
+                  <span>排序</span>
+                  <select v-model="form.sort" :disabled="taskLocked">
+                    <option value="comprehensive">综合排序</option>
+                    <option value="most_liked">最多点赞</option>
+                    <option value="latest">最新发布</option>
+                  </select>
+                </label>
 
-              <label class="field">
-                <span>视频数量</span>
-                <input
-                  v-model.number="form.videoLimit"
-                  type="number"
-                  min="1"
-                  max="50"
-                  :disabled="taskLocked"
-                  @change="normalizeVideoLimit"
-                />
-              </label>
+                <label class="field">
+                  <span>视频数量</span>
+                  <input
+                    v-model.number="form.videoLimit"
+                    type="number"
+                    min="1"
+                    max="50"
+                    :disabled="taskLocked"
+                    @change="normalizeVideoLimit"
+                  />
+                </label>
 
-              <label class="field field--wide">
-                <span>评论匹配规则</span>
-                <textarea
-                  v-model.trim="form.commentMatchRule"
-                  rows="3"
-                  maxlength="500"
-                  placeholder="例如：慢出心脏病"
-                  :disabled="taskLocked"
-                ></textarea>
-              </label>
-
-              <label class="field field--wide">
-                <span>私信模板</span>
-                <textarea
-                  v-model.trim="form.dmDraft"
-                  rows="3"
-                  maxlength="500"
-                  placeholder="你好"
-                  :disabled="taskLocked || !form.engage"
-                ></textarea>
-              </label>
-            </div>
-
-            <div class="switch-row">
-              <label class="switch-item">
-                <input v-model="form.engage" type="checkbox" :disabled="taskLocked" />
-                <span>匹配后关注并打开私信</span>
-              </label>
-              <label class="switch-item">
-                <input v-model="form.sendDm" type="checkbox" :disabled="taskLocked || !form.engage" />
-                <span>自动发送私信</span>
-              </label>
-            </div>
-
-            <div class="form-actions">
-              <button class="primary-button" type="submit" :disabled="!canLaunch">
-                <span v-if="launching" class="mini-spinner" aria-hidden="true"></span>
-                <el-icon v-else><Promotion /></el-icon>
-                <span>{{ launchButtonText }}</span>
-              </button>
-              <button class="text-button" type="button" :disabled="taskLocked" @click="resetForm">重置</button>
-            </div>
-          </form>
-
-          <aside class="assist-panel">
-            <section class="assist-section">
-              <div class="assist-section__head">
-                <h2>常用模板</h2>
-                <button type="button" :disabled="templateSaving" @click="saveCurrentTemplate">
-                  {{ templateSaving ? '保存中' : '保存当前' }}
-                </button>
-              </div>
-              <label class="template-name-field">
-                <span>模板名称</span>
-                <input v-model.trim="templateName" type="text" maxlength="60" placeholder="例如：产品吐槽线索" />
-              </label>
-              <div class="template-list">
-                <template v-if="savedTemplates.length">
-                  <div
-                    v-for="template in savedTemplates"
-                    :key="template.id"
-                    class="template-item template-item--saved"
-                  >
-                    <button type="button" :disabled="taskLocked" @click="applyTemplate(template)">
-                      <strong>{{ template.name }}</strong>
-                      <span>{{ template.keyword || '未设置关键词' }} · {{ template.commentMatchRule || '只采集评论' }}</span>
-                    </button>
-                    <button type="button" class="template-delete" @click="deleteTemplate(template.id)">删除</button>
+                <div class="field field--wide match-rule-field">
+                  <div class="field-head">
+                    <span>评论匹配规则</span>
+                    <span class="field-hint">关键词精确查找，语义由大模型判断</span>
                   </div>
-                </template>
-                <button
-                  v-for="template in builtInTemplates"
-                  :key="template.name"
-                  type="button"
-                  class="template-item"
-                  :disabled="taskLocked"
-                  @click="applyTemplate(template)"
-                >
-                  <strong>{{ template.name }}</strong>
-                  <span>{{ template.keyword }} · {{ template.commentMatchRule }}</span>
+                  <div class="match-rule-list">
+                    <div
+                      v-for="(rule, index) in form.matchRules"
+                      :key="`rule-${index}`"
+                      class="match-rule-row"
+                    >
+                      <select v-model="rule.mode" :disabled="taskLocked" aria-label="匹配模式">
+                        <option value="keyword">关键词匹配</option>
+                        <option value="semantic">语义匹配</option>
+                      </select>
+                      <input
+                        v-model.trim="rule.value"
+                        type="text"
+                        maxlength="160"
+                        :placeholder="rule.mode === 'semantic' ? '例如：抱怨易企秀加载慢的人' : '例如：慢出心脏病'"
+                        :disabled="taskLocked"
+                      />
+                      <button
+                        type="button"
+                        class="icon-text-button"
+                        :disabled="taskLocked"
+                        :aria-label="`删除第 ${index + 1} 条匹配规则`"
+                        @click="removeMatchRule(index)"
+                      >
+                        删除
+                      </button>
+                    </div>
+                  </div>
+                  <div class="match-rule-actions">
+                    <button type="button" :disabled="taskLocked" @click="addMatchRule('keyword')">添加关键词</button>
+                    <button type="button" :disabled="taskLocked" @click="addMatchRule('semantic')">添加语义规则</button>
+                  </div>
+                </div>
+
+                <label class="field field--wide">
+                  <span>私信模板</span>
+                  <textarea
+                    v-model.trim="form.dmDraft"
+                    rows="3"
+                    maxlength="500"
+                    placeholder="你好"
+                    :disabled="taskLocked || !form.engage"
+                  ></textarea>
+                </label>
+              </div>
+
+              <div class="switch-row">
+                <label class="switch-item">
+                  <input v-model="form.engage" type="checkbox" :disabled="taskLocked" />
+                  <span>匹配后关注并打开私信</span>
+                </label>
+                <label class="switch-item">
+                  <input v-model="form.sendDm" type="checkbox" :disabled="taskLocked || !form.engage" />
+                  <span>自动发送私信</span>
+                </label>
+              </div>
+
+              <div class="form-actions">
+                <button class="primary-button" type="submit" :disabled="!canLaunch">
+                  <span v-if="launching" class="mini-spinner" aria-hidden="true"></span>
+                  <el-icon v-else><Promotion /></el-icon>
+                  <span>{{ launchButtonText }}</span>
                 </button>
+                <button class="text-button" type="button" :disabled="taskLocked" @click="resetForm">重置</button>
               </div>
-            </section>
+            </form>
 
-            <section class="assist-section">
-              <h2>执行环境</h2>
-              <div class="readiness-list">
-                <div class="readiness-row">
-                  <span>浏览器扩展</span>
-                  <button type="button" @click="openBrowserPanel">检查连接</button>
+            <aside class="assist-panel">
+              <section class="assist-section">
+                <div class="assist-section__head">
+                  <h2>常用模板</h2>
+                  <button type="button" :disabled="templateSaving" @click="saveCurrentTemplate">
+                    {{ templateSaving ? '保存中' : '保存当前' }}
+                  </button>
                 </div>
-                <div class="readiness-row">
-                  <span>对话模式</span>
-                  <button type="button" @click="openChatStarter">生成指令</button>
+                <label class="template-name-field">
+                  <span>模板名称</span>
+                  <input v-model.trim="templateName" type="text" maxlength="60" placeholder="例如：产品吐槽线索" />
+                </label>
+                <div class="template-list">
+                  <template v-if="savedTemplates.length">
+                    <div
+                      v-for="template in savedTemplates"
+                      :key="template.id"
+                      class="template-item template-item--saved"
+                    >
+                      <button type="button" :disabled="taskLocked" @click="applyTemplate(template)">
+                        <strong>{{ template.name }}</strong>
+                        <span>{{ template.keyword || '未设置关键词' }} · {{ matchRulesSummary(template.matchRules) }}</span>
+                      </button>
+                      <button type="button" class="template-delete" @click="deleteTemplate(template.id)">删除</button>
+                    </div>
+                  </template>
+                  <button
+                    v-for="template in builtInTemplates"
+                    :key="template.name"
+                    type="button"
+                    class="template-item"
+                    :disabled="taskLocked"
+                    @click="applyTemplate(template)"
+                  >
+                    <strong>{{ template.name }}</strong>
+                    <span>{{ template.keyword }} · {{ matchRulesSummary(template.matchRules) }}</span>
+                  </button>
                 </div>
-                <div class="readiness-row">
-                  <span>结果统计</span>
-                  <button type="button" :disabled="!currentRun?.runId" @click="openRunDetail">查看详情</button>
-                </div>
-              </div>
-            </section>
-          </aside>
-        </section>
+              </section>
+            </aside>
+          </section>
 
-        <section v-if="currentRun || launchError" class="result-panel">
-          <div v-if="launchError" class="error-block">{{ launchError }}</div>
-          <LeadRunLivePanel
-            v-if="currentRun"
-            :run-id="currentRun.runId"
-            :task-id="currentRun.taskId"
-            :initial-run="currentRun"
-            @update:run="handleLiveRunUpdate"
-            @terminal="handleRunTerminal"
-          />
-        </section>
+          <section v-if="currentRun || launchError" class="result-panel">
+            <div v-if="launchError" class="error-block" role="alert">{{ launchError }}</div>
+            <LeadRunLivePanel
+              v-if="currentRun"
+              :run-id="currentRun.runId"
+              :task-id="currentRun.taskId"
+              :initial-run="currentRun"
+              @update:run="handleLiveRunUpdate"
+              @terminal="handleRunTerminal"
+            />
+          </section>
+        </template>
 
-        <section class="stats-panel">
+        <template v-else>
+          <section class="stats-panel">
           <div class="panel-head compact">
             <div>
               <h2>统计看板</h2>
@@ -290,10 +290,10 @@
               <div v-else class="empty-inline">最近任务暂无失败记录。</div>
             </div>
           </div>
-        </section>
+          </section>
 
-        <section class="growth-workspace">
-          <section class="history-panel">
+          <section class="growth-workspace">
+            <section class="history-panel">
             <div class="panel-head compact">
               <div>
                 <h2>最近任务</h2>
@@ -311,6 +311,7 @@
                 class="history-item"
                 type="button"
                 :class="{ 'is-active': run.runId && run.runId === currentRun?.runId }"
+                :aria-current="run.runId && run.runId === currentRun?.runId ? 'true' : undefined"
                 @click="openRunFromHistory(run)"
               >
                 <span class="history-item__main">
@@ -326,9 +327,9 @@
             <div v-else class="empty-card">
               {{ recentLoading ? '正在读取最近任务...' : '暂无历史任务。启动一次获客后会显示在这里。' }}
             </div>
-          </section>
+            </section>
 
-          <section class="lead-pool-panel">
+            <section class="lead-pool-panel">
             <div class="panel-head compact">
               <div>
                 <h2>线索池</h2>
@@ -391,8 +392,19 @@
             <div v-else class="empty-card">
               {{ leadPoolLoading ? '正在读取线索池...' : '暂无命中线索。' }}
             </div>
+            </section>
           </section>
-        </section>
+          <section class="history-final-summary">
+            <LeadRunFinalSummary
+              v-if="currentRun"
+              :run="currentRun"
+              :loading="historyRunLoading"
+            />
+            <div v-else class="empty-card">
+              {{ recentLoading ? '正在读取最近任务...' : '选择一条最近任务后展示最终汇总。' }}
+            </div>
+          </section>
+        </template>
       </div>
     </div>
   </div>
@@ -400,8 +412,8 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
-import { ArrowDown, ChatDotRound, Connection, Promotion, Search } from '@element-plus/icons-vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ChatDotRound, Connection, Promotion } from '@element-plus/icons-vue'
 import { leadAcquisitionApi } from '@/api'
 import type {
   DouyinLeadAcquisitionRunResponse,
@@ -409,21 +421,25 @@ import type {
   DouyinLeadPoolItem,
   DouyinLeadRunListItem,
   DouyinLeadStatsResponse,
+  DouyinLeadMatchRule,
   DouyinLeadTemplate,
   DouyinLeadTemplatePayload,
 } from '@/api'
 import { mcToast } from '@/composables/useMcToast'
 import LeadRunLivePanel from '@/components/lead/LeadRunLivePanel.vue'
+import LeadRunFinalSummary from '@/components/lead/LeadRunFinalSummary.vue'
 import BrowserPairingPanel from '@/views/Settings/Browser/index.vue'
 
-type SortMode = 'most_liked' | 'latest'
+type SortMode = 'comprehensive' | 'most_liked' | 'latest'
 type LeadPoolStatus = 'all' | 'pending' | 'engaged' | 'sent' | 'failed'
+type LeadView = 'launch' | 'history'
+type OpenRunOptions = { scroll?: boolean }
 
 interface LeadForm {
   keyword: string
   sort: SortMode
   videoLimit: number
-  commentMatchRule: string
+  matchRules: DouyinLeadMatchRule[]
   dmDraft: string
   engage: boolean
   sendDm: boolean
@@ -432,7 +448,7 @@ interface LeadForm {
 interface LeadTemplate {
   name: string
   keyword: string
-  commentMatchRule: string
+  matchRules: DouyinLeadMatchRule[]
   dmDraft: string
   videoLimit: number
   sort?: SortMode
@@ -441,7 +457,8 @@ interface LeadTemplate {
 }
 
 const router = useRouter()
-const activeChannel = ref('douyin')
+const route = useRoute()
+const activeView = ref<LeadView>('launch')
 const launching = ref(false)
 const currentRun = ref<DouyinLeadAcquisitionRunResponse | null>(null)
 const launchError = ref('')
@@ -449,6 +466,7 @@ const browserPanelRef = ref<HTMLElement | null>(null)
 const browserPanelOpen = ref(false)
 const recentRuns = ref<DouyinLeadRunListItem[]>([])
 const recentLoading = ref(false)
+const historyRunLoading = ref(false)
 const leadPool = ref<DouyinLeadPoolItem[]>([])
 const leadPoolLoading = ref(false)
 const leadPoolKeyword = ref('')
@@ -462,34 +480,34 @@ const savedTemplates = ref<DouyinLeadTemplate[]>([])
 const templateName = ref('')
 const templateSaving = ref(false)
 
-const channels = [
-  {
-    key: 'douyin',
-    title: '抖音获客',
-    subtitle: '评论采集、匹配、触达',
-    icon: Search,
-  },
-]
-
 const builtInTemplates: LeadTemplate[] = [
   {
     name: '产品吐槽线索',
     keyword: '易企秀',
-    commentMatchRule: '慢出心脏病',
+    matchRules: [
+      { mode: 'keyword', value: '慢出心脏病' },
+      { mode: 'semantic', value: '抱怨易企秀加载慢、体验差或后悔购买的人' },
+    ],
     dmDraft: '你好',
     videoLimit: 2,
   },
   {
     name: '数字化转型需求',
     keyword: 'ai数字化转型',
-    commentMatchRule: '转型',
+    matchRules: [
+      { mode: 'keyword', value: '转型' },
+      { mode: 'semantic', value: '表达想了解数字化转型、AI落地或业务增长方案的人' },
+    ],
     dmDraft: '你好，看到你对数字化转型有关注，方便交流一下吗？',
     videoLimit: 5,
   },
   {
     name: 'AI 工具咨询',
     keyword: 'AI工具',
-    commentMatchRule: '怎么用',
+    matchRules: [
+      { mode: 'keyword', value: '怎么用' },
+      { mode: 'semantic', value: '正在咨询 AI 工具用法、价格或适用场景的人' },
+    ],
     dmDraft: '你好，看到你在评论里提到 AI 工具，我这边可以分享一个方案。',
     videoLimit: 5,
   },
@@ -593,7 +611,14 @@ watch(() => form.value.engage, (engage) => {
   if (!engage) form.value.sendDm = false
 })
 
+watch(recentRuns, () => {
+  if (activeView.value === 'history') void ensureHistoryRunSelected()
+})
+
 onMounted(() => {
+  if (route.query.connectBrowser === '1') {
+    void openBrowserPanel()
+  }
   loadRecentRuns()
   loadLeadPool()
   loadLeadStats()
@@ -603,9 +628,11 @@ onMounted(() => {
 function defaultForm(): LeadForm {
   return {
     keyword: '',
-    sort: 'most_liked',
+    sort: 'comprehensive',
     videoLimit: 2,
-    commentMatchRule: '',
+    matchRules: [
+      { mode: 'keyword', value: '' },
+    ],
     dmDraft: '你好',
     engage: true,
     sendDm: false,
@@ -618,6 +645,40 @@ function normalizeVideoLimit() {
   form.value.videoLimit = Math.min(50, Math.max(1, next))
 }
 
+function addMatchRule(mode: DouyinLeadMatchRule['mode']) {
+  form.value.matchRules.push({ mode, value: '' })
+}
+
+function removeMatchRule(index: number) {
+  form.value.matchRules.splice(index, 1)
+  if (!form.value.matchRules.length) {
+    form.value.matchRules.push({ mode: 'keyword', value: '' })
+  }
+}
+
+function normalizeMatchRules(rules?: DouyinLeadMatchRule[] | null): DouyinLeadMatchRule[] {
+  const normalized = (rules ?? [])
+    .map(rule => ({
+      mode: rule?.mode === 'semantic' ? 'semantic' : 'keyword',
+      value: String(rule?.value ?? '').trim(),
+    }))
+    .filter(rule => rule.value.length > 0)
+  return normalized.length ? normalized : [{ mode: 'keyword', value: '' }]
+}
+
+function normalizedFormMatchRules(): DouyinLeadMatchRule[] {
+  return normalizeMatchRules(form.value.matchRules).filter(rule => rule.value.length > 0)
+}
+
+function matchRulesSummary(rules?: DouyinLeadMatchRule[] | null): string {
+  const normalized = normalizeMatchRules(rules).filter(rule => rule.value.length > 0)
+  if (!normalized.length) return '只采集评论'
+  return normalized
+    .slice(0, 2)
+    .map(rule => `${rule.mode === 'semantic' ? '语义' : '关键词'}：${rule.value}`)
+    .join(' · ') + (normalized.length > 2 ? ` 等 ${normalized.length} 条` : '')
+}
+
 function resetForm() {
   form.value = defaultForm()
   launchError.value = ''
@@ -628,7 +689,7 @@ function applyTemplate(template: LeadTemplate | DouyinLeadTemplate) {
     keyword: template.keyword || '',
     sort: normalizeSortMode(template.sort),
     videoLimit: template.videoLimit || 2,
-    commentMatchRule: 'commentMatchRule' in template ? (template.commentMatchRule || '') : '',
+    matchRules: normalizeMatchRules(template.matchRules),
     dmDraft: template.dmDraft || '你好',
     engage: template.engage ?? true,
     sendDm: template.sendDm ?? false,
@@ -687,7 +748,7 @@ function templatePayload(name: string): DouyinLeadTemplatePayload {
     keyword: form.value.keyword.trim(),
     sort: form.value.sort,
     videoLimit: form.value.videoLimit,
-    commentMatchRule: form.value.commentMatchRule.trim(),
+    matchRules: normalizedFormMatchRules(),
     dmDraft: form.value.dmDraft.trim() || '你好',
     engage: form.value.engage,
     sendDm: form.value.sendDm,
@@ -695,7 +756,9 @@ function templatePayload(name: string): DouyinLeadTemplatePayload {
 }
 
 function normalizeSortMode(value?: string | null): SortMode {
-  return value === 'latest' ? 'latest' : 'most_liked'
+  if (value === 'latest') return 'latest'
+  if (value === 'most_liked') return 'most_liked'
+  return 'comprehensive'
 }
 
 async function submitDouyinRun() {
@@ -710,7 +773,7 @@ async function submitDouyinRun() {
       keyword: form.value.keyword.trim(),
       sort: form.value.sort,
       videoLimit: form.value.videoLimit,
-      commentMatchRule: form.value.commentMatchRule.trim(),
+      matchRules: normalizedFormMatchRules(),
       dmDraft: form.value.dmDraft.trim() || '你好',
       engage: form.value.engage,
       sendDm: form.value.sendDm,
@@ -770,20 +833,32 @@ function isTerminalStatus(status?: string | null): boolean {
   return ['succeeded', 'success', 'completed', 'failed', 'aborted', 'cancelled', 'canceled'].includes(String(status || '').toLowerCase())
 }
 
-function toggleBrowserPanel() {
-  browserPanelOpen.value = !browserPanelOpen.value
-  if (browserPanelOpen.value) focusBrowserPanel()
+async function toggleLeadView() {
+  if (activeView.value === 'history') {
+    activeView.value = 'launch'
+    return
+  }
+  activeView.value = 'history'
+  await nextTick()
+  await ensureHistoryRunSelected()
 }
 
-function openBrowserPanel() {
-  browserPanelOpen.value = true
-  focusBrowserPanel()
+async function ensureHistoryRunSelected() {
+  if (recentLoading.value || historyRunLoading.value) return
+  const currentId = currentRun.value?.runId == null ? '' : String(currentRun.value.runId)
+  if (currentId && recentRuns.value.some(run => run.runId != null && String(run.runId) === currentId)) return
+  const firstRun = recentRuns.value.find(run => run.runId)
+  if (firstRun?.runId) await openRunById(firstRun.runId, { scroll: false })
 }
 
-async function focusBrowserPanel() {
+async function openBrowserPanel() {
   browserPanelOpen.value = true
   await nextTick()
-  browserPanelRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  browserPanelRef.value?.focus({ preventScroll: true })
+}
+
+function closeBrowserPanel() {
+  browserPanelOpen.value = false
 }
 
 function openRunDetail() {
@@ -805,26 +880,34 @@ async function loadRecentRuns() {
     recentRuns.value = recentRuns.value ?? []
   } finally {
     recentLoading.value = false
+    if (activeView.value === 'history') void ensureHistoryRunSelected()
   }
 }
 
 async function openRunFromHistory(item: DouyinLeadRunListItem) {
   if (!item.runId) return
-  await openRunById(item.runId)
+  await openRunById(item.runId, { scroll: false })
 }
 
-async function openRunById(runId: string | number | null) {
+async function openRunById(runId: string | number | null, options: OpenRunOptions = {}) {
   if (!runId) return
+  const shouldMarkHistoryLoading = activeView.value === 'history'
+  if (shouldMarkHistoryLoading) historyRunLoading.value = true
   try {
     const response = await leadAcquisitionApi.getDouyinRun(runId)
     const run = unwrapApiData<DouyinLeadAcquisitionRunResponse | null>(response, null)
     if (!run) throw new Error('未找到任务详情')
     currentRun.value = normalizeRun(run)
-    await nextTick()
-    document.querySelector('.result-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    if (options.scroll !== false) {
+      await nextTick()
+      const selector = activeView.value === 'history' ? '.history-final-summary' : '.result-panel'
+      document.querySelector(selector)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     mcToast.error(message)
+  } finally {
+    if (shouldMarkHistoryLoading) historyRunLoading.value = false
   }
 }
 
@@ -897,6 +980,7 @@ function emptyStats(): DouyinLeadStatsResponse {
 }
 
 function sortLabel(sort?: string | null): string {
+  if (sort === 'comprehensive') return '综合排序'
   if (sort === 'most_liked') return '最多点赞'
   if (sort === 'latest') return '最新发布'
   return sort || '默认排序'
@@ -967,7 +1051,7 @@ function openChatStarter() {
 function buildChatPrompt(): string {
   return [
     '我要执行抖音获客。',
-    '请先向我确认这些参数：关键词、排序方式、视频数量、评论匹配规则、私信模板、是否关注、是否发送私信。',
+    '请先向我确认这些参数：关键词、排序方式、视频数量、关键词匹配规则、语义匹配规则、私信模板、是否关注、是否发送私信。',
     '确认后执行抖音获客，并在结束时汇总每个视频的评论声明数、实际采集数、匹配数，以及每个 engagement 的状态。',
   ].join('\n')
 }
@@ -983,6 +1067,7 @@ function buildChatPrompt(): string {
 }
 
 .lead-page {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -991,11 +1076,15 @@ function buildChatPrompt(): string {
 
 .lead-header {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 18px;
   padding: 4px 0 10px;
   border-bottom: 1px solid var(--mc-border);
+}
+
+.lead-header > div:first-child {
+  min-width: 0;
 }
 
 .lead-kicker {
@@ -1020,7 +1109,16 @@ function buildChatPrompt(): string {
   font-size: 14px;
 }
 
-.lead-header__actions,
+.lead-header__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  padding-top: 22px;
+}
+
 .form-actions {
   display: flex;
   align-items: center;
@@ -1028,13 +1126,6 @@ function buildChatPrompt(): string {
   flex-wrap: wrap;
 }
 
-.lead-overview {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
-}
-
-.channel-tab,
 .template-item,
 .ghost-button,
 .primary-button,
@@ -1046,39 +1137,21 @@ function buildChatPrompt(): string {
   transition: border-color .18s ease, background .18s ease, color .18s ease, transform .18s ease;
 }
 
-.channel-tab {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 74px;
-  padding: 14px 16px;
-  text-align: left;
-  border-radius: 8px;
+.view-switch-button {
+  min-width: 108px;
 }
 
-.channel-tab.is-active {
-  border-color: var(--mc-primary);
-  background: color-mix(in srgb, var(--mc-primary) 8%, var(--mc-bg-container));
-}
-
-.channel-tab__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
+.view-switch-button[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--mc-primary) 48%, var(--mc-border));
+  background: color-mix(in srgb, var(--mc-primary) 9%, var(--mc-bg-container));
   color: var(--mc-primary);
-  background: color-mix(in srgb, var(--mc-primary) 10%, transparent);
 }
 
-.channel-tab strong,
 .template-item strong {
   display: block;
   font-size: 14px;
 }
 
-.channel-tab small,
 .template-item span {
   display: block;
   margin-top: 4px;
@@ -1088,103 +1161,96 @@ function buildChatPrompt(): string {
 
 .lead-workbench {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
   gap: 16px;
   align-items: start;
 }
 
-.browser-pairing-workspace {
-  scroll-margin-top: 18px;
+.browser-pairing-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 28;
+  background: rgba(15, 23, 42, .32);
+}
+
+.browser-pairing-popover {
+  position: fixed;
+  top: 136px;
+  right: 32px;
+  z-index: 29;
+  display: flex;
+  width: 560px;
+  max-width: calc(100vw - 64px);
+  max-height: calc(100vh - 160px);
+  flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--mc-border);
   border-radius: 8px;
-  background: var(--mc-bg-container);
+  background: var(--mc-bg);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, .18);
+  outline: none;
 }
 
-.browser-pairing-toggle {
+.browser-pairing-popover:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mc-primary) 24%, transparent), 0 18px 48px rgba(15, 23, 42, .18);
+}
+
+.browser-pairing-popover__head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 14px;
-  width: 100%;
-  min-height: 58px;
-  border: 0;
-  background: transparent;
-  color: var(--mc-text-primary);
-  cursor: pointer;
-  padding: 12px 16px;
-  text-align: left;
-}
-
-.browser-pairing-toggle:hover {
-  background: var(--mc-bg-muted);
-}
-
-.browser-pairing-toggle__main {
-  display: inline-flex;
-  align-items: center;
   gap: 12px;
-  min-width: 0;
+  flex: 0 0 auto;
+  padding: 16px 18px;
+  background: var(--mc-bg);
 }
 
-.browser-pairing-toggle__icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  flex-shrink: 0;
-  border-radius: 8px;
-  color: var(--mc-primary);
-  background: color-mix(in srgb, var(--mc-primary) 10%, transparent);
+.browser-pairing-popover__head h2 {
+  margin: 0;
+  color: var(--mc-text-primary);
+  font-size: 16px;
 }
 
-.browser-pairing-toggle strong,
-.browser-pairing-toggle small {
-  display: block;
-}
-
-.browser-pairing-toggle strong {
-  font-size: 14px;
-}
-
-.browser-pairing-toggle small {
-  margin-top: 4px;
-  color: var(--mc-text-secondary);
-  font-size: 12px;
-}
-
-.browser-pairing-toggle__action {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
+.browser-pairing-popover__head p {
+  margin: 5px 0 0;
   color: var(--mc-text-secondary);
   font-size: 13px;
-  font-weight: 650;
-}
-
-.browser-pairing-toggle__chevron {
-  transition: transform .18s ease;
-}
-
-.browser-pairing-workspace.is-open .browser-pairing-toggle__chevron {
-  transform: rotate(180deg);
 }
 
 .browser-pairing-body {
-  padding: 0 16px 16px;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 18px 18px;
   border-top: 1px solid var(--mc-border);
+  background: var(--mc-bg);
+}
+
+.browser-pairing-body :deep(.browser-pairing-section.is-embedded .section-header),
+.browser-pairing-body :deep(.browser-pairing-section.is-embedded .section-footer-note) {
+  display: none;
+}
+
+.browser-pairing-body :deep(.browser-pairing-section.is-compact .settings-card) {
+  background: var(--mc-surface-strong, var(--mc-bg-elevated));
+  box-shadow: none;
 }
 
 .browser-panel-enter-active,
-.browser-panel-leave-active {
+.browser-panel-leave-active,
+.browser-scrim-enter-active,
+.browser-scrim-leave-active {
   transition: opacity .16s ease, transform .16s ease;
 }
 
 .browser-panel-enter-from,
-.browser-panel-leave-to {
+.browser-panel-leave-to,
+.browser-scrim-enter-from,
+.browser-scrim-leave-to {
   opacity: 0;
+}
+
+.browser-panel-enter-from,
+.browser-panel-leave-to {
   transform: translateY(-4px);
 }
 
@@ -1232,7 +1298,7 @@ function buildChatPrompt(): string {
 }
 
 .assist-section__head button {
-  min-height: 30px;
+  min-height: 34px;
   border: 1px solid var(--mc-border);
   border-radius: 6px;
   background: var(--mc-bg);
@@ -1257,8 +1323,7 @@ function buildChatPrompt(): string {
 }
 
 .panel-head h2,
-.assist-section h2,
-.result-tables h3 {
+.assist-section h2 {
   margin: 0;
   color: var(--mc-text-primary);
   font-size: 16px;
@@ -1293,7 +1358,7 @@ function buildChatPrompt(): string {
 .field select,
 .field textarea {
   width: 100%;
-  min-height: 40px;
+  min-height: 42px;
   border: 1px solid var(--mc-border);
   border-radius: 6px;
   background: var(--mc-bg);
@@ -1316,6 +1381,64 @@ function buildChatPrompt(): string {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--mc-primary) 14%, transparent);
 }
 
+.field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.field-hint {
+  color: var(--mc-text-tertiary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.match-rule-list {
+  display: flex;
+  max-height: 184px;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+  padding-right: 3px;
+}
+
+.match-rule-row {
+  display: grid;
+  grid-template-columns: 136px minmax(0, 1fr) 64px;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--mc-border);
+  border-radius: 8px;
+  background: var(--mc-bg);
+}
+
+.match-rule-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.match-rule-actions button,
+.icon-text-button {
+  min-height: 38px;
+  border: 1px solid var(--mc-border);
+  border-radius: 6px;
+  background: var(--mc-bg);
+  color: var(--mc-text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.match-rule-actions button:hover,
+.icon-text-button:hover {
+  border-color: color-mix(in srgb, var(--mc-primary) 42%, var(--mc-border));
+  color: var(--mc-primary);
+}
+
 .template-name-field {
   display: flex;
   flex-direction: column;
@@ -1327,7 +1450,7 @@ function buildChatPrompt(): string {
 }
 
 .template-name-field input {
-  min-height: 34px;
+  min-height: 40px;
   border: 1px solid var(--mc-border);
   border-radius: 6px;
   background: var(--mc-bg);
@@ -1352,13 +1475,14 @@ function buildChatPrompt(): string {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-height: 36px;
   color: var(--mc-text-primary);
   font-size: 13px;
 }
 
 .switch-item input {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
 }
 
 .primary-button,
@@ -1368,8 +1492,8 @@ function buildChatPrompt(): string {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 38px;
-  padding: 0 14px;
+  min-height: 40px;
+  padding: 0 15px;
   border-radius: 6px;
   font-weight: 650;
 }
@@ -1381,9 +1505,29 @@ function buildChatPrompt(): string {
 }
 
 .ghost-button:hover,
-.template-item:hover,
-.channel-tab:hover {
+.template-item:hover {
   border-color: var(--mc-primary);
+}
+
+.ghost-button:active,
+.primary-button:active,
+.text-button:active,
+.template-item:active,
+.history-item:active {
+  transform: translateY(1px);
+}
+
+.ghost-button:focus-visible,
+.primary-button:focus-visible,
+.text-button:focus-visible,
+.template-item:focus-visible,
+.template-delete:focus-visible,
+.icon-text-button:focus-visible,
+.inline-link:focus-visible,
+.history-item:focus-visible,
+.match-rule-actions button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mc-primary) 20%, transparent);
 }
 
 .text-button {
@@ -1397,15 +1541,18 @@ button:disabled {
   opacity: .58;
 }
 
-.template-list,
-.readiness-list {
+.template-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
   margin-top: 12px;
+  max-height: 420px;
+  overflow: auto;
+  padding-right: 3px;
 }
 
 .template-item {
+  min-height: 68px;
   padding: 12px;
   border-radius: 8px;
   text-align: left;
@@ -1429,7 +1576,7 @@ button:disabled {
 }
 
 .template-delete {
-  min-height: 28px;
+  min-height: 34px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -1444,25 +1591,6 @@ button:disabled {
   background: color-mix(in srgb, var(--mc-danger, #dc2626) 10%, transparent);
 }
 
-.readiness-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  color: var(--mc-text-secondary);
-  font-size: 13px;
-}
-
-.readiness-row button {
-  min-height: 30px;
-  border: 1px solid var(--mc-border);
-  border-radius: 6px;
-  background: var(--mc-bg);
-  color: var(--mc-text-primary);
-  padding: 0 10px;
-  cursor: pointer;
-}
-
 .error-block {
   margin-bottom: 12px;
   padding: 12px;
@@ -1470,89 +1598,6 @@ button:disabled {
   border-radius: 8px;
   color: var(--mc-danger);
   background: color-mix(in srgb, var(--mc-danger) 8%, transparent);
-}
-
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 18px;
-}
-
-.metric-item {
-  padding: 12px;
-  border: 1px solid var(--mc-border);
-  border-radius: 8px;
-  background: var(--mc-bg);
-}
-
-.metric-item span {
-  display: block;
-  color: var(--mc-text-secondary);
-  font-size: 12px;
-}
-
-.metric-item strong {
-  display: block;
-  margin-top: 6px;
-  color: var(--mc-text-primary);
-  font-size: 20px;
-}
-
-.result-tables {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
-  gap: 16px;
-}
-
-.result-tables h3 {
-  margin-bottom: 10px;
-}
-
-.table-wrap {
-  overflow: auto;
-  border: 1px solid var(--mc-border);
-  border-radius: 8px;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  min-width: 520px;
-}
-
-th,
-td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--mc-border);
-  text-align: left;
-  vertical-align: top;
-  font-size: 13px;
-}
-
-th {
-  color: var(--mc-text-secondary);
-  background: var(--mc-bg-muted);
-  font-weight: 650;
-}
-
-tr:last-child td {
-  border-bottom: 0;
-}
-
-.technical-detail {
-  margin-top: 16px;
-}
-
-.technical-detail summary {
-  cursor: pointer;
-  color: var(--mc-text-secondary);
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.technical-detail :deep(.douyin-result) {
-  margin-top: 14px;
 }
 
 .stats-panel {
@@ -1576,7 +1621,7 @@ tr:last-child td {
 }
 
 .stats-toolbar input {
-  min-height: 34px;
+  min-height: 40px;
   border: 1px solid var(--mc-border);
   border-radius: 6px;
   background: var(--mc-bg);
@@ -1592,7 +1637,7 @@ tr:last-child td {
 
 .stats-toolbar .text-button {
   align-self: end;
-  min-height: 34px;
+  min-height: 40px;
 }
 
 .stats-error {
@@ -1612,11 +1657,33 @@ tr:last-child td {
 }
 
 .metric-card {
+  position: relative;
   min-width: 0;
   padding: 12px;
   border: 1px solid var(--mc-border);
   border-radius: 8px;
   background: var(--mc-bg);
+}
+
+.metric-card::before,
+.rate-item::before {
+  content: "";
+  display: block;
+  width: 32px;
+  height: 3px;
+  margin-bottom: 10px;
+  border-radius: 999px;
+  background: var(--mc-primary);
+}
+
+.metric-card:nth-child(3)::before,
+.rate-item:nth-child(1)::before {
+  background: #16a34a;
+}
+
+.metric-card:nth-child(4)::before,
+.rate-item:nth-child(2)::before {
+  background: #7c3aed;
 }
 
 .metric-card span,
@@ -1782,7 +1849,7 @@ tr:last-child td {
 
 .lead-pool-filters input,
 .lead-pool-filters select {
-  min-height: 34px;
+  min-height: 40px;
   border: 1px solid var(--mc-border);
   border-radius: 6px;
   background: var(--mc-bg);
@@ -1802,6 +1869,7 @@ tr:last-child td {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   width: 100%;
+  min-height: 72px;
   border: 1px solid var(--mc-border);
   border-radius: 8px;
   background: var(--mc-bg);
@@ -1815,6 +1883,10 @@ tr:last-child td {
 .history-item.is-active {
   border-color: var(--mc-primary);
   background: color-mix(in srgb, var(--mc-primary) 7%, var(--mc-bg));
+}
+
+.history-item.is-active {
+  box-shadow: inset 3px 0 0 var(--mc-primary);
 }
 
 .history-item__main,
@@ -1897,7 +1969,7 @@ tr:last-child td {
 }
 
 .inline-link {
-  min-height: 26px;
+  min-height: 32px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -1917,7 +1989,7 @@ tr:last-child td {
   border-radius: 999px;
   background: var(--mc-bg-muted);
   color: var(--mc-text-secondary);
-  padding: 3px 8px;
+  padding: 4px 9px;
   font-size: 12px;
   font-weight: 700;
 }
@@ -1935,6 +2007,16 @@ tr:last-child td {
 .status-muted {
   background: var(--mc-bg-muted);
   color: var(--mc-text-secondary);
+}
+
+.history-final-summary {
+  min-width: 0;
+  scroll-margin-top: 18px;
+}
+
+.history-final-summary > .empty-card {
+  min-height: 180px;
+  background: var(--mc-bg-container);
 }
 
 .empty-card {
@@ -1965,24 +2047,9 @@ tr:last-child td {
 
 @media (max-width: 1080px) {
   .lead-workbench,
-  .result-tables,
   .stats-insights,
   .growth-workspace {
     grid-template-columns: 1fr;
-  }
-
-  .assist-panel {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .assist-section {
-    border-bottom: 0;
-    border-right: 1px solid var(--mc-border);
-  }
-
-  .assist-section:last-child {
-    border-right: 0;
   }
 }
 
@@ -2001,6 +2068,12 @@ tr:last-child td {
     width: 100%;
   }
 
+  .lead-header__actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    padding-top: 0;
+  }
+
   .ghost-button,
   .primary-button {
     flex: 1;
@@ -2008,7 +2081,6 @@ tr:last-child td {
 
   .field-grid,
   .assist-panel,
-  .metric-grid,
   .stats-card-grid,
   .stats-toolbar,
   .rate-strip,
@@ -2019,6 +2091,45 @@ tr:last-child td {
   .assist-section {
     border-right: 0;
     border-bottom: 1px solid var(--mc-border);
+  }
+
+  .browser-pairing-popover {
+    top: 12px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-height: calc(100vh - 24px);
+  }
+
+  .match-rule-row {
+    grid-template-columns: 1fr;
+  }
+
+  .field-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .history-item {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .history-item__stats {
+    text-align: left;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .template-item,
+  .ghost-button,
+  .primary-button,
+  .text-button,
+  .browser-panel-enter-active,
+  .browser-panel-leave-active,
+  .browser-scrim-enter-active,
+  .browser-scrim-leave-active {
+    transition: none;
   }
 }
 </style>

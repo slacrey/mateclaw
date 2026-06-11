@@ -35,6 +35,9 @@ public class LeadTemplateEntity {
     @TableField(value = "comment_match_rule", updateStrategy = FieldStrategy.ALWAYS)
     private String commentMatchRule;
 
+    @TableField(value = "match_rules_json", updateStrategy = FieldStrategy.ALWAYS)
+    private String matchRulesJson;
+
     @TableField(value = "dm_draft", updateStrategy = FieldStrategy.ALWAYS)
     private String dmDraft;
 

@@ -79,6 +79,7 @@ export interface ExtractRegionParams {
 export interface OpenAuthorFromCommentParams {
   commentText: string
   authorName?: string
+  authorProfileUrl?: string
 }
 
 export interface ClickProfileActionParams {

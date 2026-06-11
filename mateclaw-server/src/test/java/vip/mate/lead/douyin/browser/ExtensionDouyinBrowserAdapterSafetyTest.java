@@ -803,7 +803,7 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
                 "openclaw",
                 "most_liked",
                 1,
-                "对于99%的人用豆包就行了。",
+                List.of(),
                 "你好",
                 false)))
                 .isInstanceOf(DouyinBrowserException.class)
@@ -1053,7 +1053,7 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
                 "openclaw",
                 "most_liked",
                 1,
-                "对于99%的人用豆包就行了。",
+                List.of(),
                 "你好",
                 false));
         DouyinBrowserAdapter.BrowserObservation opened = adapter.openVideo(0);
@@ -1093,12 +1093,66 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
                 "ai数字化转型",
                 "most_liked",
                 1,
-                "对于99%的人用豆包就行了。",
+                List.of(),
                 "你好",
                 false));
 
         assertThat(sorted.tree()).contains("最多点赞已选");
         verify(browser).service_click_main(472.0d, 186.0d);
+    }
+
+    @Test
+    void applySortClicksLatestWhenLatestSortRequested() {
+        ExtensionBrowserTool browser = mock(ExtensionBrowserTool.class);
+        ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
+                browser,
+                new ObjectMapper(),
+                mock(DouyinCommentCollector.class));
+        String searchPage = """
+                {"ok":true,"url":"https://www.douyin.com/jingxuan/search/易企秀?type=general","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":900},"tree":"Searchbox[ref=ref_1, frame=0]: 易企秀 @{454,9 315x38}\\nText[ref=ref_2, frame=0]: 筛选 @{1810,66 54x26}\\nText[ref=ref_20, frame=0]: 综合排序 最新发布 最多点赞 @{390,118 260x28}\\nText[ref=ref_3, frame=0]: 39.6万 @{220,407 50x19}\\nText[ref=ref_4, frame=0]: 第一条 易企秀 视频 @{203,430 215x91}"}
+                """;
+        String filterPanel = """
+                {"ok":true,"url":"https://www.douyin.com/jingxuan/search/易企秀?type=general","title":"发现更多精彩视频 - 抖音搜索","viewport":{"w":1920,"h":900},"tree":"Searchbox[ref=ref_1, frame=0]: 易企秀 @{454,9 315x38}\\nText[ref=ref_2, frame=0]: 筛选 @{1810,66 54x26}\\nGeneric[ref=ref_9, frame=0]: 最新发布 @{430,202 84x28}\\nText[ref=ref_3, frame=0]: 39.6万 @{220,407 50x19}\\nText[ref=ref_4, frame=0]: 第一条 易企秀 视频 @{203,430 215x91}"}
+                """;
+        String latestSelected = filterPanel.replace("最新发布", "最新发布已选");
+        when(browser.service_observe_main("all")).thenReturn(searchPage, filterPanel, latestSelected);
+        when(browser.service_hover_main(anyDouble(), anyDouble())).thenReturn("{\"ok\":true}");
+        when(browser.service_click_main(anyDouble(), anyDouble())).thenReturn("{\"ok\":true}");
+        when(browser.service_register_region_main(
+                "douyin.search_results", 0.0d, 0.0d, 1920.0d, 900.0d, "search-results-dom"))
+                .thenReturn("{\"ok\":true}");
+        when(browser.service_extract_region_main("douyin.search_results", 80)).thenReturn(
+                "{\"ok\":true,\"results\":[{\"kind\":\"extract_region\",\"payload\":{\"regionKey\":\"douyin.search_results\",\"items\":[]}}]}");
+
+        DouyinBrowserAdapter.BrowserObservation sorted = adapter.applySort(new DouyinLeadAcquisitionInput(
+                "易企秀",
+                "latest",
+                1,
+                List.of(),
+                "你好",
+                false));
+
+        assertThat(sorted.tree()).contains("最新发布已选");
+        verify(browser).service_click_main(472.0d, 216.0d);
+    }
+
+    @Test
+    void latestSortPointIgnoresCombinedSortSummaryLine() {
+        ExtensionDouyinBrowserAdapter adapter = new ExtensionDouyinBrowserAdapter(
+                mock(ExtensionBrowserTool.class),
+                new ObjectMapper(),
+                mock(DouyinCommentCollector.class));
+        String tree = """
+                Text[ref=ref_1, frame=0]: 综合排序 最新发布 最多点赞 @{390,118 260x28}
+                Generic[ref=ref_2, frame=0]: 最新发布 @{430,202 84x28}
+                """;
+
+        ExtensionDouyinBrowserAdapter.ClickPoint point =
+                adapter.findSortOptionPoint(tree, java.util.List.of("最新发布", "发布时间", "按时间", "按发布时间"));
+
+        assertThat(point).isNotNull();
+        assertThat(point.x()).isEqualTo(472.0d);
+        assertThat(point.y()).isEqualTo(216.0d);
     }
 
     @Test
@@ -1122,7 +1176,7 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
                 "ai数字化转型",
                 "most_liked",
                 1,
-                "对于99%的人用豆包就行了。",
+                List.of(),
                 "你好",
                 false));
 
@@ -1158,7 +1212,7 @@ class ExtensionDouyinBrowserAdapterSafetyTest {
                         "openclaw",
                         "most_liked",
                         1,
-                        "对于99%的人用豆包就行了。",
+                        List.of(),
                         "你好",
                         false)))
                 .isInstanceOf(DouyinBrowserException.class)

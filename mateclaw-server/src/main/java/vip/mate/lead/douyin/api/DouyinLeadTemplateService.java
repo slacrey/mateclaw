@@ -1,9 +1,11 @@
 package vip.mate.lead.douyin.api;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import vip.mate.exception.MateClawException;
+import vip.mate.lead.douyin.model.CommentMatchRule;
 import vip.mate.os.run.model.LeadTemplateEntity;
 import vip.mate.os.run.repository.LeadTemplateMapper;
 
@@ -13,9 +15,11 @@ import java.util.List;
 public class DouyinLeadTemplateService {
 
     private final LeadTemplateMapper templateMapper;
+    private final ObjectMapper objectMapper;
 
-    public DouyinLeadTemplateService(LeadTemplateMapper templateMapper) {
+    public DouyinLeadTemplateService(LeadTemplateMapper templateMapper, ObjectMapper objectMapper) {
         this.templateMapper = templateMapper;
+        this.objectMapper = objectMapper;
     }
 
     public List<DouyinLeadTemplateDTO> list(Long workspaceId) {
@@ -26,7 +30,7 @@ public class DouyinLeadTemplateService {
                         .orderByDesc(LeadTemplateEntity::getUpdateTime)
                         .orderByDesc(LeadTemplateEntity::getCreateTime))
                 .stream()
-                .map(DouyinLeadTemplateDTO::from)
+                .map(row -> DouyinLeadTemplateDTO.from(row, objectMapper))
                 .toList();
     }
 
@@ -39,7 +43,7 @@ public class DouyinLeadTemplateService {
         row.setDeleted(0);
         apply(row, request);
         templateMapper.insert(row);
-        return DouyinLeadTemplateDTO.from(row);
+        return DouyinLeadTemplateDTO.from(row, objectMapper);
     }
 
     @Transactional
@@ -47,7 +51,7 @@ public class DouyinLeadTemplateService {
         LeadTemplateEntity row = requireTemplate(workspaceId, id);
         apply(row, request);
         templateMapper.updateById(row);
-        return DouyinLeadTemplateDTO.from(row);
+        return DouyinLeadTemplateDTO.from(row, objectMapper);
     }
 
     @Transactional
@@ -78,9 +82,18 @@ public class DouyinLeadTemplateService {
         row.setKeyword(request.normalizedKeyword());
         row.setSortMode(request.normalizedSort());
         row.setVideoLimit(request.normalizedVideoLimit());
-        row.setCommentMatchRule(request.normalizedCommentMatchRule());
+        row.setCommentMatchRule("");
+        row.setMatchRulesJson(json(request.normalizedMatchRules()));
         row.setDmDraft(request.normalizedDmDraft());
         row.setEngage(request.normalizedEngage());
         row.setSendDm(request.normalizedSendDm());
+    }
+
+    private String json(List<CommentMatchRule> rules) {
+        try {
+            return objectMapper.writeValueAsString(rules == null ? List.of() : rules);
+        } catch (Exception e) {
+            throw new MateClawException("err.lead.template.match_rules_invalid", "Match rules are invalid");
+        }
     }
 }
