@@ -6,6 +6,7 @@ import vip.mate.lead.douyin.browser.DouyinBrowserException;
 import vip.mate.lead.douyin.match.CommentMatcher;
 import vip.mate.lead.douyin.model.CommentCollectionResult;
 import vip.mate.lead.douyin.model.DouyinCommentItem;
+import vip.mate.lead.douyin.model.CommentMatchRule;
 import vip.mate.lead.douyin.model.DouyinLeadAcquisitionInput;
 import vip.mate.lead.douyin.model.DouyinLeadRunSummary;
 import vip.mate.lead.douyin.model.EngagementResult;
@@ -69,7 +70,7 @@ class DouyinLeadAcquisitionExecutorTest {
                 "openclaw",
                 "most_liked",
                 1,
-                "对于99%的人用豆包就行了。",
+                List.of(CommentMatchRule.keyword("对于99%的人用豆包就行了。")),
                 "你好",
                 false,
                 true));
@@ -139,7 +140,7 @@ class DouyinLeadAcquisitionExecutorTest {
                 "openclaw",
                 "most_liked",
                 2,
-                "第二条目标评论",
+                List.of(CommentMatchRule.keyword("第二条目标评论")),
                 "你好",
                 false,
                 true));
@@ -223,7 +224,7 @@ class DouyinLeadAcquisitionExecutorTest {
                 "易企秀",
                 "most_liked",
                 2,
-                "对于99%的人用豆包就行了",
+                List.of(CommentMatchRule.keyword("对于99%的人用豆包就行了")),
                 "你好",
                 false,
                 true));
@@ -283,7 +284,7 @@ class DouyinLeadAcquisitionExecutorTest {
                 "ai数字化转型",
                 "most_liked",
                 1,
-                "对于99%的人用豆包就行了。",
+                List.of(CommentMatchRule.keyword("对于99%的人用豆包就行了。")),
                 "你好",
                 false,
                 false));
@@ -339,7 +340,7 @@ class DouyinLeadAcquisitionExecutorTest {
                 "易企秀",
                 "most_liked",
                 1,
-                "",
+                List.of(),
                 "你好",
                 false,
                 false));
@@ -410,7 +411,7 @@ class DouyinLeadAcquisitionExecutorTest {
                 "openclaw",
                 "most_liked",
                 1,
-                "对于99%的人用豆包就行了。",
+                List.of(CommentMatchRule.keyword("对于99%的人用豆包就行了。")),
                 "你好",
                 true,
                 true));
@@ -479,7 +480,7 @@ class DouyinLeadAcquisitionExecutorTest {
                 "openclaw",
                 "most_liked",
                 1,
-                "",
+                List.of(),
                 "你好",
                 false,
                 true));

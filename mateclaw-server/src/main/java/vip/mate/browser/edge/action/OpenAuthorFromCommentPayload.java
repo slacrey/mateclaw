@@ -6,7 +6,8 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 @JsonTypeInfo(use = JsonTypeInfo.Id.NONE)
 public record OpenAuthorFromCommentPayload(
         @JsonProperty("commentText") String commentText,
-        @JsonProperty("authorName") String authorName
+        @JsonProperty("authorName") String authorName,
+        @JsonProperty("authorProfileUrl") String authorProfileUrl
 ) implements ActionPayload {
 
     public OpenAuthorFromCommentPayload {
@@ -14,5 +15,10 @@ public record OpenAuthorFromCommentPayload(
             throw new IllegalArgumentException("commentText is required");
         }
         authorName = authorName == null ? "" : authorName.trim();
+        authorProfileUrl = authorProfileUrl == null ? "" : authorProfileUrl.trim();
+    }
+
+    public OpenAuthorFromCommentPayload(String commentText, String authorName) {
+        this(commentText, authorName, "");
     }
 }

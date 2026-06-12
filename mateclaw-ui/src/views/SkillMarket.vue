@@ -260,6 +260,7 @@
                 class="form-input"
                 :disabled="douyinLaunching"
               >
+                <option value="comprehensive">{{ t('skills.douyinLead.sortComprehensive') }}</option>
                 <option value="most_liked">{{ t('skills.douyinLead.sortMostLiked') }}</option>
                 <option value="latest">{{ t('skills.douyinLead.sortLatest') }}</option>
               </select>
@@ -293,19 +294,41 @@
             </div>
 
             <div class="form-group full-width">
-              <label class="form-label" for="douyin-comment-rule">
-                {{ t('skills.douyinLead.commentMatchRule') }}
+              <label class="form-label">
+                {{ t('skills.douyinLead.matchRules') }}
                 <span class="form-hint">{{ t('skills.douyinLead.commentRuleOptional') }}</span>
               </label>
-              <textarea
-                id="douyin-comment-rule"
-                v-model.trim="douyinForm.commentMatchRule"
-                class="form-textarea"
-                rows="3"
-                maxlength="2000"
-                :placeholder="t('skills.douyinLead.commentMatchRulePlaceholder')"
-                :disabled="douyinLaunching"
-              ></textarea>
+              <div class="douyin-match-rules">
+                <div
+                  v-for="(rule, index) in douyinForm.matchRules"
+                  :key="`douyin-rule-${index}`"
+                  class="douyin-match-rule-row"
+                >
+                  <select v-model="rule.mode" class="form-input" :disabled="douyinLaunching">
+                    <option value="keyword">{{ t('skills.douyinLead.keywordMatch') }}</option>
+                    <option value="semantic">{{ t('skills.douyinLead.semanticMatch') }}</option>
+                  </select>
+                  <input
+                    v-model.trim="rule.value"
+                    class="form-input"
+                    type="text"
+                    maxlength="160"
+                    :placeholder="rule.mode === 'semantic' ? t('skills.douyinLead.semanticMatchPlaceholder') : t('skills.douyinLead.keywordMatchPlaceholder')"
+                    :disabled="douyinLaunching"
+                  />
+                  <button type="button" class="douyin-rule-delete" :disabled="douyinLaunching" @click="removeDouyinMatchRule(index)">
+                    {{ t('common.delete') }}
+                  </button>
+                </div>
+              </div>
+              <div class="douyin-rule-actions">
+                <button type="button" :disabled="douyinLaunching" @click="addDouyinMatchRule('keyword')">
+                  {{ t('skills.douyinLead.addKeywordRule') }}
+                </button>
+                <button type="button" :disabled="douyinLaunching" @click="addDouyinMatchRule('semantic')">
+                  {{ t('skills.douyinLead.addSemanticRule') }}
+                </button>
+              </div>
             </div>
 
             <div class="form-group full-width">
@@ -879,6 +902,7 @@ import {
   skillInstallApi,
   type DouyinLeadAcquisitionRunResponse,
   type DouyinLeadAcquisitionStartPayload,
+  type DouyinLeadMatchRule,
 } from '@/api/index'
 import type { Skill, SkillRuntimeStatus, SkillSecurityFinding } from '@/types/index'
 import ImportHubDialog from '@/components/skill/ImportHubDialog.vue'
@@ -1022,9 +1046,9 @@ function openPreflight(skill: Skill) {
 
 interface DouyinLaunchForm {
   keyword: string
-  sort: 'most_liked' | 'latest'
+  sort: 'comprehensive' | 'most_liked' | 'latest'
   videoLimit: number
-  commentMatchRule: string
+  matchRules: DouyinLeadMatchRule[]
   dmDraft: string
   engage: boolean
   sendDm: boolean
@@ -1033,9 +1057,9 @@ interface DouyinLaunchForm {
 function defaultDouyinForm(): DouyinLaunchForm {
   return {
     keyword: '',
-    sort: 'most_liked',
+    sort: 'comprehensive',
     videoLimit: 50,
-    commentMatchRule: '',
+    matchRules: [{ mode: 'keyword', value: '' }],
     dmDraft: '你好',
     engage: true,
     sendDm: false,
@@ -1110,6 +1134,26 @@ function normalizeDouyinVideoLimit() {
   douyinForm.value.videoLimit = Math.min(50, Math.max(1, next))
 }
 
+function addDouyinMatchRule(mode: DouyinLeadMatchRule['mode']) {
+  douyinForm.value.matchRules.push({ mode, value: '' })
+}
+
+function removeDouyinMatchRule(index: number) {
+  douyinForm.value.matchRules.splice(index, 1)
+  if (!douyinForm.value.matchRules.length) {
+    douyinForm.value.matchRules.push({ mode: 'keyword', value: '' })
+  }
+}
+
+function normalizedDouyinMatchRules(): DouyinLeadMatchRule[] {
+  return douyinForm.value.matchRules
+    .map(rule => ({
+      mode: rule.mode === 'semantic' ? 'semantic' : 'keyword',
+      value: String(rule.value || '').trim(),
+    }))
+    .filter(rule => rule.value.length > 0)
+}
+
 async function submitDouyinLaunch() {
   if (!canSubmitDouyinLaunch.value) return
   normalizeDouyinVideoLimit()
@@ -1123,7 +1167,7 @@ async function submitDouyinLaunch() {
       keyword: douyinForm.value.keyword.trim(),
       sort: douyinForm.value.sort,
       videoLimit: douyinForm.value.videoLimit,
-      commentMatchRule: douyinForm.value.commentMatchRule.trim(),
+      matchRules: normalizedDouyinMatchRules(),
       dmDraft: douyinForm.value.dmDraft.trim() || '你好',
       engage: douyinForm.value.engage,
       sendDm: douyinForm.value.sendDm,
@@ -2389,6 +2433,13 @@ html.dark .skill-btn-launch { color: #34d399; background: rgba(52, 211, 153, 0.1
 .douyin-limit-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .douyin-limit-input { width: 88px; flex: 0 0 88px; }
 .douyin-limit-range { flex: 1; min-width: 0; accent-color: var(--mc-primary); }
+.douyin-match-rules { display: flex; max-height: 150px; flex-direction: column; gap: 8px; overflow: auto; }
+.douyin-match-rule-row { display: grid; grid-template-columns: 118px minmax(0, 1fr) 58px; gap: 8px; align-items: center; }
+.douyin-rule-actions { display: flex; gap: 8px; margin-top: 8px; }
+.douyin-rule-actions button,
+.douyin-rule-delete { min-height: 32px; border: 1px solid var(--mc-border); border-radius: 8px; background: var(--mc-bg); color: var(--mc-text-secondary); font-size: 12px; font-weight: 650; padding: 0 10px; cursor: pointer; }
+.douyin-rule-actions button:hover,
+.douyin-rule-delete:hover { border-color: var(--mc-primary); color: var(--mc-primary); }
 .douyin-toggle-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding-top: 2px; }
 .douyin-checkbox { display: inline-flex; align-items: center; gap: 8px; color: var(--mc-text-primary); font-size: 13px; font-weight: 600; cursor: pointer; }
 .douyin-checkbox input { width: 15px; height: 15px; accent-color: var(--mc-primary); }

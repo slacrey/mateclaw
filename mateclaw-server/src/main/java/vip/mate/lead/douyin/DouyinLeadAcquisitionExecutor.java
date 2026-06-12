@@ -6,6 +6,7 @@ import vip.mate.lead.douyin.browser.DouyinBrowserException;
 import vip.mate.lead.douyin.match.CommentMatcher;
 import vip.mate.lead.douyin.model.CommentCollectionResult;
 import vip.mate.lead.douyin.model.CommentMatchResult;
+import vip.mate.lead.douyin.model.CommentMatchRule;
 import vip.mate.lead.douyin.model.DouyinLeadAcquisitionInput;
 import vip.mate.lead.douyin.model.DouyinLeadRunSummary;
 import vip.mate.lead.douyin.model.EngagementResult;
@@ -200,28 +201,30 @@ public class DouyinLeadAcquisitionExecutor {
                             + ", stopReason=" + collection.stopReason());
         }
 
-        String matchRule = input.commentMatchRule() == null ? "" : input.commentMatchRule().trim();
-        if (matchRule.isBlank()) {
+        List<CommentMatchRule> matchRules = input.matchRules();
+        if (matchRules == null || matchRules.isEmpty()) {
             events.publish(new RunEvent(runId, null, "lead.comment.match_skipped", "info", Map.of(
                     "videoIndex", video.index,
-                    "reason", "no_comment_match_rule"), null));
+                    "reason", "no_match_rules"), null));
             events.publish(new RunEvent(runId, null, "lead.engagement.skipped", "info", Map.of(
                     "videoIndex", video.index,
-                    "reason", "no_comment_match_rule",
+                    "reason", "no_match_rules",
                     "matchedComments", 0), null));
             return;
         }
 
         List<CommentMatchResult> matches = step(runId,
                 video.stepKey("match_comment_text"),
-                "llm.classify.batch",
-                () -> matcher.matched(collection.comments(), matchRule));
+                "comment.match.batch",
+                () -> matcher.matched(collection.comments(), matchRules));
         video.matches = matches;
         persistence.markMatches(taskId, matches);
-        events.publish(new RunEvent(runId, null, "lead.comment.matched", "info", Map.of(
+        events.publish(new RunEvent(runId, null, "lead.comment.matched", "info", payload(
                 "videoIndex", video.index,
                 "matchedComments", matches.size(),
-                "rule", matchRule), null));
+                "rules", matchRulePayload(matchRules),
+                "matcher", matcherMode(matches),
+                "aiMatchedComments", aiMatchedCount(matches)), null));
         if (!input.engage()) {
             events.publish(new RunEvent(runId, null, "lead.engagement.skipped", "info", Map.of(
                     "videoIndex", video.index,
@@ -334,6 +337,9 @@ public class DouyinLeadAcquisitionExecutor {
         if ("browser.extract".equals(type)) {
             return "browser,public_extract";
         }
+        if ("comment.match.batch".equals(type)) {
+            return "public_extract,llm";
+        }
         return "browser";
     }
 
@@ -402,6 +408,36 @@ public class DouyinLeadAcquisitionExecutor {
             }
         }
         return null;
+    }
+
+    private String matcherMode(List<CommentMatchResult> matches) {
+        return aiMatchedCount(matches) > 0 ? "关键词+语义匹配" : "关键词匹配";
+    }
+
+    private int aiMatchedCount(List<CommentMatchResult> matches) {
+        if (matches == null || matches.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (CommentMatchResult match : matches) {
+            if (match.reason() != null && match.reason().startsWith("semantic_")) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private List<Map<String, Object>> matchRulePayload(List<CommentMatchRule> rules) {
+        if (rules == null || rules.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (CommentMatchRule rule : rules) {
+            out.add(payload(
+                    "mode", rule.mode(),
+                    "value", rule.value()));
+        }
+        return out;
     }
 
     private Map<String, Object> summaryPayload(DouyinLeadRunSummary summary) {

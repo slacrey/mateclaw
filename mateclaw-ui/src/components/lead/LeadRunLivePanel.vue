@@ -125,51 +125,7 @@
       </aside>
     </div>
 
-    <section v-if="terminal" class="final-summary">
-      <div class="section-head">
-        <div>
-          <h3>最终汇总</h3>
-          <p>{{ finalSummaryText }}</p>
-        </div>
-      </div>
-
-      <div class="final-table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>视频</th>
-              <th>状态</th>
-              <th>评论</th>
-              <th>匹配</th>
-              <th>原因</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="video in videoRows" :key="String(video.videoKey ?? video.index ?? video.title)">
-              <td>{{ videoNumber(video) }}</td>
-              <td>{{ statusLabel(video.status) }}</td>
-              <td>{{ countLabel(video.commentsCollected) }} / {{ countLabel(video.declaredCommentCount) }}</td>
-              <td>{{ countLabel(video.matchedComments) }}</td>
-              <td>{{ videoReason(video) }}</td>
-            </tr>
-            <tr v-if="!videoRows.length">
-              <td colspan="5">暂无视频明细</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <details class="technical-detail">
-        <summary>技术明细</summary>
-        <DouyinLeadRunResult
-          :run="displayRun"
-          :comments="displayRun?.comments ?? []"
-          :engagements="displayRun?.engagements ?? []"
-          :profiles="[]"
-          :loading="refreshing"
-        />
-      </details>
-    </section>
+    <LeadRunFinalSummary v-if="terminal" :run="displayRun" :loading="refreshing" />
   </section>
 </template>
 
@@ -184,7 +140,7 @@ import type {
   DouyinLeadTimelineEvent,
 } from '@/api'
 import { mcToast } from '@/composables/useMcToast'
-import DouyinLeadRunResult from '@/components/lead/DouyinLeadRunResult.vue'
+import LeadRunFinalSummary from '@/components/lead/LeadRunFinalSummary.vue'
 
 type JsonRecord = Record<string, unknown>
 
@@ -399,15 +355,6 @@ const connectionText = computed(() => {
   if (fallbackActive.value) return '实时连接恢复中'
   if (connected.value) return '实时连接中'
   return '连接中'
-})
-
-const finalSummaryText = computed(() => {
-  return [
-    `处理视频 ${countLabel(runMetrics.value.processedVideos)} / ${countLabel(runMetrics.value.requestedVideos)}`,
-    `采集评论 ${countLabel(runMetrics.value.commentsCollected)} 条`,
-    `匹配 ${countLabel(runMetrics.value.matchedComments)} 条`,
-    `触达 ${countLabel(runMetrics.value.engagementsCreated)} 次`,
-  ].join('，')
 })
 
 watch(() => props.initialRun, (run) => {
@@ -901,14 +848,6 @@ function displayVideoNumber(videoNumberValue: unknown, videoIndexValue: unknown,
   return index == null ? null : index + 1
 }
 
-function videoNumber(video: DouyinLeadRunVideoResult): string {
-  const value = displayVideoNumber(video.videoNumber, video.index)
-  return value == null ? '-' : String(value)
-}
-
-function videoReason(video: DouyinLeadRunVideoResult): string {
-  return reasonLabel(String(video.stopReason || video.failureCode || video.errorCode || ''))
-}
 </script>
 
 <style scoped>
@@ -1030,8 +969,7 @@ button:disabled {
 }
 
 .timeline-panel,
-.status-panel,
-.final-summary {
+.status-panel {
   min-width: 0;
   border: 1px solid var(--mc-border);
   border-radius: 8px;
@@ -1319,55 +1257,6 @@ button:disabled {
   min-height: 54px;
   border: 1px dashed var(--mc-border);
   border-radius: 8px;
-}
-
-.final-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.final-table-wrap {
-  overflow: auto;
-  border: 1px solid var(--mc-border);
-  border-radius: 8px;
-}
-
-table {
-  width: 100%;
-  min-width: 640px;
-  border-collapse: collapse;
-}
-
-th,
-td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--mc-border);
-  color: var(--mc-text-primary);
-  font-size: 13px;
-  text-align: left;
-  vertical-align: top;
-}
-
-th {
-  color: var(--mc-text-secondary);
-  background: var(--mc-bg-muted);
-  font-weight: 700;
-}
-
-tr:last-child td {
-  border-bottom: 0;
-}
-
-.technical-detail summary {
-  cursor: pointer;
-  color: var(--mc-text-secondary);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.technical-detail :deep(.douyin-result) {
-  margin-top: 14px;
 }
 
 @media (max-width: 1100px) {

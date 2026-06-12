@@ -6,6 +6,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import vip.mate.auth.model.UserEntity;
 import vip.mate.auth.service.AuthService;
 import vip.mate.lead.douyin.DouyinLeadAcquisitionRunService;
+import vip.mate.lead.douyin.model.CommentMatchRule;
 import vip.mate.lead.douyin.model.DouyinLeadAcquisitionInput;
 
 import java.util.List;
@@ -45,7 +46,9 @@ class DouyinLeadAcquisitionControllerTest {
                         "openclaw",
                         "most_liked",
                         1,
-                        "他叫木马 及 对于99%的人用豆包就行了。",
+                        List.of(
+                                CommentMatchRule.keyword("他叫木马"),
+                                CommentMatchRule.keyword("对于99%的人用豆包就行了。")),
                         "你好",
                         false),
                 7L,
@@ -226,7 +229,7 @@ class DouyinLeadAcquisitionControllerTest {
                 "易企秀",
                 "most_liked",
                 2,
-                "慢出心脏病",
+                List.of(CommentMatchRule.keyword("慢出心脏病")),
                 "你好",
                 true,
                 false);
@@ -236,7 +239,7 @@ class DouyinLeadAcquisitionControllerTest {
                 "易企秀",
                 "most_liked",
                 2,
-                "慢出心脏病",
+                List.of(CommentMatchRule.keyword("慢出心脏病")),
                 "你好",
                 true,
                 false,

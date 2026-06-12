@@ -17,14 +17,20 @@ export const openAuthorFromCommentHandler = (
       throw new ActionFailureError('HANDLER_ERROR', 'chrome.scripting.executeScript is unavailable', true)
     }
 
-    const results = await chromeApi.scripting.executeScript({
-      target: { tabId, allFrames: false },
-      func: openAuthorFromCommentInPage,
-      args: [params.commentText, params.authorName ?? ''],
-    })
-    const payload = results?.[0]?.result as
-      | { ok?: boolean; href?: string; author?: string; reason?: string }
-      | undefined
+    const directHref = normalizeProfileHref(params.authorProfileUrl ?? '')
+    let payload: { ok?: boolean; href?: string; author?: string; reason?: string } | undefined
+    if (directHref) {
+      payload = { ok: true, href: directHref, author: params.authorName ?? '' }
+    } else {
+      const results = await chromeApi.scripting.executeScript({
+        target: { tabId, allFrames: false },
+        func: openAuthorFromCommentInPage,
+        args: [params.commentText, params.authorName ?? ''],
+      })
+      payload = results?.[0]?.result as
+        | { ok?: boolean; href?: string; author?: string; reason?: string }
+        | undefined
+    }
     if (payload?.ok !== true || !payload.href) {
       throw new ActionFailureError(
         'GROUNDING_AMBIGUOUS',
@@ -50,6 +56,22 @@ export const openAuthorFromCommentHandler = (
       },
     }
   }
+}
+
+function normalizeProfileHref(value: string): string {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  try {
+    const href = new URL(raw, 'https://www.douyin.com').href
+    return looksLikeProfileHref(href) ? href : ''
+  } catch {
+    return ''
+  }
+}
+
+function looksLikeProfileHref(href: string): boolean {
+  const lower = String(href || '').toLowerCase()
+  return lower.includes('douyin.com') && lower.includes('/user')
 }
 
 function openAuthorFromCommentInPage(
@@ -118,8 +140,4 @@ function openAuthorFromCommentInPage(
     }
   }
 
-  function looksLikeProfileHref(href: string): boolean {
-    const lower = String(href || '').toLowerCase()
-    return lower.includes('douyin.com') && lower.includes('/user')
-  }
 }

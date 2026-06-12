@@ -255,11 +255,11 @@ describe('extract_region handler', () => {
       selectedListCommentItems: 0,
       selectedListDirectDivs: 3,
       extractedDomCommentCount: 2,
-      selectedListOuterHtmlSample: expect.stringContaining('data-e2e="comment-list"'),
-      selectedListDirectChildHtmlSamples: expect.arrayContaining([
-        expect.stringContaining('嘴大心宽'),
-      ]),
+      firstAuthors: expect.arrayContaining(['嘴大心宽']),
+      firstTexts: expect.arrayContaining(['别人的易企秀，怎么可以修改一下变成自己的？']),
     }))
+    expect(diagnostics.selectedListOuterHtmlSample).toBeUndefined()
+    expect(diagnostics.selectedListDirectChildHtmlSamples).toBeUndefined()
     const comments = items.filter(item => item.itemType === 'douyin_comment')
     expect(comments).toEqual([
       expect.objectContaining({

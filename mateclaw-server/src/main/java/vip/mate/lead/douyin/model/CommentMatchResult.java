@@ -7,6 +7,6 @@ public record CommentMatchResult(
         String reason
 ) {
     public boolean exact() {
-        return matched && score >= 1.0d && reason != null && reason.startsWith("exact");
+        return matched && score >= 1.0d && reason != null && reason.startsWith("keyword_exact");
     }
 }

@@ -24,7 +24,17 @@
       <!-- Not detected: install guidance -->
       <div v-if="status === 'not-detected'" class="pairing-body pairing-body--empty">
         <p class="empty-title">{{ t('settings.browser.notDetected.title') }}</p>
-        <p class="empty-hint">{{ t('settings.browser.notDetected.hint') }}</p>
+        <p class="empty-hint">
+          {{ isDesktopClient ? t('settings.browser.notDetected.desktopHint') : t('settings.browser.notDetected.hint') }}
+        </p>
+        <button
+          v-if="isDesktopClient"
+          class="btn-primary"
+          type="button"
+          @click="openExternalPairingPage"
+        >
+          {{ t('settings.browser.notDetected.openInBrowser') }}
+        </button>
       </div>
 
       <!-- Detected, not connected: name + Connect -->
@@ -110,6 +120,15 @@ const disconnecting = ref(false)
 
 const defaultName = defaultDeviceName()
 const deviceNameInput = ref(defaultName)
+const isDesktopClient = computed(() => {
+  const ua = navigator.userAgent || ''
+  return Boolean(window.mateclawDesktop || /Electron/i.test(ua))
+})
+const externalPairingUrl = computed(() => {
+  const url = new URL('/lead-acquisition', location.origin)
+  url.searchParams.set('connectBrowser', '1')
+  return url.toString()
+})
 
 const busy = computed(() => probing.value || connecting.value || disconnecting.value)
 
@@ -210,6 +229,10 @@ async function disconnect() {
   } finally {
     disconnecting.value = false
   }
+}
+
+function openExternalPairingPage() {
+  window.open(externalPairingUrl.value, '_blank', 'noopener,noreferrer')
 }
 
 onMounted(refresh)

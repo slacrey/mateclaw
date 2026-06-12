@@ -869,6 +869,10 @@ public class ExtensionBrowserTool {
     }
 
     public String service_open_author_from_comment_main(String commentText, String authorName) {
+        return service_open_author_from_comment_main(commentText, authorName, "");
+    }
+
+    public String service_open_author_from_comment_main(String commentText, String authorName, String authorProfileUrl) {
         BrowserSession session = resolveSession();
         if (session == null) return noSession();
 
@@ -876,7 +880,7 @@ public class ExtensionBrowserTool {
                 newMsgId(),
                 new TabRef.Main(),
                 ActionKind.OPEN_AUTHOR_FROM_COMMENT,
-                new OpenAuthorFromCommentPayload(commentText, authorName),
+                new OpenAuthorFromCommentPayload(commentText, authorName, authorProfileUrl),
                 DEFAULT_DEADLINE_MS);
         return executePlan(session, List.of(req));
     }

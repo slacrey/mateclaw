@@ -2,13 +2,16 @@ package vip.mate.lead.douyin.api;
 
 import vip.mate.exception.MateClawException;
 import vip.mate.lead.douyin.model.DouyinLeadAcquisitionInput;
+import vip.mate.lead.douyin.model.CommentMatchRule;
+
+import java.util.List;
 
 public record DouyinLeadTemplateRequest(
         String name,
         String keyword,
         String sort,
         Integer videoLimit,
-        String commentMatchRule,
+        List<CommentMatchRule> matchRules,
         String dmDraft,
         Boolean engage,
         Boolean sendDm
@@ -27,9 +30,13 @@ public record DouyinLeadTemplateRequest(
     }
 
     String normalizedSort() {
-        String value = sort == null || sort.isBlank() ? DouyinLeadAcquisitionInput.DEFAULT_SORT : sort.trim();
+        String value = sort == null || sort.isBlank()
+                ? DouyinLeadAcquisitionInput.DEFAULT_SORT
+                : sort.trim().toLowerCase(java.util.Locale.ROOT);
         return switch (value) {
+            case "comprehensive", "comprehensive_sort", "general", "default" -> DouyinLeadAcquisitionInput.DEFAULT_SORT;
             case "latest" -> "latest";
+            case "most_liked", "like", "liked", "digg" -> "most_liked";
             default -> DouyinLeadAcquisitionInput.DEFAULT_SORT;
         };
     }
@@ -39,8 +46,8 @@ public record DouyinLeadTemplateRequest(
         return Math.max(1, Math.min(DouyinLeadAcquisitionInput.MAX_VIDEO_LIMIT, value));
     }
 
-    String normalizedCommentMatchRule() {
-        return trimToLength(commentMatchRule, 500);
+    List<CommentMatchRule> normalizedMatchRules() {
+        return CommentMatchRule.normalize(matchRules);
     }
 
     String normalizedDmDraft() {

@@ -446,11 +446,18 @@ export const skillInstallApi = {
 }
 
 // ==================== Lead Acquisition ====================
+export type DouyinLeadMatchRuleMode = 'keyword' | 'semantic'
+
+export interface DouyinLeadMatchRule {
+  mode: DouyinLeadMatchRuleMode | string
+  value: string
+}
+
 export interface DouyinLeadAcquisitionStartRequest {
   keyword?: string | null
-  sort?: 'most_liked' | 'latest' | string | null
+  sort?: 'comprehensive' | 'most_liked' | 'latest' | string | null
   videoLimit?: number | null
-  commentMatchRule?: string | null
+  matchRules?: DouyinLeadMatchRule[] | null
   dmDraft?: string | null
   sendDm?: boolean | null
   engage?: boolean | null
@@ -458,9 +465,9 @@ export interface DouyinLeadAcquisitionStartRequest {
 
 export interface DouyinLeadAcquisitionStartPayload {
   keyword: string
-  sort: 'most_liked' | 'latest' | string
+  sort: 'comprehensive' | 'most_liked' | 'latest' | string
   videoLimit: number
-  commentMatchRule: string
+  matchRules: DouyinLeadMatchRule[]
   dmDraft: string
   engage: boolean
   sendDm: boolean
@@ -469,9 +476,9 @@ export interface DouyinLeadAcquisitionStartPayload {
 export interface DouyinLeadTemplatePayload {
   name: string
   keyword: string
-  sort: 'most_liked' | 'latest' | string
+  sort: 'comprehensive' | 'most_liked' | 'latest' | string
   videoLimit: number
-  commentMatchRule: string
+  matchRules: DouyinLeadMatchRule[]
   dmDraft: string
   engage: boolean
   sendDm: boolean
@@ -483,7 +490,7 @@ export interface DouyinLeadTemplate {
   keyword: string | null
   sort: string | null
   videoLimit: number
-  commentMatchRule: string | null
+  matchRules: DouyinLeadMatchRule[] | null
   dmDraft: string | null
   engage: boolean
   sendDm: boolean

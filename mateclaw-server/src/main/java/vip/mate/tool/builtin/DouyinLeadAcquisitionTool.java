@@ -14,6 +14,7 @@ import vip.mate.lead.douyin.DouyinLeadAcquisitionRunService;
 import vip.mate.lead.douyin.api.DouyinLeadAcquisitionQueryService;
 import vip.mate.lead.douyin.api.DouyinLeadAcquisitionRunResponse;
 import vip.mate.lead.douyin.api.RunTimelineEventDTO;
+import vip.mate.lead.douyin.model.CommentMatchRule;
 import vip.mate.lead.douyin.model.DouyinLeadAcquisitionInput;
 
 import java.util.ArrayList;
@@ -34,8 +35,8 @@ public class DouyinLeadAcquisitionTool {
     @Tool(name = "douyin_lead_acquisition_run", description = """
             Start the dedicated Douyin lead-acquisition Skill V2 workflow.
             Use this tool for productized Douyin lead-acquisition tasks such as:
-            search a required keyword, sort by most liked, process up to 50 videos,
-            collect loadable comments, match comment text, then optionally open matched
+            search a required keyword, sort by comprehensive ranking by default, process up to 50 videos,
+            collect loadable comments, match comment text by keyword and/or semantic rules, then optionally open matched
             comment authors, follow, open DM, and type a draft. This tool executes synchronously and
             returns the real terminal result (SUCCEEDED/FAILED/ABORTED) when it finishes.
             The Douyin adapter owns platform-specific browser tactics, including using
@@ -59,12 +60,14 @@ public class DouyinLeadAcquisitionTool {
     public String douyinLeadAcquisitionRun(
             @ToolParam(description = "Douyin search keyword. Required.", required = true)
             String keyword,
-            @ToolParam(description = "Sort mode. Use most_liked for 最多点赞. Default: most_liked", required = false)
+            @ToolParam(description = "Sort mode. Use comprehensive for 综合排序, most_liked for 最多点赞, latest for 最新发布. Default: comprehensive", required = false)
             String sort,
             @ToolParam(description = "Number of videos to process. Default 50, allowed range 1..50.", required = false)
             Integer videoLimit,
-            @ToolParam(description = "Optional comment text match rule. Multiple phrases are allowed; matching uses comment text only. When omitted, collection-only runs skip matching.", required = false)
-            String commentMatchRule,
+            @ToolParam(description = "Optional keyword rules. Multiple phrases can be separated by newline, semicolon, comma, or slash. Keyword rules use deterministic comment-text contains matching.", required = false)
+            String keywordMatchRules,
+            @ToolParam(description = "Optional semantic rules. Multiple natural-language lead intents can be separated by newline or semicolon. Semantic rules use the configured LLM.", required = false)
+            String semanticMatchRules,
             @ToolParam(description = "DM draft to type after opening the matched author's DM. Default: 你好", required = false)
             String dmDraft,
             @ToolParam(description = "Whether to send the DM. Default false; false means type draft only.", required = false)
@@ -88,7 +91,7 @@ public class DouyinLeadAcquisitionTool {
                 keyword,
                 sort,
                 videoLimit == null ? DouyinLeadAcquisitionInput.DEFAULT_VIDEO_LIMIT : videoLimit,
-                commentMatchRule,
+                buildMatchRules(keywordMatchRules, semanticMatchRules),
                 dmDraft,
                 Boolean.TRUE.equals(sendDm),
                 engage == null || Boolean.TRUE.equals(engage));
@@ -279,10 +282,35 @@ public class DouyinLeadAcquisitionTool {
                 "keyword", input.keyword(),
                 "sort", input.sort(),
                 "videoLimit", input.videoLimit(),
-                "commentMatchRule", input.commentMatchRule(),
+                "matchRules", input.matchRules(),
                 "dmDraft", input.dmDraft(),
                 "sendDm", input.sendDm(),
                 "engage", input.engage());
+    }
+
+    private List<CommentMatchRule> buildMatchRules(String keywordRules, String semanticRules) {
+        List<CommentMatchRule> rules = new ArrayList<>();
+        for (String value : splitRules(keywordRules)) {
+            rules.add(CommentMatchRule.keyword(value));
+        }
+        for (String value : splitRules(semanticRules)) {
+            rules.add(CommentMatchRule.semantic(value));
+        }
+        return rules;
+    }
+
+    private List<String> splitRules(String value) {
+        if (value == null || value.isBlank()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (String part : value.split("\\s*(?:\\r?\\n|;|；|、|/|，|,)\\s*")) {
+            String normalized = part == null ? "" : part.trim();
+            if (!normalized.isBlank()) {
+                out.add(normalized);
+            }
+        }
+        return out;
     }
 
     private Long parseLongOrDefault(String value, Long fallback) {
